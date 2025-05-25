@@ -1,5 +1,6 @@
+# ✅ app.py (complete version with Render deployment readiness)
 import matplotlib
-matplotlib.use('Agg')  # Use non-GUI backend for servers
+matplotlib.use('Agg')  # Use non-GUI backend for server environments
 
 from flask import Flask, render_template
 import yfinance as yf
@@ -30,7 +31,7 @@ def generate_chart():
     plt.savefig(os.path.join("static", "chart.png"))
     plt.close()
 
-    # Write the current timestamp to static/last_updated.txt
+    # Save last updated timestamp
     with open(os.path.join("static", "last_updated.txt"), "w") as f:
         f.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
@@ -39,15 +40,13 @@ def generate_chart():
 @app.route('/')
 def index():
     msft, td = generate_chart()
-
-    # Read the last updated timestamp
     try:
         with open(os.path.join("static", "last_updated.txt")) as f:
             last_updated = f.read()
     except:
         last_updated = "Unknown"
 
-    # Prepare table data (latest 7 days)
+    # Latest 7-day closing prices
     table_data = []
     for date in msft.tail(7).index:
         row = {
@@ -69,6 +68,5 @@ def update():
         return "Chart updated!"
     except Exception as e:
         return f"Update failed: {e}", 500
-
 if __name__ == '__main__':
     app.run(debug=True)
