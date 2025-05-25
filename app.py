@@ -5,6 +5,7 @@ from flask import Flask, render_template
 import yfinance as yf
 import matplotlib.pyplot as plt
 import os
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -29,11 +30,22 @@ def generate_chart():
     plt.savefig(os.path.join("static", "chart.png"))
     plt.close()
 
+    # Write the current timestamp to static/last_updated.txt
+    with open(os.path.join("static", "last_updated.txt"), "w") as f:
+        f.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
     return msft, td
 
 @app.route('/')
 def index():
     msft, td = generate_chart()
+
+    # Read the last updated timestamp
+    try:
+        with open(os.path.join("static", "last_updated.txt")) as f:
+            last_updated = f.read()
+    except:
+        last_updated = "Unknown"
 
     # Prepare table data (latest 7 days)
     table_data = []
@@ -48,12 +60,15 @@ def index():
     msft_avg = round(msft["Close"].mean(), 2)
     td_avg = round(td["Close"].mean(), 2)
 
-    return render_template("index.html", table_data=table_data, msft_avg=msft_avg, td_avg=td_avg)
+    return render_template("index.html", table_data=table_data, msft_avg=msft_avg, td_avg=td_avg, last_updated=last_updated)
 
 @app.route('/update')
 def update():
-    generate_chart()
-    return "Chart updated!"
+    try:
+        generate_chart()
+        return "Chart updated!"
+    except Exception as e:
+        return f"Update failed: {e}", 500
 
 if __name__ == '__main__':
     app.run(debug=True)

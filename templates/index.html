@@ -19,6 +19,13 @@
             color: #0066cc;
         }
 
+        .timestamp {
+            text-align: center;
+            font-size: 0.95em;
+            color: #666;
+            margin-top: -10px;
+        }
+
         img {
             width: 100%;
             height: auto;
@@ -58,6 +65,8 @@
 </head>
 <body>
     <h1>30-Day Stock Prices: MSFT & TD.TO</h1>
+    <div class="timestamp">Last updated: {{ last_updated }}</div>
+
     <img src="{{ url_for('static', filename='chart.png') }}" alt="Stock Chart">
 
     <div class="summary">
