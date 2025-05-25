@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Stock Tracker</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+
+        h1 {
+            text-align: center;
+            color: #0066cc;
+        }
+
+        img {
+            width: 100%;
+            height: auto;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 30px;
+        }
+
+        th, td {
+            padding: 8px;
+            text-align: right;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #007acc;
+            color: white;
+        }
+
+        tr:hover {
+            background-color: #eef;
+        }
+
+        .summary {
+            margin-top: 30px;
+            padding: 10px;
+            background-color: #eef6ff;
+            border-left: 5px solid #007acc;
+        }
+    </style>
+</head>
+<body>
+    <h1>30-Day Stock Prices: MSFT & TD.TO</h1>
+    <img src="{{ url_for('static', filename='chart.png') }}" alt="Stock Chart">
+
+    <div class="summary">
+        <p><strong>Microsoft 30-Day Average:</strong> {{ msft_avg }} USD</p>
+        <p><strong>TD Bank 30-Day Average:</strong> {{ td_avg }} CAD</p>
+    </div>
+
+    <h2>Recent Closing Prices</h2>
+    <table>
+        <tr>
+            <th>Date</th>
+            <th>MSFT (USD)</th>
+            <th>TD.TO (CAD)</th>
+        </tr>
+        {% for row in table_data %}
+        <tr>
+            <td>{{ row.date }}</td>
+            <td>{{ row.msft }}</td>
+            <td>{{ row.td }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
