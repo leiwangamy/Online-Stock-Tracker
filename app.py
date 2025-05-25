@@ -3,6 +3,7 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-GUI backend for server environments
 
 from flask import Flask, render_template
+app = Flask(__name__)
 import yfinance as yf
 import matplotlib.pyplot as plt
 import os
