@@ -1,9 +1,7 @@
-# ✅ app.py (complete version with Render deployment readiness)
 import matplotlib
 matplotlib.use('Agg')  # Use non-GUI backend for server environments
 
 from flask import Flask, render_template
-app = Flask(__name__)
 import yfinance as yf
 import matplotlib.pyplot as plt
 import os
@@ -29,25 +27,28 @@ def generate_chart():
     plt.suptitle("30-Day Stock Prices: Microsoft vs TD Bank")
     plt.xticks(rotation=45)
     plt.tight_layout()
+
+    os.makedirs("static", exist_ok=True)
     plt.savefig(os.path.join("static", "chart.png"))
     plt.close()
 
-    # Save last updated timestamp
-    with open(os.path.join("static", "last_updated.txt"), "w") as f:
-        f.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    # ✅ Write last update timestamp
+    with open("static/last_updated.txt", "w") as f:
+        f.write(datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"))
 
     return msft, td
 
 @app.route('/')
 def index():
     msft, td = generate_chart()
+
     try:
-        with open(os.path.join("static", "last_updated.txt")) as f:
+        with open("static/last_updated.txt") as f:
             last_updated = f.read()
     except:
         last_updated = "Unknown"
 
-    # Latest 7-day closing prices
+    # Display recent 7 days
     table_data = []
     for date in msft.tail(7).index:
         row = {
@@ -69,5 +70,6 @@ def update():
         return "Chart updated!"
     except Exception as e:
         return f"Update failed: {e}", 500
+
 if __name__ == '__main__':
     app.run(debug=True)
