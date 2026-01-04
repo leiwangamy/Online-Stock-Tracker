@@ -1,130 +1,461 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Stock Tracker</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            font-family: Arial, sans-serif;
-            background-color: #f9f9f9;
-            color: #333;
-        }
+  <meta charset="UTF-8" />
+  <title>Stock Tracker</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: #f9f9f9;
+      color: #333;
+    }
 
-        body.ready #loading {
-            display: none;
-        }
+    body.ready #loading { display: none; }
+    body:not(.ready) #content { display: none; }
 
-        body:not(.ready) #content {
-            display: none;
-        }
+    #loading {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: black;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2em;
+      z-index: 9999;
+    }
 
-        #loading {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: black;
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2em;
-            z-index: 9999;
-        }
+    h1 { text-align: center; color: #0066cc; }
 
-        h1 {
-            text-align: center;
-            color: #0066cc;
-        }
+     .timestamp {
+       text-align: center;
+       font-size: 1.1em;
+       font-weight: 600;
+       color: #333;
+       margin: 15px auto;
+       padding: 10px 15px;
+       background-color: #f0f7ff;
+       border-left: 4px solid #007acc;
+       border-radius: 4px;
+       max-width: 900px;
+       line-height: 1.6;
+     }
 
-        .timestamp {
-            text-align: center;
-            font-size: 0.95em;
-            color: #666;
-            margin-top: -10px;
-        }
+    img {
+      width: 100%;
+      max-width: 1000px;
+      height: auto;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      margin-top: 20px;
+      display: block;
+      margin-left: auto;
+      margin-right: auto;
+    }
 
-        img {
-            width: 100%;
-            height: auto;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            margin-top: 20px;
-        }
+    /* Responsive: stack charts vertically on mobile */
+    @media (max-width: 768px) {
+      img {
+        max-width: 100%;
+      }
+    }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 30px;
-        }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 30px;
+    }
 
-        th, td {
-            padding: 8px;
-            text-align: right;
-            border-bottom: 1px solid #ddd;
-        }
+    th, td {
+      padding: 8px;
+      text-align: right;
+      border-bottom: 1px solid #ddd;
+    }
 
-        th {
-            background-color: #007acc;
-            color: white;
-        }
+    th {
+      background-color: #007acc;
+      color: white;
+    }
 
-        tr:hover {
-            background-color: #eef;
-        }
+    tr:hover { background-color: #eef; }
 
-        .summary {
-            margin-top: 30px;
-            padding: 10px;
-            background-color: #eef6ff;
-            border-left: 5px solid #007acc;
-        }
-    </style>
+    .summary {
+      margin-top: 30px;
+      padding: 10px;
+      background-color: #eef6ff;
+      border-left: 5px solid #007acc;
+    }
+
+    .stock-form {
+      margin: 20px auto;
+      max-width: 900px;
+      padding: 20px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .stock-group {
+      margin-bottom: 25px;
+      padding: 15px;
+      background-color: #f9f9f9;
+      border-radius: 6px;
+      border-left: 4px solid #007acc;
+    }
+
+    .stock-group.usd { border-left-color: #0066cc; }
+    .stock-group.cad { border-left-color: #cc0000; }
+
+    .stock-group label.title {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: bold;
+      color: #333;
+      font-size: 1.1em;
+    }
+
+    .stock-group input[type="text"] {
+      width: 100%;
+      padding: 10px;
+      font-size: 16px;
+      border: 2px solid #007acc;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+
+    .examples {
+      margin-top: 12px;
+      padding: 10px;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.95em;
+    }
+
+    .examples strong { color: #007acc; }
+
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border: 1px solid #ddd;
+      border-radius: 999px;
+      margin: 6px 8px 0 0;
+      background: #fafafa;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .pill input { margin-right: 6px; cursor: pointer; }
+
+    .stock-form button {
+      padding: 12px 30px;
+      font-size: 16px;
+      background-color: #007acc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 10px;
+      font-weight: bold;
+    }
+
+    .stock-form button:hover { background-color: #005fa3; }
+
+    .error {
+      color: #d62728;
+      background-color: #ffe6e6;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px auto;
+      max-width: 900px;
+    }
+
+     .hint {
+       color: #777;
+       font-size: 0.9em;
+       margin-top: 6px;
+     }
+
+     #chart-section {
+       margin-top: 30px;
+       padding: 20px;
+       background-color: #fafafa;
+       border-radius: 8px;
+       border: 1px solid #e0e0e0;
+     }
+
+     html {
+       scroll-behavior: smooth;
+     }
+   </style>
 </head>
+
 <body>
-    <div id="loading">Loading stock data...</div>
+  <div id="loading">Loading stock data...</div>
 
-    <div id="content">
-        <h1>30-Day Stock Prices: MSFT & TD.TO</h1>
-        <div class="timestamp">Last updated: {{ last_updated }}</div>
+  <div id="content">
+    <h1>📈 Stock Price Tracker</h1>
 
-        <img src="{{ url_for('static', filename='chart.png') }}" alt="Stock Chart">
-
-        <div class="summary">
-            <p><strong>Microsoft 30-Day Average:</strong> {{ msft_avg }} USD</p>
-            <p><strong>TD Bank 30-Day Average:</strong> {{ td_avg }} CAD</p>
+    <!-- Rules Section at Top -->
+    <div style="max-width: 900px; margin: 20px auto; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+      <h2 style="color: white; font-size: 1.5em; margin-top: 0; margin-bottom: 15px; text-align: center;">
+        📋 Rules & Limits
+      </h2>
+      <div style="background: white; padding: 20px; border-radius: 8px; font-size: 1.1em; line-height: 1.8;">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+          <div>
+            <strong style="font-size: 1.15em; color: #0066cc;">💰 USD Stocks:</strong>
+            <ul style="margin: 8px 0; padding-left: 25px;">
+              <li>Maximum <strong>5 stocks</strong></li>
+            </ul>
+          </div>
+          <div>
+            <strong style="font-size: 1.15em; color: #cc0000;">🇨🇦 CAD Stocks:</strong>
+            <ul style="margin: 8px 0; padding-left: 25px;">
+              <li>Maximum <strong>5 stocks</strong></li>
+            </ul>
+          </div>
+          <div>
+            <strong style="font-size: 1.15em; color: #ff9800;">📊 Total Limit:</strong>
+            <ul style="margin: 8px 0; padding-left: 25px;">
+              <li>Maximum <strong>10 stocks</strong> combined</li>
+            </ul>
+          </div>
+          <div>
+            <strong style="font-size: 1.15em; color: #333;">✏️ Ticker Format:</strong>
+            <ul style="margin: 8px 0; padding-left: 25px;">
+              <li>Letters, numbers, dot (.), dash (-) only</li>
+              <li>Maximum <strong>12 characters</strong></li>
+            </ul>
+          </div>
         </div>
-
-        <h2>Recent Closing Prices</h2>
-        <table>
-            <tr>
-                <th>Date</th>
-                <th>MSFT (USD)</th>
-                <th>TD.TO (CAD)</th>
-            </tr>
-            {% for row in table_data %}
-            <tr>
-                <td>{{ row.date }}</td>
-                <td>{{ row.msft }}</td>
-                <td>{{ row.td }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+      </div>
     </div>
 
-    <script>
-      window.addEventListener("load", function () {
-        // setTimeout(() => {
-        //     document.body.classList.add("ready");
-        // }, 2000);  // Test delay for loading screen (commented for future learning)
+    <div class="stock-form">
+      <form method="POST" action="/">
+        <div class="stock-group usd">
+          <label class="title" for="usd_stocks">💰 USD Stocks</label>
 
-        // Actual version without delay:
-        document.body.classList.add("ready");
-      });
-    </script>
+          <div class="examples">
+            <strong>Quick pick (checkbox):</strong><br/>
+            {% for s in usd_examples %}
+              <label class="pill">
+                <input type="checkbox" name="usd_checked" value="{{ s }}"
+                  {% if usd_stocks and s in usd_stocks %}checked{% endif %}>
+                {{ s }}
+              </label>
+            {% endfor %}
+          </div>
+
+          <div style="margin-top:12px;">
+            <input
+              type="text"
+              id="usd_stocks"
+              name="usd_stocks"
+              placeholder="Or type tickers separated by commas (e.g., MSFT, AAPL, GOOGL)"
+              value="{{ ', '.join(usd_stocks) if usd_stocks else '' }}"
+            />
+            <div class="hint">
+              <strong>💡 Tip:</strong> You can type <strong>ANY</strong> stock symbol here, not just the ones above! 
+              Examples: <code>JPM</code>, <code>V</code>, <code>DIS</code>, <code>NKE</code>, etc. 
+              You can also combine checkboxes and typing - duplicates are removed automatically.
+            </div>
+          </div>
+        </div>
+
+        <div class="stock-group cad">
+          <label class="title" for="cad_stocks">🇨🇦 CAD Stocks</label>
+
+          <div class="examples">
+            <strong>Quick pick (checkbox):</strong><br/>
+            {% for s in cad_examples %}
+              <label class="pill">
+                <input type="checkbox" name="cad_checked" value="{{ s }}"
+                  {% if cad_stocks and s in cad_stocks %}checked{% endif %}>
+                {{ s }}
+              </label>
+            {% endfor %}
+          </div>
+
+          <div style="margin-top:12px;">
+            <input
+              type="text"
+              id="cad_stocks"
+              name="cad_stocks"
+              placeholder="Or type tickers separated by commas (e.g., TD.TO, SHOP.TO, RY.TO)"
+              value="{{ ', '.join(cad_stocks) if cad_stocks else '' }}"
+            />
+            <div class="hint">
+              <strong>💡 Tip:</strong> You can type <strong>ANY</strong> Canadian stock symbol here! 
+              Canadian tickers usually end with <b>.TO</b> (Toronto Stock Exchange). 
+              Examples: <code>WEED.TO</code>, <code>SU.TO</code>, <code>ENB.TO</code>, etc.
+              You can also combine checkboxes and typing - duplicates are removed automatically.
+            </div>
+          </div>
+        </div>
+
+        <button type="submit">📊 Track Stocks</button>
+      </form>
+    </div>
+
+    {% if error %}
+      <div class="error" style="background-color: #f8d7da; border-left-color: #dc3545; color: #721c24;">
+        <strong>⚠️ Error:</strong> {{ error }}
+        <br><small>Note: Charts will still be displayed for valid stocks below.</small>
+      </div>
+    {% endif %}
+
+    {% if warning_invalid %}
+      <div class="error" style="background-color: #f8d7da; border-left-color: #dc3545; color: #721c24;">
+        ⚠️ <strong>Invalid or not found tickers:</strong> The following tickers were ignored (invalid format or no data found):
+        <ul style="margin: 8px 0; padding-left: 25px;">
+          {% for ticker in warning_invalid %}
+          <li><strong>{{ ticker }}</strong></li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    {% if warning_excess %}
+      <div class="error" style="background-color: #fff3cd; border-left-color: #ffc107; color: #856404;">
+        ⚠️ <strong>Too many stocks selected:</strong> The following tickers were ignored because you exceeded the limit (max 5 USD + 5 CAD, or 10 total):
+        <ul style="margin: 8px 0; padding-left: 25px;">
+          {% for ticker in warning_excess %}
+          <li><strong>{{ ticker }}</strong></li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    {% if chart_file %}
+      <div id="chart-section" style="scroll-margin-top: 20px;">
+        <div class="timestamp" style="background-color: #e8f4f8; border-left-color: #0066cc;">
+          <strong style="color: #0066cc;">Last updated:</strong> 
+          <span style="color: #333; font-size: 1.05em;">{{ last_updated }}</span>
+        </div>
+
+        {% if usd_stocks and cad_stocks %}
+          <div class="timestamp" style="background-color: #fff4e6; border-left-color: #ff9800;">
+            <strong style="color: #ff9800;">Tracking:</strong> 
+            <span style="color: #333; font-size: 1.05em;">
+              <span style="color: #0066cc; font-weight: 700;">USD:</span> 
+              <span style="font-weight: 600;">{{ ', '.join(usd_stocks) }}</span> | 
+              <span style="color: #cc0000; font-weight: 700;">CAD:</span> 
+              <span style="font-weight: 600;">{{ ', '.join(cad_stocks) }}</span>
+            </span>
+          </div>
+        {% elif usd_stocks %}
+          <div class="timestamp" style="background-color: #fff4e6; border-left-color: #ff9800;">
+            <strong style="color: #ff9800;">Tracking:</strong> 
+            <span style="color: #0066cc; font-weight: 700; font-size: 1.05em;">USD:</span> 
+            <span style="color: #333; font-weight: 600; font-size: 1.05em;">{{ ', '.join(usd_stocks) }}</span>
+          </div>
+        {% elif cad_stocks %}
+          <div class="timestamp" style="background-color: #fff4e6; border-left-color: #ff9800;">
+            <strong style="color: #ff9800;">Tracking:</strong> 
+            <span style="color: #cc0000; font-weight: 700; font-size: 1.05em;">CAD:</span> 
+            <span style="color: #333; font-weight: 600; font-size: 1.05em;">{{ ', '.join(cad_stocks) }}</span>
+          </div>
+        {% endif %}
+
+        <img src="{{ url_for('static', filename=chart_file) }}" alt="Stock Chart" style="max-width: 100%; height: auto; display: block; margin: 20px auto; border: 2px solid #ddd; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" />
+      </div>
+    {% elif not error and (usd_stocks or cad_stocks) %}
+      <div class="timestamp">Select stocks above and click "Track Stocks" to view charts</div>
+    {% endif %}
+
+    {% if (usd_averages or cad_averages) and not error %}
+      <div class="summary">
+        <h3>1-Year Averages</h3>
+
+        {% if usd_averages %}
+          <h4>USD Stocks:</h4>
+          {% for symbol, avg in usd_averages.items() %}
+            <p><strong>{{ symbol }}:</strong> ${{ avg }} USD</p>
+          {% endfor %}
+        {% endif %}
+
+        {% if cad_averages %}
+          <h4>CAD Stocks:</h4>
+          {% for symbol, avg in cad_averages.items() %}
+            <p><strong>{{ symbol }}:</strong> ${{ avg }} CAD</p>
+          {% endfor %}
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if table_data %}
+      <h2 style="padding: 0 10px;">Recent Closing Prices (Last 7 Trading Days)</h2>
+      <table>
+        <tr>
+          <th style="text-align:left;">Date</th>
+
+          {% for symbol in usd_stocks %}
+            <th>{{ symbol }} (USD)</th>
+          {% endfor %}
+
+          {% for symbol in cad_stocks %}
+            <th>{{ symbol }} (CAD)</th>
+          {% endfor %}
+        </tr>
+
+        {% for row in table_data %}
+          <tr>
+            <td style="text-align:left;">{{ row.date }}</td>
+
+            {% for symbol in usd_stocks %}
+              <td>${{ row.get(symbol, '-') }}</td>
+            {% endfor %}
+
+            {% for symbol in cad_stocks %}
+              <td>${{ row.get(symbol, '-') }}</td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+  </div>
+
+   <script>
+     window.addEventListener("load", function () {
+       document.body.classList.add("ready");
+     });
+
+     // Auto-scroll to chart section after form submission
+     document.addEventListener("DOMContentLoaded", function() {
+       const chartSection = document.getElementById("chart-section");
+       if (chartSection) {
+         // Smooth scroll to chart section
+         setTimeout(function() {
+           chartSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+         }, 100);
+       }
+     });
+
+     // Also handle form submission to scroll after page reloads
+     const form = document.querySelector('form');
+     if (form) {
+       form.addEventListener('submit', function() {
+         // Store that we should scroll after page loads
+         sessionStorage.setItem('scrollToChart', 'true');
+       });
+     }
+
+     // Check if we should scroll after page load
+     if (sessionStorage.getItem('scrollToChart') === 'true') {
+       sessionStorage.removeItem('scrollToChart');
+       setTimeout(function() {
+         const chartSection = document.getElementById("chart-section");
+         if (chartSection) {
+           chartSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+         }
+       }, 500); // Wait a bit for chart to load
+     }
+   </script>
 </body>
 </html>
