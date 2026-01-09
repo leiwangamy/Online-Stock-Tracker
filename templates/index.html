@@ -2,36 +2,41 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Stock Tracker</title>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      font-family: Arial, sans-serif;
-      background-color: #f9f9f9;
-      color: #333;
-    }
+    <title>Stock Tracker</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f9f9f9;
+            color: #333;
+        }
 
     body.ready #loading { display: none; }
     body:not(.ready) #content { display: none; }
 
-    #loading {
-      position: fixed;
+        #loading {
+            position: fixed;
       top: 0; left: 0;
       width: 100%; height: 100%;
-      background: black;
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 2em;
-      z-index: 9999;
+            background: black;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2em;
+            z-index: 9999;
+        }
+
+    h1 { 
+      text-align: center; 
+      color: #0066cc; 
+      font-size: 1.8em;
+      margin: 15px 0;
     }
 
-    h1 { text-align: center; color: #0066cc; }
-
-     .timestamp {
-       text-align: center;
+        .timestamp {
+            text-align: center;
        font-size: 1.1em;
        font-weight: 600;
        color: #333;
@@ -42,15 +47,15 @@
        border-radius: 4px;
        max-width: 900px;
        line-height: 1.6;
-     }
+        }
 
-    img {
-      width: 100%;
+        img {
+            width: 100%;
       max-width: 1000px;
-      height: auto;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      margin-top: 20px;
+            height: auto;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            margin-top: 20px;
       display: block;
       margin-left: auto;
       margin-right: auto;
@@ -61,32 +66,49 @@
       img {
         max-width: 100%;
       }
-    }
+        }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 30px;
-    }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 30px;
+        }
 
-    th, td {
-      padding: 8px;
-      text-align: right;
-      border-bottom: 1px solid #ddd;
-    }
+        th, td {
+            padding: 8px;
+            text-align: right;
+            border-bottom: 1px solid #ddd;
+        }
 
-    th {
-      background-color: #007acc;
-      color: white;
-    }
+        th {
+            background-color: #007acc;
+            color: white;
+        }
 
     tr:hover { background-color: #eef; }
+    
+    /* Comparison table styling */
+    .comparison-table {
+      overflow-x: auto;
+    }
+    
+    .comparison-table th:first-child,
+    .comparison-table td:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 5;
+      background-color: inherit;
+    }
+    
+    .comparison-table thead th:first-child {
+      z-index: 10;
+    }
 
-    .summary {
-      margin-top: 30px;
-      padding: 10px;
-      background-color: #eef6ff;
-      border-left: 5px solid #007acc;
+        .summary {
+            margin-top: 30px;
+            padding: 10px;
+            background-color: #eef6ff;
+            border-left: 5px solid #007acc;
     }
 
     .stock-form {
@@ -190,47 +212,38 @@
 
      html {
        scroll-behavior: smooth;
-     }
-   </style>
+        }
+    </style>
 </head>
 
 <body>
-  <div id="loading">Loading stock data...</div>
+    <div id="loading">Loading stock data...</div>
 
-  <div id="content">
+    <div id="content">
     <h1>📈 Stock Price Tracker</h1>
 
     <!-- Rules Section at Top -->
-    <div style="max-width: 900px; margin: 20px auto; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-      <h2 style="color: white; font-size: 1.5em; margin-top: 0; margin-bottom: 15px; text-align: center;">
+    <div style="max-width: 900px; margin: 10px auto; padding: 12px; background: linear-gradient(135deg, #e0f7fa 0%, #e8eaf6 100%); border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 1px solid #b3e5fc;">
+      <h2 style="color: #000; font-size: 1.1em; margin: 0 0 10px 0; text-align: center; font-weight: 600;">
         📋 Rules & Limits
       </h2>
-      <div style="background: white; padding: 20px; border-radius: 8px; font-size: 1.1em; line-height: 1.8;">
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px;">
+      <div style="background: white; padding: 12px; border-radius: 6px; font-size: 0.9em; line-height: 1.5;">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
           <div>
-            <strong style="font-size: 1.15em; color: #0066cc;">💰 USD Stocks:</strong>
-            <ul style="margin: 8px 0; padding-left: 25px;">
-              <li>Maximum <strong>5 stocks</strong></li>
-            </ul>
+            <strong style="font-size: 0.95em; color: #000;">💰 USD:</strong>
+            <div style="margin-top: 4px; padding-left: 8px; color: #000;">Max <strong>5 stocks</strong></div>
           </div>
           <div>
-            <strong style="font-size: 1.15em; color: #cc0000;">🇨🇦 CAD Stocks:</strong>
-            <ul style="margin: 8px 0; padding-left: 25px;">
-              <li>Maximum <strong>5 stocks</strong></li>
-            </ul>
+            <strong style="font-size: 0.95em; color: #000;">🇨🇦 CAD:</strong>
+            <div style="margin-top: 4px; padding-left: 8px; color: #000;">Max <strong>5 stocks</strong></div>
           </div>
           <div>
-            <strong style="font-size: 1.15em; color: #ff9800;">📊 Total Limit:</strong>
-            <ul style="margin: 8px 0; padding-left: 25px;">
-              <li>Maximum <strong>10 stocks</strong> combined</li>
-            </ul>
+            <strong style="font-size: 0.95em; color: #000;">📊 Total:</strong>
+            <div style="margin-top: 4px; padding-left: 8px; color: #000;">Max <strong>10 stocks</strong></div>
           </div>
           <div>
-            <strong style="font-size: 1.15em; color: #333;">✏️ Ticker Format:</strong>
-            <ul style="margin: 8px 0; padding-left: 25px;">
-              <li>Letters, numbers, dot (.), dash (-) only</li>
-              <li>Maximum <strong>12 characters</strong></li>
-            </ul>
+            <strong style="font-size: 0.95em; color: #000;">✏️ Format:</strong>
+            <div style="margin-top: 4px; padding-left: 8px; color: #000;">Letters, numbers, . - only<br/>Max <strong>12 chars</strong></div>
           </div>
         </div>
       </div>
@@ -389,10 +402,224 @@
       </div>
     {% endif %}
 
+    {% if stock_info %}
+      <div style="max-width: 900px; margin: 30px auto 0 auto; padding: 0 10px;">
+        <h2 style="margin-top: 0; margin-bottom: 20px; font-size: 1.3em;">Stock Analysis Comparison</h2>
+        
+        {% set all_stocks = [] %}
+        {% for symbol in (usd_stocks + cad_stocks) %}
+          {% if stock_info.get(symbol) %}
+            {% set _ = all_stocks.append(symbol) %}
+          {% endif %}
+        {% endfor %}
+        
+        {% if all_stocks %}
+          <!-- Table 1: Market Facts Comparison -->
+          <div style="margin: 0 0 20px 0; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow-x: auto;">
+          <h3 style="margin-top: 0; margin-bottom: 12px; color: #0066cc; font-size: 1.1em; border-bottom: 2px solid #0066cc; padding-bottom: 8px;">
+            📊 Market Facts
+          </h3>
+          <table style="width: 100%; border-collapse: collapse; min-width: 600px; table-layout: auto;">
+            <thead>
+              <tr style="background-color: #007acc; color: white;">
+                <th style="padding: 10px; text-align: left; font-weight: bold; position: sticky; left: 0; background-color: #007acc; z-index: 10; box-shadow: 2px 0 2px rgba(0,0,0,0.1); width: auto;">Metric</th>
+                {% for symbol in all_stocks %}
+                  <th style="padding: 10px; text-align: center; font-weight: bold; width: auto;">{{ symbol }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Current Price</td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].current_price }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Daily Change ($ / %)</td>
+                {% for symbol in all_stocks %}
+                  {% set change_val = stock_info[symbol].change %}
+                  {% if change_val and change_val != 'N/A' %}
+                    {% set change_parts = change_val.split(' / ') %}
+                    {% if change_parts|length == 2 %}
+                      {% set percent_str = change_parts[1]|replace('%', '')|trim %}
+                      {% if percent_str and percent_str[0:1] == '-' %}
+                        {% set cell_color = '#dc3545' %}
+                      {% elif percent_str %}
+                        {% set percent_num = percent_str|float|default(0) %}
+                        {% if percent_num > 5 %}
+                          {% set cell_color = '#28a745' %}
+                        {% else %}
+                          {% set cell_color = '#666' %}
+                        {% endif %}
+                      {% else %}
+                        {% set cell_color = '#666' %}
+                      {% endif %}
+                    {% else %}
+                      {% set cell_color = '#000' %}
+                    {% endif %}
+                  {% else %}
+                    {% set cell_color = '#000' %}
+                  {% endif %}
+                  <td style="padding: 8px; text-align: center; white-space: nowrap; line-height: 1.4; color: {{ cell_color }};">
+                    {% if change_val and change_val != 'N/A' %}
+                      {% set change_parts = change_val.split(' / ') %}
+                      {% if change_parts|length == 2 %}
+                        {{ change_parts[0] }}<br/>{{ change_parts[1] }}
+                      {% else %}
+                        {{ change_val }}
+                      {% endif %}
+                    {% else %}
+                      {{ change_val }}
+                    {% endif %}
+                  </td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Day High</td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].day_high }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Day Low</td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].day_low }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">52-Week High</td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].week_52_high }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">52-Week Low</td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].week_52_low }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">52-Week Change</td>
+                {% for symbol in all_stocks %}
+                  {% set change_val = stock_info[symbol].week_52_change %}
+                  {% if change_val and change_val != 'N/A' %}
+                    {% set change_clean = change_val|replace('%', '')|trim %}
+                    {% if change_clean and change_clean[0:1] == '-' %}
+                      {% set cell_color = '#dc3545' %}
+                    {% elif change_clean %}
+                      {% set change_num = change_clean|float|default(0) %}
+                      {% if change_num > 10 %}
+                        {% set cell_color = '#28a745' %}
+                      {% else %}
+                        {% set cell_color = '#666' %}
+                      {% endif %}
+                    {% else %}
+                      {% set cell_color = '#666' %}
+                    {% endif %}
+                  {% else %}
+                    {% set cell_color = '#000' %}
+                  {% endif %}
+                  <td style="padding: 8px; text-align: center; color: {{ cell_color }};">{{ change_val }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Volume</td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].volume }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Avg Volume (10d)</td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].avg_volume_10d }}</td>
+                {% endfor %}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        
+          <!-- Table 2: Decision Making & Overview Comparison -->
+          <div style="margin: 0 0 20px 0; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow-x: auto;">
+          <h3 style="margin-top: 0; margin-bottom: 12px; color: #0066cc; font-size: 1.1em; border-bottom: 2px solid #0066cc; padding-bottom: 8px;">
+            💡 Decision Making & Company Overview
+          </h3>
+          <table style="width: 100%; border-collapse: collapse; min-width: 600px; table-layout: auto;">
+            <thead>
+              <tr style="background-color: #007acc; color: white;">
+                <th style="padding: 10px; text-align: left; font-weight: bold; position: sticky; left: 0; background-color: #007acc; z-index: 10; box-shadow: 2px 0 2px rgba(0,0,0,0.1); width: auto;">Metric</th>
+                {% for symbol in all_stocks %}
+                  <th style="padding: 10px; text-align: center; font-weight: bold; width: auto;">{{ symbol }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Market Cap <small style="color: #666; font-weight: normal;">(size)</small></td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].market_cap }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">P/E (Trailing) <small style="color: #666; font-weight: normal;">(valuation)</small></td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].pe_ratio }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">EPS <small style="color: #666; font-weight: normal;">(profitability)</small></td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].eps }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Beta <small style="color: #666; font-weight: normal;">(risk)</small></td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].beta }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Dividend Yield <small style="color: #666; font-weight: normal;">(income)</small></td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].dividend_yield }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Revenue Growth <small style="color: #666; font-weight: normal;">(growth)</small></td>
+                {% for symbol in all_stocks %}
+                  {% set growth_val = stock_info[symbol].revenue_growth %}
+                  {% if growth_val and growth_val != 'N/A' %}
+                    {% set growth_clean = growth_val|replace('%', '')|trim %}
+                    {% if growth_clean[0:1] == '-' %}
+                      {% set cell_color = '#dc3545' %}
+                    {% elif growth_clean|float > 10 %}
+                      {% set cell_color = '#28a745' %}
+                    {% else %}
+                      {% set cell_color = '#666' %}
+                    {% endif %}
+                  {% else %}
+                    {% set cell_color = '#000' %}
+                  {% endif %}
+                  <td style="padding: 8px; text-align: center; color: {{ cell_color }};">{{ growth_val }}</td>
+                {% endfor %}
+              </tr>
+              <tr>
+                <td style="padding: 8px; font-weight: bold; background-color: #f9f9f9; position: sticky; left: 0; z-index: 5; box-shadow: 2px 0 2px rgba(0,0,0,0.05);">Profit Margin <small style="color: #666; font-weight: normal;">(efficiency)</small></td>
+                {% for symbol in all_stocks %}
+                  <td style="padding: 8px; text-align: center;">{{ stock_info[symbol].profit_margin }}</td>
+                {% endfor %}
+              </tr>
+            </tbody>
+          </table>
+          </div>
+        {% endif %}
+      </div>
+    {% endif %}
+
     {% if table_data %}
-      <h2 style="padding: 0 10px;">Recent Closing Prices (Last 7 Trading Days)</h2>
-      <table>
-        <tr>
+      <h2 style="padding: 0 10px; margin-top: 30px;">Recent Closing Prices (Last 7 Trading Days)</h2>
+        <table>
+            <tr>
           <th style="text-align:left;">Date</th>
 
           {% for symbol in usd_stocks %}
@@ -402,10 +629,10 @@
           {% for symbol in cad_stocks %}
             <th>{{ symbol }} (CAD)</th>
           {% endfor %}
-        </tr>
+            </tr>
 
-        {% for row in table_data %}
-          <tr>
+            {% for row in table_data %}
+            <tr>
             <td style="text-align:left;">{{ row.date }}</td>
 
             {% for symbol in usd_stocks %}
@@ -416,15 +643,15 @@
               <td>${{ row.get(symbol, '-') }}</td>
             {% endfor %}
           </tr>
-        {% endfor %}
-      </table>
+            {% endfor %}
+        </table>
     {% endif %}
-  </div>
+    </div>
 
-   <script>
-     window.addEventListener("load", function () {
-       document.body.classList.add("ready");
-     });
+    <script>
+      window.addEventListener("load", function () {
+        document.body.classList.add("ready");
+      });
 
      // Auto-scroll to chart section after form submission
      document.addEventListener("DOMContentLoaded", function() {
@@ -456,6 +683,6 @@
          }
        }, 500); // Wait a bit for chart to load
      }
-   </script>
+    </script>
 </body>
 </html>

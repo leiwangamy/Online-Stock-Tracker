@@ -76,6 +76,232 @@ def safe_static_path(filename: str) -> str:
     return os.path.join(static_dir, filename)
 
 
+def fetch_stock_info(symbol: str) -> dict:
+    """
+    Fetch stock information from yfinance.
+    Returns a dictionary with all analysis data, using 'N/A' for unavailable fields.
+    """
+    try:
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        
+        def safe_get(key, default="N/A", formatter=None):
+            """Safely get value from info dict, apply formatter if provided."""
+            value = info.get(key)
+            if value is None or value == "":
+                return default
+            if formatter:
+                try:
+                    return formatter(value)
+                except:
+                    return default
+            return value
+        
+        def format_currency(value):
+            """Format large numbers as currency with appropriate suffix."""
+            if value is None or value == "N/A":
+                return "N/A"
+            try:
+                if abs(value) >= 1e12:
+                    return f"${value/1e12:.2f}T"
+                elif abs(value) >= 1e9:
+                    return f"${value/1e9:.2f}B"
+                elif abs(value) >= 1e6:
+                    return f"${value/1e6:.2f}M"
+                elif abs(value) >= 1e3:
+                    return f"${value/1e3:.2f}K"
+                else:
+                    return f"${value:.2f}"
+            except:
+                return "N/A"
+        
+        def format_number(value, decimals=2):
+            """Format number with specified decimals."""
+            if value is None or value == "N/A":
+                return "N/A"
+            try:
+                return f"{float(value):.{decimals}f}"
+            except:
+                return "N/A"
+        
+        def format_percent(value):
+            """Format as percentage. Handles both decimal (0.025) and already percentage (2.5) formats."""
+            if value is None or value == "N/A":
+                return "N/A"
+            try:
+                v = float(value)
+                # If value is > 1, assume it's already a percentage; otherwise multiply by 100
+                if abs(v) > 1:
+                    return f"{v:.2f}%"
+                else:
+                    return f"{v * 100:.2f}%"
+            except:
+                return "N/A"
+        
+        def format_volume(value):
+            """Format volume with M/K suffix."""
+            if value is None or value == "N/A":
+                return "N/A"
+            try:
+                v = float(value)
+                if v >= 1e9:
+                    return f"{v/1e9:.2f}B"
+                elif v >= 1e6:
+                    return f"{v/1e6:.2f}M"
+                elif v >= 1e3:
+                    return f"{v/1e3:.2f}K"
+                else:
+                    return f"{int(v):,}"
+            except:
+                return "N/A"
+        
+        # Table 1: Facts
+        current_price_raw = safe_get('currentPrice', default=None)
+        if current_price_raw == "N/A" or current_price_raw is None:
+            current_price_raw = safe_get('regularMarketPrice', default=None)
+        
+        if current_price_raw and current_price_raw != "N/A":
+            try:
+                current_price = f"${float(current_price_raw):.2f}"
+                current_price_val = float(current_price_raw)
+            except:
+                current_price = "N/A"
+                current_price_val = None
+        else:
+            current_price = "N/A"
+            current_price_val = None
+        
+        change_dollar_raw = safe_get('regularMarketChange', default=None)
+        if change_dollar_raw and change_dollar_raw != "N/A":
+            try:
+                change_dollar_val = float(change_dollar_raw)
+                change_dollar = f"${change_dollar_val:.2f}"
+            except:
+                change_dollar = "N/A"
+                change_dollar_val = None
+        else:
+            change_dollar = "N/A"
+            change_dollar_val = None
+        
+        # Calculate percentage change from dollar change and current price
+        if change_dollar_val is not None and current_price_val is not None and current_price_val != 0:
+            previous_price = current_price_val - change_dollar_val
+            if previous_price != 0:
+                change_percent_val = (change_dollar_val / previous_price) * 100
+                change_percent = f"{change_percent_val:.2f}%"
+            else:
+                change_percent = "N/A"
+        else:
+            # Fallback to yfinance value if calculation not possible
+            change_percent = safe_get('regularMarketChangePercent', formatter=format_percent)
+        
+        change_str = f"{change_dollar} / {change_percent}" if change_dollar != "N/A" and change_percent != "N/A" else "N/A"
+        
+        day_high = safe_get('dayHigh', formatter=lambda x: f"${float(x):.2f}")
+        day_low = safe_get('dayLow', formatter=lambda x: f"${float(x):.2f}")
+        day_range = f"{day_high} / {day_low}" if day_high != "N/A" and day_low != "N/A" else "N/A"
+        
+        week_52_high = safe_get('fiftyTwoWeekHigh', formatter=lambda x: f"${float(x):.2f}")
+        week_52_low = safe_get('fiftyTwoWeekLow', formatter=lambda x: f"${float(x):.2f}")
+        week_52_range = f"{week_52_high} / {week_52_low}" if week_52_high != "N/A" and week_52_low != "N/A" else "N/A"
+        
+        volume = safe_get('volume', formatter=format_volume)
+        avg_volume_10d = safe_get('averageVolume10days', formatter=format_volume)
+        if avg_volume_10d == "N/A":
+            avg_volume_10d = safe_get('averageVolume', formatter=format_volume)
+        
+        # Table 2: Decision Making
+        market_cap = safe_get('marketCap', formatter=format_currency)
+        pe_ratio = safe_get('trailingPE', formatter=format_number)
+        forward_pe = safe_get('forwardPE', formatter=format_number)
+        eps = safe_get('trailingEps', formatter=lambda x: f"${float(x):.2f}")
+        beta = safe_get('beta', formatter=format_number)
+        # Dividend yield: yfinance typically returns as decimal (0.0076 = 0.76%)
+        # But values like 0.76, 0.40, 0.26 are being incorrectly shown as 76%, 40%, 26%
+        # So if value > 0.1, it's likely already in percentage form (0.76 = 0.76%), don't multiply
+        # If value < 0.1, it's decimal format (0.0076 = 0.76%), multiply by 100
+        dividend_yield_raw = safe_get('dividendYield', default=None)
+        if dividend_yield_raw and dividend_yield_raw != "N/A":
+            try:
+                div_val = float(dividend_yield_raw)
+                # Dividend yields are typically 0-10%
+                # If value > 1, definitely wrong, divide by 100
+                # If value is 0.1-1, it might be percentage already (0.76 = 0.76%), use as-is
+                # If value < 0.1, it's decimal (0.0076 = 0.76%), multiply by 100
+                if abs(div_val) > 1:
+                    # Value > 1 is wrong, divide by 100 to normalize
+                    div_val = div_val / 100
+                    dividend_yield = f"{div_val:.2f}%"
+                elif abs(div_val) >= 0.1:
+                    # Value 0.1-1, treat as percentage already (0.76 = 0.76%)
+                    dividend_yield = f"{div_val:.2f}%"
+                else:
+                    # Value < 0.1, treat as decimal (0.0076 = 0.76%)
+                    dividend_yield = f"{div_val * 100:.2f}%"
+            except:
+                dividend_yield = "N/A"
+        else:
+            dividend_yield = "N/A"
+        
+        # Additional overview metrics
+        price_to_book = safe_get('priceToBook', formatter=format_number)
+        
+        # 52-week change percentage
+        week_52_change = safe_get('52WeekChange', formatter=format_percent)
+        
+        # Revenue growth (year over year)
+        revenue_growth = safe_get('revenueGrowth', formatter=format_percent)
+        
+        # Profit margin
+        profit_margin = safe_get('profitMargins', formatter=format_percent)
+        
+        return {
+            # Table 1: Facts
+            'current_price': current_price,
+            'change': change_str,
+            'day_high': day_high,
+            'day_low': day_low,
+            'week_52_high': week_52_high,
+            'week_52_low': week_52_low,
+            'week_52_change': week_52_change,  # Added for overview
+            'volume': volume,
+            'avg_volume_10d': avg_volume_10d,
+            # Table 2: Decision Making
+            'market_cap': market_cap,
+            'pe_ratio': pe_ratio,
+            'forward_pe': forward_pe,  # Added for comparison
+            'eps': eps,
+            'beta': beta,
+            'dividend_yield': dividend_yield,
+            # Additional Overview Metrics
+            'price_to_book': price_to_book,
+            'revenue_growth': revenue_growth,
+            'profit_margin': profit_margin,
+        }
+    except Exception as e:
+        print(f"Error fetching info for {symbol}: {e}")
+        return {
+            'current_price': 'N/A',
+            'change': 'N/A',
+            'day_high': 'N/A',
+            'day_low': 'N/A',
+            'week_52_high': 'N/A',
+            'week_52_low': 'N/A',
+            'week_52_change': 'N/A',
+            'volume': 'N/A',
+            'avg_volume_10d': 'N/A',
+            'market_cap': 'N/A',
+            'pe_ratio': 'N/A',
+            'forward_pe': 'N/A',
+            'eps': 'N/A',
+            'beta': 'N/A',
+            'dividend_yield': 'N/A',
+            'price_to_book': 'N/A',
+            'revenue_growth': 'N/A',
+            'profit_margin': 'N/A',
+        }
+
+
 def generate_charts(usd_stocks, cad_stocks, chart_filename: str):
     """
     Returns: (usd_data, cad_data, not_found_tickers)
@@ -306,6 +532,7 @@ def index():
     table_data = []
     usd_averages = {}
     cad_averages = {}
+    stock_info = {}  # Dictionary to store analysis data for each stock
 
     if has_data:
         all_data = {}
@@ -333,10 +560,14 @@ def index():
         for symbol in usd_stocks:
             if usd_data and symbol in usd_data:
                 usd_averages[symbol] = round(float(usd_data[symbol]["Close"].mean()), 2)
+            # Fetch analysis data for each stock
+            stock_info[symbol] = fetch_stock_info(symbol)
 
         for symbol in cad_stocks:
             if cad_data and symbol in cad_data:
                 cad_averages[symbol] = round(float(cad_data[symbol]["Close"].mean()), 2)
+            # Fetch analysis data for each stock
+            stock_info[symbol] = fetch_stock_info(symbol)
 
     # Combine invalid lists for display convenience
     # (format invalid + not found)
@@ -352,6 +583,7 @@ def index():
         table_data=table_data,
         usd_averages=usd_averages,
         cad_averages=cad_averages,
+        stock_info=stock_info,  # Analysis data for each stock
         last_updated=last_updated,
         chart_file=chart_file,
         error=error_msg,
