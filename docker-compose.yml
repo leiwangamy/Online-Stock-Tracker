@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  stock_web_prod:
+    container_name: stock_web_prod
+    build: .
+    restart: always
+    expose:
+      - "8001"
+    networks:
+      - shared_net
+
+networks:
+  shared_net:
+    external: true
