@@ -1,11 +1,35 @@
-📈 Online Stock Tracker 
+📈 LeiBot 3.0 — Online Stock Tracker
 
-A production-ready web application built with Flask and yFinance that allows users to track real-time stock prices and view historical price charts for US and Canadian stocks.
+A portfolio-ready Flask platform for stock research and market screening.
+Built for single-name analysis and large-universe ranking on one shared database (`leibot.db`).
 
 🔗 Live App (HTTPS):
 👉 https://stock.lwsoc.com
 
-✨ Features 
+✨ Key Features (LeiBot 3.0)
+
+**Stock Tracker — single-name research**
+- US (USD) and Canadian (CAD) tickers
+- 1-year charts + market facts + decision metrics (PE, EPS, margins, etc.)
+
+**Market Dashboard — ~520 name ranking**
+- S&P 500 ∪ Nasdaq-100 deduplicated universe
+- Rank by distance from configurable SMA
+- Rebound rate vs recent low
+- **Earnings Night Review date** — earnings column shows date only, for evening news review before overnight moves
+
+**Settings**
+- SMA period presets: 25 / 50 / 63 / 90 (also manually editable)
+- Rebound lookback configurable
+
+**Platform architecture**
+- Shared SQLite database: `data/leibot.db`
+- Yahoo Finance now; IBKR upgrade path later
+- Responsive UI: desktop for analysis, mobile for quick daily checks
+
+---
+
+✨ Original Tracker Features
 
 📊 **Multi-Stock Tracking**
 - Track US (USD) and Canadian (CAD) stocks simultaneously

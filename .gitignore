@@ -35,6 +35,9 @@ static/chart_*.png
 static/chart.png
 static/last_updated.txt
 
+# Local market database
+data/
+
 # IDE
 .vscode/
 .idea/

@@ -2,3 +2,7 @@ flask
 matplotlib
 yfinance
 gunicorn
+pandas
+lxml
+html5lib
+beautifulsoup4

@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}LeiBot 3.0 — Online Stock Tracker{% endblock %}
+{% block head %}
+<style>
+  .hero {
+    text-align: center;
+    margin: 8px 0 24px;
+  }
+  .hero h1 { margin-bottom: 8px; }
+  .tagline {
+    color: var(--muted);
+    font-size: 1.05rem;
+    max-width: 720px;
+    margin: 0 auto 12px;
+    line-height: 1.5;
+  }
+  .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin: 12px 0 20px;
+  }
+  .badge {
+    font-size: 0.8rem;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #e8eef5;
+    color: #334155;
+    border: 1px solid var(--border);
+  }
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin-top: 8px;
+  }
+  .feature-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .feature-card h3 {
+    margin: 0 0 8px;
+    font-size: 1.05rem;
+    color: var(--accent);
+  }
+  .feature-card p {
+    margin: 0;
+    color: #374151;
+    font-size: 0.92rem;
+    line-height: 1.55;
+  }
+  .feature-card .en {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .section-title {
+    font-size: 1.15rem;
+    margin: 28px 0 10px;
+    text-align: center;
+  }
+  .arch {
+    max-width: 720px;
+    margin: 0 auto;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 0.82rem;
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 10px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    line-height: 1.45;
+  }
+  .footer-note {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-top: 24px;
+  }
+</style>
+{% endblock %}
+{% block content %}
+  <div class="hero">
+    <h1>LeiBot 3.0</h1>
+    <p class="tagline">
+      统一股票决策平台：单股分析 + 大盘筛选 + 可配置均线 + 财报夜市审核。<br/>
+      A portfolio-ready Flask platform for stock research and screening.
+    </p>
+    <div class="badge-row">
+      <span class="badge">Flask · Yahoo Finance</span>
+      <span class="badge">SQLite · leibot.db</span>
+      <span class="badge">S&P 500 ∪ Nasdaq-100</span>
+      <span class="badge">AWS ready · IBKR upgrade path</span>
+    </div>
+    <div class="actions">
+      <a class="btn primary" href="{{ url_for('stock_tracker') }}">Stock Tracker</a>
+      <a class="btn" href="{{ url_for('market_dashboard') }}">Market Dashboard</a>
+      <a class="btn" href="{{ url_for('settings') }}">Settings</a>
+    </div>
+  </div>
+
+  <h2 class="section-title">核心功能 · Key Features</h2>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <h3>Stock Tracker · 单股分析</h3>
+      <p>查询美股 / 加股，生成 1 年走势图，并展示市值、PE、EPS、股息、利润率等决策指标。</p>
+      <p class="en">Single-name research with charts and fundamental snapshot tables for USD &amp; CAD tickers.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Market Dashboard · 520+ 排序</h3>
+      <p>S&amp;P 500 与 Nasdaq-100 去重后约 518 只股票，按「离均线%」排序，适合找相对弱势或超跌标的。</p>
+      <p class="en">Deduplicated large-cap universe ranked by distance from moving average.</p>
+    </div>
+    <div class="feature-card">
+      <h3>可配置均线 · SMA Settings</h3>
+      <p>平均周期不固定：预设 25 / 50 / 63 / 90，也可在 Settings 手动改。改完刷新即可重算全表。</p>
+      <p class="en">Configurable SMA window — not hard-coded to 25 days.</p>
+    </div>
+    <div class="feature-card">
+      <h3>离均值% · Distance from SMA</h3>
+      <p>现价相对均线的偏离幅度，默认从低到高排序，快速扫出低于均线最多的股票。</p>
+      <p class="en">(Price − SMA) / SMA — primary ranking signal for the dashboard.</p>
+    </div>
+    <div class="feature-card">
+      <h3>反弹率 · Rebound Rate</h3>
+      <p>相对近期低点的反弹幅度，辅助判断是否已经止跌、开始修复。</p>
+      <p class="en">Rebound from the recent lookback low — helps spot bounce vs still falling.</p>
+    </div>
+    <div class="feature-card">
+      <h3>财报夜市审核日 · Earnings Night Review</h3>
+      <p>财报列只显示日期。盘后 / 晚上对照新闻与预期，再决定是否买卖，避免错过财报前后的剧烈波动。</p>
+      <p class="en">Earnings date only — designed for evening news review before overnight risk.</p>
+    </div>
+    <div class="feature-card">
+      <h3>统一数据库 · leibot.db</h3>
+      <p>Stock Tracker 与 Dashboard 共用一个 SQLite 数据库，后续 Watchlist / AI / 提醒可继续扩展。</p>
+      <p class="en">One shared database for the whole LeiBot platform.</p>
+    </div>
+    <div class="feature-card">
+      <h3>数据源可升级 · Yahoo → IBKR</h3>
+      <p>当前 Yahoo Finance；架构预留 Interactive Brokers API，便于生产环境切换。</p>
+      <p class="en">Provider layer ready for IBKR upgrade without rewriting the UI.</p>
+    </div>
+  </div>
+
+  <h2 class="section-title">架构 · Architecture</h2>
+  <pre class="arch">Yahoo Finance  (later: IBKR)
+        │
+  Data Provider
+        │
+    leibot.db
+        │
+ ┌──────┴──────┐
+ │             │
+Stock Tracker   Market Dashboard
+(单股分析)      (~520 排序 / 财报夜市审核)</pre>
+
+  <p class="footer-note">
+    Live: <a href="https://stock.lwsoc.com" target="_blank" rel="noopener">stock.lwsoc.com</a>
+    · GitHub: <a href="https://github.com/leiwangamy/Online-Stock-Tracker" target="_blank" rel="noopener">Online-Stock-Tracker</a>
+    · Author: Lei Wang
+  </p>
+{% endblock %}

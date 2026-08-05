@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Online Stock Tracker{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --accent: #0066cc;
+      --border: #e5e7eb;
+      --up: #15803d;
+      --down: #b91c1c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .topnav {
+      background: #e8eef5;
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 14px;
+      align-items: center;
+      justify-content: center;
+    }
+    .topnav a {
+      color: #334155;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .topnav a.active { color: var(--accent); }
+    .topnav .sep { color: #94a3b8; }
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+    h1 {
+      text-align: center;
+      color: var(--accent);
+      font-size: 1.6rem;
+      margin: 8px 0 16px;
+    }
+    .meta, .hint {
+      color: var(--muted);
+      font-size: 0.9rem;
+      text-align: center;
+      margin: 8px 0 16px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: center;
+      margin-bottom: 16px;
+    }
+    .btn {
+      display: inline-block;
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid #93c5fd;
+      background: #eff6ff;
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .btn.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-x: auto;
+    }
+    table.data {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      min-width: 720px;
+    }
+    table.data th, table.data td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+    }
+    table.data th.num, table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.data th { color: var(--muted); font-weight: 600; background: #f8fafc; position: sticky; top: 0; }
+    .up { color: var(--up); }
+    .down { color: var(--down); }
+    .flash {
+      max-width: 900px;
+      margin: 0 auto 12px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+    }
+    .flash.warn {
+      background: #fff7ed;
+      color: #9a3412;
+      border-color: #fdba74;
+    }
+    .settings-form {
+      max-width: 520px;
+      margin: 0 auto;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .settings-form label { display: block; margin: 12px 0 6px; font-weight: 600; }
+    .settings-form input[type="number"],
+    .settings-form select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    .preset-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
+    .preset-row button {
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      border-radius: 999px;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    @media (max-width: 768px) {
+      .hint-mobile { display: block; }
+    }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <nav class="topnav">
+    <a href="{{ url_for('home') }}" class="{% if request.endpoint == 'home' %}active{% endif %}">Home</a>
+    <span class="sep">|</span>
+    <a href="{{ url_for('stock_tracker') }}" class="{% if request.endpoint == 'stock_tracker' %}active{% endif %}">Stock Tracker</a>
+    <span class="sep">|</span>
+    <a href="{{ url_for('market_dashboard') }}" class="{% if request.endpoint == 'market_dashboard' %}active{% endif %}">Market Dashboard</a>
+    <span class="sep">|</span>
+    <a href="{{ url_for('watchlist') }}" class="{% if request.endpoint == 'watchlist' %}active{% endif %}">Watchlist</a>
+    <span class="sep">|</span>
+    <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">Settings</a>
+  </nav>
+  <div class="page">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="flash {% if category == 'warning' %}warn{% endif %}">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

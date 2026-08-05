@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Market Dashboard{% endblock %}
+{% block content %}
+  <h1>Market Dashboard</h1>
+  <p class="meta">
+    股票池 {{ universe_count }} 只（S&P500 ∪ Nasdaq100 去重）
+    · 均线周期 SMA{{ sma_period }}
+    · 缓存 {{ meta.count }} 行
+    {% if meta.updated_at %}· 更新 {{ meta.updated_at }}{% endif %}
+  </p>
+  <p class="hint">同一张完整表：电脑适合分析，手机可左右滑动。默认按「离均值%」从低到高。<strong>财报日</strong> = 财报夜市审核日（只显示日期，方便晚上看新闻再决策）。</p>
+
+  <div class="actions">
+    <form method="post" action="{{ url_for('refresh_universe') }}" style="display:inline">
+      <button class="btn" type="submit">更新股票池</button>
+    </form>
+    <form method="post" action="{{ url_for('refresh_dashboard') }}" style="display:inline"
+          onsubmit="this.querySelector('button').textContent='更新中（可能需几分钟）…'; this.querySelector('button').disabled=true;">
+      <button class="btn primary" type="submit">用 Yahoo 刷新行情 / 均线</button>
+    </form>
+    <a class="btn" href="{{ url_for('settings') }}">改均线周期</a>
+  </div>
+
+  <div class="panel">
+    {% if not rows %}
+      <p class="hint">还没有缓存数据。请先点「更新股票池」，再点「用 Yahoo 刷新行情 / 均线」。</p>
+    {% else %}
+      <table class="data">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>股票</th>
+            <th>行业</th>
+            <th class="num">现价</th>
+            <th class="num">均值(SMA{{ sma_period }})</th>
+            <th class="num">离均值%</th>
+            <th class="num">反弹率</th>
+            <th title="Earnings Night Review — date only for evening news checks">财报日</th>
+            <th>AI</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>
+              <strong>{{ row.ticker }}</strong>
+              {% if row.name %}<div class="hint" style="text-align:left;margin:0">{{ row.name }}</div>{% endif %}
+            </td>
+            <td>{{ row.industry or row.sector or "—" }}</td>
+            <td class="num">{% if row.price is not none %}{{ '%.2f'|format(row.price) }}{% else %}—{% endif %}</td>
+            <td class="num">{% if row.sma is not none %}{{ '%.2f'|format(row.sma) }}{% else %}—{% endif %}</td>
+            <td class="num {% if row.dist_pct is not none and row.dist_pct < 0 %}down{% elif row.dist_pct is not none and row.dist_pct > 0 %}up{% endif %}">
+              {% if row.dist_pct is not none %}{{ '%+.2f'|format(row.dist_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num {% if row.rebound_pct is not none and row.rebound_pct > 0 %}up{% endif %}">
+              {% if row.rebound_pct is not none %}{{ '%+.2f'|format(row.rebound_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td>{{ row.earnings_date or "—" }}</td>
+            <td>{{ row.ai_note or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+  </div>
+{% endblock %}

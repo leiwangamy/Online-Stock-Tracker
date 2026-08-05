@@ -8,12 +8,27 @@ import glob
 import re
 from datetime import datetime, timezone
 
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect, url_for, flash
 import yfinance as yf
 import matplotlib.pyplot as plt
 
+from db import (
+    dashboard_meta,
+    get_all_settings,
+    get_setting,
+    init_db,
+    list_dashboard,
+    set_setting,
+    universe_count,
+)
+from market_data import refresh_dashboard_cache
+from universe import refresh_universe as rebuild_universe
+
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-online-stock-tracker")
+
+init_db()
 
 DEFAULT_USD_STOCKS = ["MSFT"]
 DEFAULT_CAD_STOCKS = ["TD.TO"]
@@ -411,8 +426,8 @@ def generate_charts(usd_stocks, cad_stocks, chart_filename: str):
     return usd_data, cad_data, sorted(set(not_found_tickers))
 
 
-@app.route("/", methods=["GET", "POST"])
-def index():
+@app.route("/tracker", methods=["GET", "POST"])
+def stock_tracker():
     error_msg = None
     chart_file = None
     usd_data = None
@@ -590,6 +605,88 @@ def index():
         warning_invalid=combined_invalid,   # show on page
         warning_excess=warning_excess,      # show on page
     )
+
+
+@app.route("/")
+def home():
+    return render_template("home.html")
+
+
+@app.route("/dashboard")
+def market_dashboard():
+    settings = get_all_settings()
+    rows = list_dashboard(order="dist_asc")
+    return render_template(
+        "dashboard.html",
+        rows=rows,
+        meta=dashboard_meta(),
+        universe_count=universe_count(),
+        sma_period=int(settings.get("sma_period", 25)),
+    )
+
+
+@app.route("/dashboard/refresh-universe", methods=["POST"])
+def refresh_universe():
+    try:
+        result = rebuild_universe()
+        flash(
+            f"股票池已更新：S&P500 {result['sp500']} + Nasdaq100 {result['ndx100']} → 去重后 {result['unique']} 只",
+            "ok",
+        )
+    except Exception as exc:
+        flash(f"更新股票池失败：{exc}", "warning")
+    return redirect(url_for("market_dashboard"))
+
+
+@app.route("/dashboard/refresh", methods=["POST"])
+def refresh_dashboard():
+    try:
+        if universe_count() == 0:
+            rebuild_universe()
+        result = refresh_dashboard_cache()
+        flash(
+            f"行情已刷新：成功 {result['ok']} / 失败 {result['errors']} "
+            f"（SMA{result['sma_period']}，股票池 {result['universe']}）",
+            "ok",
+        )
+    except Exception as exc:
+        flash(f"刷新行情失败：{exc}", "warning")
+    return redirect(url_for("market_dashboard"))
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings():
+    if request.method == "POST":
+        try:
+            sma_period = int(request.form.get("sma_period", 25))
+            rebound_lookback = int(request.form.get("rebound_lookback", sma_period))
+            if sma_period < 5 or sma_period > 250:
+                raise ValueError("平均周期需在 5–250 之间")
+            if rebound_lookback < 5 or rebound_lookback > 250:
+                raise ValueError("反弹回看天数需在 5–250 之间")
+            set_setting("sma_period", sma_period)
+            set_setting("rebound_lookback", rebound_lookback)
+            set_setting("data_source", "yahoo")
+            flash(
+                f"已保存：SMA={sma_period}，反弹回看={rebound_lookback}。请到 Market Dashboard 重新刷新行情。",
+                "ok",
+            )
+            return redirect(url_for("settings"))
+        except Exception as exc:
+            flash(f"保存失败：{exc}", "warning")
+
+    settings_data = get_all_settings()
+    return render_template(
+        "settings.html",
+        sma_period=int(settings_data.get("sma_period", 25)),
+        rebound_lookback=int(settings_data.get("rebound_lookback", 25)),
+        presets=settings_data.get("sma_presets", [25, 50, 63, 90]),
+    )
+
+
+@app.route("/watchlist")
+def watchlist():
+    return render_template("watchlist.html")
 
 
 if __name__ == "__main__":
