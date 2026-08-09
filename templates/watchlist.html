@@ -1,10 +1,331 @@
 {% extends "base.html" %}
 {% block title %}Watchlist{% endblock %}
+{% block head %}
+  <style>
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 0 0 14px; }
+    .tab {
+      display: inline-block; padding: 8px 16px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+      text-decoration: none; font-weight: 600; font-size: 0.9rem;
+    }
+    .tab .count { font-weight: 400; opacity: 0.7; }
+    .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .trend { font-weight: 600; white-space: nowrap; }
+    .trend.mixed { color: #b45309; }
+    .pools { color: var(--muted); font-size: 0.82rem; white-space: nowrap; }
+    .fund, .news { font-weight: 600; white-space: nowrap; cursor: help; }
+    .fund.good, .news.pos { color: var(--up); }
+    .fund.bad, .news.neg { color: var(--down); }
+    .fund.ok { color: #b45309; }
+    .news.neutral { color: var(--muted); font-weight: 500; }
+    .news.none { color: #94a3b8; font-weight: 500; }
+    .temp-form { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; align-items: center; }
+    .temp-form input[type="text"] {
+      flex: 1 1 260px; padding: 8px 10px; border: 1px solid var(--border);
+      border-radius: 6px; font-size: 0.95rem;
+    }
+    .empty { color: var(--muted); font-size: 0.9rem; padding: 8px 2px; }
+    .legend {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; margin: 0 0 14px;
+    }
+    .legend summary { cursor: pointer; font-weight: 600; color: var(--text); }
+    .legend-body { display: flex; flex-wrap: wrap; gap: 18px 40px; margin-top: 10px; }
+    .legend-col { flex: 1 1 320px; }
+    .legend-col ul { margin: 6px 0; padding-left: 18px; columns: 2; font-size: 0.86rem; }
+    .legend-col li { margin: 2px 0; }
+    .legend code {
+      background: #eef2f7; padding: 1px 5px; border-radius: 4px;
+      font-size: 0.82rem; color: #334155;
+    }
+    .flow { color: #64748b; font-size: 0.8rem; white-space: nowrap; }
+    .rvol { font-weight: 600; }
+    .rvol.hi { color: #059669; }
+    .rvol.warn { color: #b45309; }
+    .rvol.lo { color: #94a3b8; }
+    .rtag { display: inline-block; margin-left: 4px; font-size: 0.72rem; padding: 1px 5px; border-radius: 4px; white-space: nowrap; }
+    .rtag.good { background: #dcfce7; color: #166534; }
+    .rtag.flag { background: #fef3c7; color: #92400e; }
+    .ai { display: inline-block; min-width: 34px; text-align: center; font-weight: 700; font-size: 1.05rem;
+          padding: 2px 8px; border-radius: 6px; }
+    .ai.good { background: #dcfce7; color: #166534; }
+    .ai.mid { background: #fef3c7; color: #92400e; }
+    .ai.bad { background: #fee2e2; color: #991b1b; }
+    .ai-sub { font-size: 0.7rem; color: #64748b; white-space: nowrap; margin-top: 2px; }
+    /* === 列宽微调（改这里的 px 即可）=== 列序：1股票 2所属股池 3AI 4趋势
+       5现价 6市值 7均值 8当日% 9RVOL 10日均波动 11 20D均量 12离均值% 13反弹率
+       14财报日 15财报 16新闻。同时改表头(th)和单元格(td)才生效。 */
+    #wl-table th:nth-child(1),  #wl-table td:nth-child(1)  { width: 380px; }  /* 股票 */
+    #wl-table th:nth-child(2),  #wl-table td:nth-child(2)  { width: 130px; }  /* 所属股池 */
+    #wl-table th:nth-child(3),  #wl-table td:nth-child(3)  { width: 90px;  }  /* AI */
+    #wl-table th:nth-child(15), #wl-table td:nth-child(15) { width: 150px; }  /* 财报 */
+    #wl-table th:nth-child(16), #wl-table td:nth-child(16) { width: 130px; }  /* 新闻 */
+    table.data th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    table.data th.sortable:hover { color: var(--accent); }
+    table.data th.sortable::after { content: "\2195"; opacity: 0.35; margin-left: 4px; font-size: 0.8em; }
+    table.data th.sortable.asc::after { content: "\2191"; opacity: 1; }
+    table.data th.sortable.desc::after { content: "\2193"; opacity: 1; }
+  </style>
+{% endblock %}
+
+{% macro trend_badge(t) %}
+  {% if t == 'UP' %}<span class="trend up">🟢 UP</span>
+  {% elif t == 'DOWN' %}<span class="trend down">🔴 DOWN</span>
+  {% elif t == 'MIXED' %}<span class="trend mixed">🟡 MIXED</span>
+  {% else %}—{% endif %}
+{% endmacro %}
+
+{% macro wl_table(rows, sma_period) %}
+  {% if not rows %}
+    <p class="empty">暂无数据。（超卖/强势回调需先到 Market Dashboard 刷新行情；我的自选/临时会实时抓取。）</p>
+  {% else %}
+  <div class="panel">
+    <table class="data" id="wl-table">
+      <thead>
+        <tr>
+          <th class="sortable" data-type="text">股票</th>
+          <th class="sortable" data-type="text" title="该股票所属指数池">所属股池</th>
+          <th class="sortable" data-type="num" title="AI Score V1 = 机会分(0–100) − 风险扣分。悬停看回调/趋势/反弹/成交量/财务/新闻的拆分">AI</th>
+          <th class="sortable" data-type="num" title="长期趋势：SMA63 vs SMA252 + SMA252 斜率">趋势</th>
+          <th class="sortable num" data-type="num">现价</th>
+          <th class="sortable num" data-type="num" title="Market Cap 市值">市值</th>
+          <th class="sortable num" data-type="num">均值(SMA{{ sma_period }})</th>
+          <th class="sortable num" data-type="num">当日%</th>
+          <th class="sortable num" data-type="num" title="RVOL 相对成交量 = 今日量 / 前20日均量。结合当日%解读，不是越大越好">RVOL</th>
+          <th class="sortable num" data-type="num" title="近63个交易日日均绝对涨跌幅">日均波动% (63D)</th>
+          <th class="sortable num" data-type="num" title="Avg Volume 20D 20日平均成交量（流动性门槛）">20D均量</th>
+          <th class="sortable num" data-type="num">离均值%</th>
+          <th class="sortable num" data-type="num">反弹率</th>
+          <th class="sortable" data-type="text">财报日</th>
+          <th class="sortable" data-type="num" title="财报健康：7 项基本面红旗数（🟢好 / 🟡一般 / 🔴差），悬停看明细">财报</th>
+          <th class="sortable" data-type="num" title="近30天新闻：A财报/B业务/C分析师/D公司/E财务法律 + 情绪(+/−)，重大负面优先；NO NEWS=无重要新闻">新闻</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td data-sort="{{ row.ticker }}">
+            <strong>{{ row.ticker }}</strong>
+            {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
+          </td>
+          <td class="pools">{{ row.pools }}</td>
+          {% if row.not_found %}
+            <td colspan="14" class="empty">未找到该股票的行情数据（可能代码有误或已退市）。</td>
+          {% else %}
+            {% set a = row.ai %}
+            <td data-sort="{{ a.final if a else '' }}" {% if a %}title="{{ a.detail }}"{% endif %}>
+              {% if a %}
+                {% set cls = 'good' if a.final >= 70 else ('mid' if a.final >= 40 else 'bad') %}
+                <span class="ai {{ cls }}">{{ a.final }}</span>
+                <div class="ai-sub">机会 {{ a.opp }} · 风险 −{{ a.risk }}</div>
+              {% else %}—{% endif %}
+            </td>
+            {% set trend_rank = {'UP': 2, 'MIXED': 1, 'DOWN': 0}.get(row.trend, -1) %}
+            <td data-sort="{{ trend_rank }}">{{ trend_badge(row.trend) }}</td>
+            <td class="num">{% if row.price is not none %}{{ '%.2f'|format(row.price) }}{% else %}—{% endif %}</td>
+            <td class="num" data-sort="{{ row.market_cap if row.market_cap is not none else '' }}">
+              {% set m = row.market_cap %}
+              {% if m %}
+                {% if m >= 1e12 %}{{ '%.2f'|format(m / 1e12) }}T
+                {% elif m >= 1e9 %}{% if m >= 1e11 %}{{ '%.0f'|format(m / 1e9) }}B{% else %}{{ '%.1f'|format(m / 1e9) }}B{% endif %}
+                {% elif m >= 1e6 %}{{ '%.0f'|format(m / 1e6) }}M
+                {% else %}{{ '%.0f'|format(m) }}{% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td class="num">{% if row.sma is not none %}{{ '%.2f'|format(row.sma) }}{% else %}—{% endif %}</td>
+            <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
+              {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.rvol if row.rvol is not none else '' }}"
+                title="RVOL=今日量/前20日均量。<0.7 缺量；0.7–1.2 正常；1.2–2 放量确认；2–3 明显放量(结合新闻)；>3 异常，勿机械加分。">
+              {% if row.rvol is not none %}
+                {% set r = row.rvol %}{% set c = row.change_pct %}
+                {% if r >= 3 %}<span class="rvol warn">{{ '%.1f'|format(r) }}×</span>
+                {% elif r >= 1.2 %}<span class="rvol hi">{{ '%.1f'|format(r) }}×</span>
+                {% elif r < 0.7 %}<span class="rvol lo">{{ '%.1f'|format(r) }}×</span>
+                {% else %}<span class="rvol">{{ '%.1f'|format(r) }}×</span>{% endif %}
+                {% if c is not none and c > 0 and r >= 1.2 %}<span class="rtag good">↑确认</span>
+                {% elif c is not none and c < 0 and r >= 2 %}<span class="rtag flag">放量跌·查新闻</span>{% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.avg_move_pct if row.avg_move_pct is not none else '' }}">
+              {% if row.avg_move_pct is not none %}{{ '%.2f'|format(row.avg_move_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.avg_vol_20d if row.avg_vol_20d is not none else '' }}">
+              {% set v = row.avg_vol_20d %}
+              {% if v %}
+                {% if v >= 1e9 %}{{ '%.1f'|format(v / 1e9) }}B
+                {% elif v >= 1e6 %}{{ '%.1f'|format(v / 1e6) }}M
+                {% elif v >= 1e3 %}{{ '%.0f'|format(v / 1e3) }}K
+                {% else %}{{ '%.0f'|format(v) }}{% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td class="num {% if row.dist_pct is not none and row.dist_pct < 0 %}down{% elif row.dist_pct is not none and row.dist_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.dist_pct if row.dist_pct is not none else '' }}">
+              {% if row.dist_pct is not none %}{{ '%+.2f'|format(row.dist_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num {% if row.rebound_pct is not none and row.rebound_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.rebound_pct if row.rebound_pct is not none else '' }}">
+              {% if row.rebound_pct is not none %}{{ '%+.2f'|format(row.rebound_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td>{{ row.earnings_date or "—" }}</td>
+            {% set f = row.fund %}
+            <td data-sort="{{ f.warnings if f and f.total_known else '' }}"
+                {% if f and f.detail %}title="{{ f.detail }}"{% endif %}>
+              {% if f and f.health != 'unknown' %}
+                <span class="fund {{ f.health }}">{{ {'good':'🟢','ok':'🟡','bad':'🔴'}[f.health] }} {{ f.ok }}/{{ f.total_known }}</span>
+                {% if f.code and f.code not in ('OK', 'N/A') %}<span class="hint" style="margin:0"> {{ f.code }}</span>{% endif %}
+                {% if f.flow %}<span class="flow"> {{ f.flow }}</span>{% endif %}
+              {% else %}—{% endif %}
+            </td>
+            {% set nw = row.news %}
+            <td data-sort="{{ nw.sort if nw else 0 }}"
+                {% if nw and nw.detail %}title="{{ nw.detail }}"{% endif %}>
+              {% if nw and nw.has_news %}
+                <span class="news {{ nw.tone }}">{{ nw.label }}</span>
+              {% elif nw %}
+                <span class="news none">NO NEWS</span>
+              {% else %}—{% endif %}
+            </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% set descriptions = {
+  'oversold': '自动生成：离均值% ≤ -20%。优先级：Trend UP > MIXED > DOWN（同趋势内按离均值% 从低到高）。',
+  'pullback': '自动生成：Trend = UP 且 离均值% < -3%（上升趋势中已回落到均值下方 3% 以上的实质回调）。',
+  'mine': '长期保存（当前：AAPL、NVDA）。以后开通登录账户后可自行增删。',
+  'temp': '朋友临时输入的股票，仅本次会话有效，关闭浏览器后自动清空。'
+} %}
+
 {% block content %}
   <h1>Watchlist</h1>
-  <p class="meta">预留页面 — 下一步可对接 LeiBot Watchlist / 自选股。</p>
-  <div class="panel">
-    <p>当前 Market Dashboard 覆盖 S&P500 ∪ Nasdaq100 去重池。</p>
-    <p>Watchlist 将用于你的个人跟踪列表与每日涨跌历史。</p>
+
+  <details class="legend" open>
+    <summary>📖 代码说明（AI 打分 / 财报 / 新闻）</summary>
+    <div class="legend-body">
+      <div class="legend-col">
+        <strong>AI Score V1 = 机会分(0–100) − 风险扣分</strong>
+        <ul style="columns:1">
+          <li>回调深度 <code>30</code>（离SMA越深越高，≤−30%满分）</li>
+          <li>长期趋势 <code>20</code>（UP20 / MIXED10 / DOWN0）</li>
+          <li>反弹确认 <code>15</code>（反弹率 + 当日方向）</li>
+          <li>成交量 <code>10</code>（RVOL×当日方向，非越大越好）</li>
+          <li>财务质量 <code>15</code>（🟢15 / 🟡8–12 / 🔴0–7）</li>
+          <li>新闻 <code>10</code>（正面10 / 中性5 / 负面0）</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">风险扣分：严重财务 −0~15、重大负面新闻 −0~15、放量暴跌 −0~5、高波动/低流动 −0~5、临近财报 −0~15（越近扣越多）。悬停 AI 看每项拆分。绿≥70 / 黄40–69 / 红&lt;40。</p>
+      </div>
+      <div class="legend-col">
+        <strong>财报红旗（⚠ = 红旗，计入健康分）</strong>
+        <ul>
+          <li><code>REV</code> 营收增长 YoY（&lt;0 ⚠）</li>
+          <li><code>EPS</code> 盈利增长 YoY（&lt;0 ⚠）</li>
+          <li><code>OCF</code> 经营现金流（负数或恶化 ⚠）</li>
+          <li><code>CUR</code> 流动比率（&lt;1 ⚠）</li>
+          <li><code>DEBT</code> 负债/权益（&gt;1.5x ⚠）</li>
+          <li><code>CASH</code> 现金 vs 债务（现金&lt;债务 ⚠）</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">显示：🟢好(0旗) / 🟡一般(1–2) / 🔴差(≥3) + 通过/已知，后面列红旗代码（如 <code>REV− DEBT−</code>）。悬停看每项数值。</p>
+      </div>
+      <div class="legend-col">
+        <strong>现金流方向（同比 ↑/↓/→，仅解释不计红旗）</strong>
+        <ul>
+          <li><code>OCF</code> 经营现金流方向</li>
+          <li><code>CAPEX</code> 资本支出方向（↑=投资增加）</li>
+          <li><code>FCF</code> 自由现金流方向（≈OCF−CapEx）</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">
+          <code>FCF↓ CAPEX↑ OCF↑</code> = 扩张投资致自由现金流下降，🟡 不一定坏；
+          <code>FCF↓ OCF↓</code> = 经营本身恶化，🔴 风险高（OCF 记红旗）；
+          <code>FCF↑</code> = 🟢 健康。CapEx 本身不算红旗。
+        </p>
+      </div>
+      <div class="legend-col">
+        <strong>新闻（近30天；情绪 + 正 / − 负）</strong>
+        <ul>
+          <li><code>A</code> 财报 / 指引 ★★★★★</li>
+          <li><code>B</code> 业务 / 产品 ★★★★</li>
+          <li><code>C</code> 分析师 / 评级 ★★★</li>
+          <li><code>D</code> 公司 / 管理层 ★★★★</li>
+          <li><code>E</code> 财务 / 法律风险 ★★★★★</li>
+          <li><code>O</code> 其他</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0"><code>NO NEWS</code> = 近30天无重要新闻；<code>NEUTRAL</code> = 有新闻但影响中性。重大负面标红、正面标绿。悬停看标题+日期。</p>
+      </div>
+    </div>
+  </details>
+
+  <div class="tabs">
+    {% for t in tabs %}
+      <a class="tab {% if t.key == tab %}active{% endif %}" href="{{ url_for('watchlist', tab=t.key) }}">
+        {{ t.label }} <span class="count">({{ t.count }})</span>
+      </a>
+    {% endfor %}
   </div>
+
+  <p class="hint">{{ descriptions[tab] }} 所有组都显示「所属股池」，<strong>点表头可排序</strong>。<strong>财报 / 新闻</strong>为实时抓取（首次打开该标签可能等待十几秒，结果缓存 15 分钟）；财报/新闻列可鼠标悬停看明细。</p>
+
+  {% if tab == 'temp' %}
+    <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='temp') }}">
+      <input type="hidden" name="action" value="add_temp">
+      <input type="text" name="temp_tickers" placeholder="输入代码，逗号分隔，如 TSLA, AMD, SHOP.TO">
+      <button class="btn primary" type="submit">添加</button>
+      {% if temp_tickers %}
+        <button class="btn" type="submit"
+                onclick="this.form.querySelector('[name=action]').value='clear_temp'">清空</button>
+      {% endif %}
+    </form>
+    <p class="hint" style="margin:0 0 12px">临时列表最多 {{ max_temp }} 个股票（超出的会被忽略）；关闭浏览器后自动清空。当前 {{ temp_tickers|length }} / {{ max_temp }}。</p>
+  {% endif %}
+
+  {{ wl_table(rows, sma_period) }}
+
+  <script>
+    (function () {
+      var table = document.getElementById("wl-table");
+      if (!table) return;
+      var tbody = table.tBodies[0];
+      function cellValue(row, idx, type) {
+        var td = row.cells[idx];
+        if (!td) return type === "num" ? NaN : "";
+        var raw = td.dataset.sort !== undefined ? td.dataset.sort : td.textContent.trim();
+        if (type === "num") {
+          var n = parseFloat(String(raw).replace(/[%+,\s]/g, ""));
+          return isNaN(n) ? NaN : n;
+        }
+        return String(raw).toLowerCase();
+      }
+      table.querySelectorAll("th.sortable").forEach(function (th) {
+        th.addEventListener("click", function () {
+          var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+          var type = th.dataset.type || "text";
+          var asc = !th.classList.contains("asc");
+          table.querySelectorAll("th").forEach(function (h) { h.classList.remove("asc", "desc"); });
+          th.classList.add(asc ? "asc" : "desc");
+          var rows = Array.prototype.slice.call(tbody.rows);
+          rows.sort(function (a, b) {
+            var av = cellValue(a, idx, type), bv = cellValue(b, idx, type);
+            if (type === "num") {
+              var an = isNaN(av), bn = isNaN(bv);
+              if (an && bn) return 0;
+              if (an) return 1;
+              if (bn) return -1;
+              return asc ? av - bv : bv - av;
+            }
+            if (av < bv) return asc ? -1 : 1;
+            if (av > bv) return asc ? 1 : -1;
+            return 0;
+          });
+          rows.forEach(function (r) { tbody.appendChild(r); });
+        });
+      });
+    })();
+  </script>
 {% endblock %}

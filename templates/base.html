@@ -86,8 +86,38 @@
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 12px;
-      overflow-x: auto;
+      /* Contained scroll box: sticky header stays up top. Horizontal scroll is
+         driven by a synced scrollbar placed ABOVE the table (.hscroll-top). */
+      max-height: 78vh;
+      overflow-x: hidden;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #94a3b8 #eef2f7;
     }
+    .panel::-webkit-scrollbar { width: 14px; height: 14px; }
+    .panel::-webkit-scrollbar-track { background: #eef2f7; border-radius: 7px; }
+    .panel::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border-radius: 7px;
+      border: 3px solid #eef2f7;
+    }
+    .panel::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    /* Top horizontal scrollbar synced to the table below it. */
+    .hscroll-top {
+      overflow-x: auto;
+      overflow-y: hidden;
+      height: 16px;
+      margin-bottom: 4px;
+      scrollbar-width: thin;
+      scrollbar-color: #94a3b8 #eef2f7;
+    }
+    .hscroll-top .hscroll-spacer { height: 1px; }
+    .hscroll-top::-webkit-scrollbar { height: 14px; }
+    .hscroll-top::-webkit-scrollbar-track { background: #eef2f7; border-radius: 7px; }
+    .hscroll-top::-webkit-scrollbar-thumb {
+      background: #94a3b8; border-radius: 7px; border: 3px solid #eef2f7;
+    }
+    .hscroll-top::-webkit-scrollbar-thumb:hover { background: #64748b; }
     table.data {
       width: 100%;
       border-collapse: collapse;
@@ -100,7 +130,25 @@
       text-align: left;
     }
     table.data th.num, table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    /* Numbers and headers stay on one line so columns don't wrap unexpectedly. */
+    table.data td.num, table.data th { white-space: nowrap; }
+    /* Company name under the ticker: cap width but WRAP so the full name is
+       always visible (never hidden). Tune max-width to trade width vs. height. */
+    table.data .name-sub {
+      width: 340px;              /* real width = min-content, cannot be squeezed */
+      max-width: 340px;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      line-height: 1.25;
+    }
     table.data th { color: var(--muted); font-weight: 600; background: #f8fafc; position: sticky; top: 0; }
+    /* Drag-to-resize columns: grab the right edge of any header (col-resize cursor
+       appears there). Widths are locked with table-layout:fixed. */
+    table.data.resizable { table-layout: fixed; width: auto; min-width: 0; }
+    table.data.resizable td { overflow: hidden; }
+    table.data.resizable td.num { text-overflow: ellipsis; }
+    table.data.resizable th { border-right: 1px solid var(--border); }
     .up { color: var(--up); }
     .down { color: var(--down); }
     .flash {
@@ -170,5 +218,132 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </div>
+  <script>
+    // Add a horizontal scrollbar ABOVE each wide table, synced with the panel.
+    document.addEventListener("DOMContentLoaded", function () {
+      document.querySelectorAll(".panel").forEach(function (panel) {
+        if (!panel.querySelector("table")) return;
+        var bar = document.createElement("div");
+        bar.className = "hscroll-top";
+        var spacer = document.createElement("div");
+        spacer.className = "hscroll-spacer";
+        bar.appendChild(spacer);
+        panel.parentNode.insertBefore(bar, panel);
+
+        function sync() {
+          spacer.style.width = panel.scrollWidth + "px";
+          bar.style.display = panel.scrollWidth > panel.clientWidth + 1 ? "block" : "none";
+        }
+        sync();
+        window.addEventListener("resize", sync);
+
+        var lock = false;
+        bar.addEventListener("scroll", function () {
+          if (lock) return; lock = true; panel.scrollLeft = bar.scrollLeft; lock = false;
+        });
+        panel.addEventListener("scroll", function () {
+          if (lock) return; lock = true; bar.scrollLeft = panel.scrollLeft; lock = false;
+        });
+      });
+    });
+
+    // Drag-to-resize table columns; widths persist per table in localStorage.
+    document.addEventListener("DOMContentLoaded", function () {
+      document.querySelectorAll("table.data").forEach(function (table) {
+        if (!table.id || !table.tHead) return;
+        var head = table.tHead.rows[0];
+        if (!head) return;
+        var key = "colw3:" + table.id;   // v3: ignore stale widths from earlier builds
+        var saved = {};
+        try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) {}
+        var ths = Array.prototype.slice.call(head.cells);
+
+        // Control widths via <colgroup><col> — the most reliable way to resize
+        // columns in a fixed-layout table (th inline widths can be ignored).
+        var colgroup = document.createElement("colgroup");
+        var cols = ths.map(function () {
+          var c = document.createElement("col");
+          colgroup.appendChild(c);
+          return c;
+        });
+        table.insertBefore(colgroup, table.firstChild);
+
+        // Measure natural widths (content-based) before fixing the layout.
+        table.style.tableLayout = "auto";
+        table.style.width = "auto";
+        var natural = ths.map(function (th) { return th.offsetWidth; });
+
+        var widths = ths.map(function (th, i) { return saved[i] || natural[i]; });
+        function applyCol(i) { cols[i].style.width = widths[i] + "px"; }
+        function totalWidth() { return widths.reduce(function (a, b) { return a + b; }, 0); }
+        widths.forEach(function (_, i) { applyCol(i); });
+        table.style.tableLayout = "fixed";
+        table.style.width = totalWidth() + "px";
+        table.classList.add("resizable");
+
+        function persist() {
+          try { localStorage.setItem(key, JSON.stringify(saved)); } catch (e) {}
+        }
+
+        var EDGE = 8;            // px zone at a header's right edge
+        var didResize = false;   // true right after a resize, to swallow the click
+
+        // Capture-phase blocker: runs BEFORE the header's own sort click handler,
+        // so a resize (or an edge click) never triggers sorting.
+        table.addEventListener("click", function (e) {
+          if (didResize) { e.stopPropagation(); e.preventDefault(); }
+        }, true);
+
+        ths.forEach(function (th, i) {
+          th.addEventListener("mousemove", function (e) {
+            var rect = th.getBoundingClientRect();
+            th.style.cursor = (rect.right - e.clientX) <= EDGE ? "col-resize" : "";
+          });
+          th.addEventListener("mouseleave", function () { th.style.cursor = ""; });
+
+          th.addEventListener("mousedown", function (e) {
+            var rect = th.getBoundingClientRect();
+            if ((rect.right - e.clientX) > EDGE) return;   // not on the edge
+            e.preventDefault();
+            didResize = true;
+            var moved = false;
+            var startX = e.clientX;
+            var startW = widths[i];
+            document.body.style.cursor = "col-resize";
+            function move(ev) {
+              moved = true;
+              widths[i] = Math.max(40, startW + (ev.clientX - startX));
+              applyCol(i);
+              table.style.width = totalWidth() + "px";
+            }
+            function up() {
+              document.removeEventListener("mousemove", move);
+              document.removeEventListener("mouseup", up);
+              document.body.style.cursor = "";
+              if (moved) {                       // only persist a real drag
+                saved[i] = widths[i];
+                persist();
+                window.dispatchEvent(new Event("resize"));
+              }
+              setTimeout(function () { didResize = false; }, 0);
+            }
+            document.addEventListener("mousemove", move);
+            document.addEventListener("mouseup", up);
+          });
+
+          th.addEventListener("dblclick", function (e) {
+            var rect = th.getBoundingClientRect();
+            if ((rect.right - e.clientX) > EDGE) return;
+            e.preventDefault();
+            delete saved[i];
+            widths[i] = natural[i];
+            applyCol(i);
+            table.style.width = totalWidth() + "px";
+            persist();
+          });
+        });
+      });
+    });
+  </script>
 </body>
 </html>

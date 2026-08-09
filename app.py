@@ -8,25 +8,37 @@ import glob
 import re
 from datetime import datetime, timezone
 
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, session
 import yfinance as yf
 import matplotlib.pyplot as plt
 
 from db import (
     dashboard_meta,
     get_all_settings,
+    get_dashboard_by_tickers,
     get_setting,
+    get_universe_flags,
     init_db,
     list_dashboard,
+    list_oversold,
+    list_pullback,
     set_setting,
     universe_count,
 )
-from market_data import refresh_dashboard_cache
+from market_data import (
+    compute_ai_score,
+    fetch_metrics_for_ticker,
+    get_signals,
+    refresh_dashboard_cache,
+)
 from universe import refresh_universe as rebuild_universe
 
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-online-stock-tracker")
+# Pick up template edits without a full server restart.
+app.config["TEMPLATES_AUTO_RELOAD"] = True
+app.jinja_env.auto_reload = True
 
 init_db()
 
@@ -612,46 +624,76 @@ def home():
     return render_template("home.html")
 
 
+# Market Dashboard tabs (index groups). Order controls the tab order.
+DASHBOARD_GROUPS = ["core", "sp400", "sp600", "tsx"]
+GROUP_LABELS = {
+    "core": "S&P500 + Nasdaq100",
+    "sp400": "Mid Cap · S&P 400",
+    "sp600": "Small Cap · S&P 600",
+    "tsx": "Canada · S&P/TSX Composite",
+}
+
+
+def _normalize_group(value: str | None) -> str:
+    return value if value in DASHBOARD_GROUPS else "core"
+
+
 @app.route("/dashboard")
 def market_dashboard():
     settings = get_all_settings()
-    rows = list_dashboard(order="dist_asc")
+    group = _normalize_group(request.args.get("group"))
+    rows = list_dashboard(order="dist_asc", group=group)
+    tabs = [
+        {
+            "key": key,
+            "label": GROUP_LABELS[key],
+            "count": universe_count(group=key),
+        }
+        for key in DASHBOARD_GROUPS
+    ]
     return render_template(
         "dashboard.html",
         rows=rows,
-        meta=dashboard_meta(),
-        universe_count=universe_count(),
+        meta=dashboard_meta(group=group),
+        universe_count=universe_count(group=group),
         sma_period=int(settings.get("sma_period", 25)),
+        group=group,
+        group_label=GROUP_LABELS[group],
+        tabs=tabs,
     )
 
 
 @app.route("/dashboard/refresh-universe", methods=["POST"])
 def refresh_universe():
+    group = _normalize_group(request.form.get("group"))
     try:
         result = rebuild_universe()
         flash(
-            f"股票池已更新：S&P500 {result['sp500']} + Nasdaq100 {result['ndx100']} → 去重后 {result['unique']} 只",
+            f"股票池已更新：S&P500 {result['sp500']} + Nasdaq100 {result['ndx100']} "
+            f"+ S&P400 {result['sp400']} + S&P600 {result['sp600']} "
+            f"+ TSX {result['tsx']} → 去重后 {result['unique']} 只",
             "ok",
         )
     except Exception as exc:
         flash(f"更新股票池失败：{exc}", "warning")
-    return redirect(url_for("market_dashboard"))
+    return redirect(url_for("market_dashboard", group=group))
 
 
 @app.route("/dashboard/refresh", methods=["POST"])
 def refresh_dashboard():
+    group = _normalize_group(request.form.get("group"))
     try:
         if universe_count() == 0:
             rebuild_universe()
-        result = refresh_dashboard_cache()
+        result = refresh_dashboard_cache(group=group)
         flash(
-            f"行情已刷新：成功 {result['ok']} / 失败 {result['errors']} "
-            f"（SMA{result['sma_period']}，股票池 {result['universe']}）",
+            f"行情已刷新（{GROUP_LABELS[group]}）：成功 {result['ok']} / 失败 {result['errors']} "
+            f"（SMA{result['sma_period']}，本组 {result['universe']} 只）",
             "ok",
         )
     except Exception as exc:
         flash(f"刷新行情失败：{exc}", "warning")
-    return redirect(url_for("market_dashboard"))
+    return redirect(url_for("market_dashboard", group=group))
 
 
 @app.route("/settings", methods=["GET", "POST"])
@@ -684,9 +726,131 @@ def settings():
     )
 
 
-@app.route("/watchlist")
+# Group ③ — long-term saved names (hardcoded until per-user accounts exist).
+MY_WATCHLIST = ["AAPL", "NVDA"]
+MAX_TEMP_TICKERS = 20
+MAX_AUTO_ROWS = 30  # cap oversold/pullback rows we enrich live (bounds page latency)
+
+
+def _pools_label(row: dict) -> str:
+    labels = []
+    if row.get("in_sp500"):
+        labels.append("S&P500")
+    if row.get("in_ndx100"):
+        labels.append("Nasdaq100")
+    if row.get("in_sp400"):
+        labels.append("S&P400")
+    if row.get("in_sp600"):
+        labels.append("S&P600")
+    if row.get("in_tsx"):
+        labels.append("TSX")
+    return " / ".join(labels) if labels else "—"
+
+
+def _enrich(row: dict) -> dict:
+    row = dict(row)
+    row["pools"] = _pools_label(row)
+    return row
+
+
+def _rows_for_tickers(tickers: list[str]) -> list[dict]:
+    """Build watchlist rows for explicit tickers: prefer cache, else fetch live."""
+    clean = []
+    seen = set()
+    for t in tickers:
+        t = (t or "").strip().upper()
+        if t and t not in seen and validate_ticker_format(t):
+            seen.add(t)
+            clean.append(t)
+    if not clean:
+        return []
+
+    cached = get_dashboard_by_tickers(clean)
+    flags = get_universe_flags(clean)
+    settings_data = get_all_settings()
+    sma = int(settings_data.get("sma_period", 25))
+    reb = int(settings_data.get("rebound_lookback", sma))
+
+    out = []
+    for t in clean:
+        if t in cached:
+            out.append(_enrich(cached[t]))
+            continue
+        meta = flags.get(t, {})
+        metrics = fetch_metrics_for_ticker(t, sma_period=sma, rebound_lookback=reb, meta=meta)
+        if metrics:
+            merged = dict(metrics)
+            merged.update({k: meta.get(k) for k in ("in_sp500", "in_ndx100", "in_sp400", "in_sp600", "in_tsx")})
+            out.append(_enrich(merged))
+        else:
+            out.append({"ticker": t, "pools": "—", "not_found": True})
+    return out
+
+
+@app.route("/watchlist", methods=["GET", "POST"])
 def watchlist():
-    return render_template("watchlist.html")
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "add_temp":
+            temp = list(session.get("temp_watchlist", []))
+            for t in parse_ticker_input(request.form.get("temp_tickers", "")):
+                t = t.upper()
+                if validate_ticker_format(t) and t not in temp:
+                    temp.append(t)
+            session["temp_watchlist"] = temp[:MAX_TEMP_TICKERS]
+        elif action == "clear_temp":
+            session.pop("temp_watchlist", None)
+        return redirect(url_for("watchlist"))
+
+    settings_data = get_all_settings()
+    sma_period = int(settings_data.get("sma_period", 25))
+    temp_tickers = session.get("temp_watchlist", [])
+
+    tab = request.args.get("tab", "oversold")
+    if tab not in ("oversold", "pullback", "mine", "temp"):
+        tab = "oversold"
+
+    # Cheap cache-only lists (no live fetch) — used for data and tab counts.
+    oversold = [_enrich(r) for r in list_oversold(-20.0)]
+    pullback = [_enrich(r) for r in list_pullback(-3.0)]
+
+    # Live-fetch groups only build rows for the active tab (they hit Yahoo).
+    rows = []
+    if tab == "oversold":
+        rows = oversold[:MAX_AUTO_ROWS]
+    elif tab == "pullback":
+        rows = pullback[:MAX_AUTO_ROWS]
+    elif tab == "mine":
+        rows = _rows_for_tickers(MY_WATCHLIST)
+    elif tab == "temp":
+        rows = _rows_for_tickers(temp_tickers)
+
+    # Enrich only the rows we actually show with fundamentals (财报) + news (新闻).
+    signals = get_signals([r["ticker"] for r in rows if r.get("ticker")])
+    for r in rows:
+        sig = signals.get(r.get("ticker"))
+        if sig:
+            r["fund"] = sig.get("fund")
+            r["news"] = sig.get("news")
+        if not r.get("not_found"):
+            r["ai"] = compute_ai_score(r)
+
+    tabs = [
+        {"key": "oversold", "label": "🔻 超卖建议", "count": len(oversold)},
+        {"key": "pullback", "label": "🟢 强势回调", "count": len(pullback)},
+        {"key": "mine", "label": "⭐ 我的自选", "count": len(MY_WATCHLIST)},
+        {"key": "temp", "label": "🕒 临时", "count": len(temp_tickers)},
+    ]
+
+    return render_template(
+        "watchlist.html",
+        sma_period=sma_period,
+        tab=tab,
+        tabs=tabs,
+        rows=rows,
+        temp_tickers=temp_tickers,
+        max_temp=MAX_TEMP_TICKERS,
+    )
 
 
 if __name__ == "__main__":
