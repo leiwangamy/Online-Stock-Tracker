@@ -85,14 +85,33 @@
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 12px;
+      padding: 12px 0; /* no L/R padding — sticky left must sit on the clip edge */
       /* Contained scroll box: sticky header stays up top. Horizontal scroll is
          driven by a synced scrollbar placed ABOVE the table (.hscroll-top). */
       max-height: 78vh;
       overflow-x: hidden;
       overflow-y: auto;
+      position: relative;
+      z-index: 1;
+      isolation: isolate;
       scrollbar-width: thin;
       scrollbar-color: #94a3b8 #eef2f7;
+    }
+    /* Keep scrollbar + panel grouped; do not clip sticky headers inside panel. */
+    .table-shell {
+      position: relative;
+      overflow: visible;
+      border-radius: 8px;
+    }
+    .table-shell > .panel {
+      border-radius: 0 0 8px 8px;
+      margin: 0;
+    }
+    .table-shell > .hscroll-top {
+      border-radius: 8px 8px 0 0;
+      margin-bottom: 0;
+      border-bottom: 1px solid var(--border);
+      z-index: 50;
     }
     .panel::-webkit-scrollbar { width: 14px; height: 14px; }
     .panel::-webkit-scrollbar-track { background: #eef2f7; border-radius: 7px; }
@@ -104,23 +123,29 @@
     .panel::-webkit-scrollbar-thumb:hover { background: #64748b; }
     /* Top horizontal scrollbar synced to the table below it. */
     .hscroll-top {
+      position: relative;
+      z-index: 50; /* stay above sticky freeze columns in the panel */
       overflow-x: auto;
       overflow-y: hidden;
-      height: 16px;
-      margin-bottom: 4px;
-      scrollbar-width: thin;
-      scrollbar-color: #94a3b8 #eef2f7;
+      height: 18px;
+      margin-bottom: 6px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #e2e8f0;
+      scrollbar-width: auto;
+      scrollbar-color: #64748b #e2e8f0;
     }
     .hscroll-top .hscroll-spacer { height: 1px; }
     .hscroll-top::-webkit-scrollbar { height: 14px; }
-    .hscroll-top::-webkit-scrollbar-track { background: #eef2f7; border-radius: 7px; }
+    .hscroll-top::-webkit-scrollbar-track { background: #e2e8f0; border-radius: 7px; }
     .hscroll-top::-webkit-scrollbar-thumb {
-      background: #94a3b8; border-radius: 7px; border: 3px solid #eef2f7;
+      background: #64748b; border-radius: 7px; border: 2px solid #e2e8f0;
     }
-    .hscroll-top::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    .hscroll-top::-webkit-scrollbar-thumb:hover { background: #475569; }
     table.data {
       width: 100%;
-      border-collapse: collapse;
+      border-collapse: separate; /* required for opaque sticky freeze cols */
+      border-spacing: 0;
       font-size: 0.9rem;
       min-width: 720px;
     }
@@ -142,7 +167,67 @@
       word-break: break-word;
       line-height: 1.25;
     }
-    table.data th { color: var(--muted); font-weight: 600; background: #f8fafc; position: sticky; top: 0; }
+    /* Sticky header must sit ABOVE all body cells (incl. freeze td z-index). */
+    table.data thead th {
+      color: var(--muted);
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background-color: #f8fafc !important;
+      background-image: none !important;
+      /* Upward curtain fills the gap under the top scrollbar so row text cannot leak. */
+      box-shadow:
+        0 -20px 0 0 #f8fafc,
+        0 1px 0 var(--border);
+    }
+    /* Only body cells — never reset thead th (would kill sticky headers). */
+    table.data td:not(.freeze-col) {
+      position: relative;
+      z-index: 0;
+    }
+    /* Freeze body cells: above scrolling cells, below ALL headers. */
+    table.data td.freeze-col {
+      position: sticky;
+      left: 0;
+      z-index: 5;
+      background-color: #ffffff !important;
+      background-image: none !important;
+      background-clip: border-box !important;
+      overflow: hidden;
+      box-shadow: 2px 0 6px rgba(15, 23, 42, 0.14);
+    }
+    table.data td.freeze-col.freeze-edge {
+      box-shadow:
+        -40px 0 0 0 #ffffff,
+        2px 0 6px rgba(15, 23, 42, 0.14);
+    }
+    table.data td.freeze-col .name-sub {
+      width: auto;
+      max-width: 100%;
+    }
+    /* Freeze header corner: highest layer + left & up curtains. */
+    table.data thead th.freeze-col {
+      left: 0;
+      z-index: 30;
+      background-color: #f8fafc !important;
+      overflow: hidden;
+      box-shadow:
+        -40px 0 0 0 #f8fafc,
+        0 -20px 0 0 #f8fafc,
+        2px 0 6px rgba(15, 23, 42, 0.14),
+        0 1px 0 var(--border);
+    }
+    table.data thead th.freeze-col.freeze-edge {
+      box-shadow:
+        -40px 0 0 0 #f8fafc,
+        0 -20px 0 0 #f8fafc,
+        2px 0 6px rgba(15, 23, 42, 0.14),
+        0 1px 0 var(--border);
+    }
+    table.data.resizable td.freeze-col {
+      overflow: hidden;
+    }
     /* Drag-to-resize columns: grab the right edge of any header (col-resize cursor
        appears there). Widths are locked with table-layout:fixed. */
     table.data.resizable { table-layout: fixed; width: auto; min-width: 0; }
@@ -219,31 +304,72 @@
     {% block content %}{% endblock %}
   </div>
   <script>
-    // Add a horizontal scrollbar ABOVE each wide table, synced with the panel.
+    // Add a horizontal scrollbar ABOVE each wide table, synced with the scroll parent.
     document.addEventListener("DOMContentLoaded", function () {
       document.querySelectorAll(".panel").forEach(function (panel) {
-        if (!panel.querySelector("table")) return;
+        var table = panel.querySelector("table");
+        if (!table) return;
+        // Prefer an inner .table-scroll if present; otherwise the panel itself.
+        var scroller = panel.querySelector(".table-scroll") || panel;
         var bar = document.createElement("div");
         bar.className = "hscroll-top";
+        bar.setAttribute("title", "左右拖动查看更多列");
         var spacer = document.createElement("div");
         spacer.className = "hscroll-spacer";
         bar.appendChild(spacer);
-        panel.parentNode.insertBefore(bar, panel);
+        // Wrap scrollbar + panel so sticky layers cannot paint outside.
+        var shell = document.createElement("div");
+        shell.className = "table-shell";
+        panel.parentNode.insertBefore(shell, panel);
+        shell.appendChild(bar);
+        shell.appendChild(panel);
 
+        function contentWidth() {
+          return Math.max(table.scrollWidth, table.offsetWidth);
+        }
         function sync() {
-          spacer.style.width = panel.scrollWidth + "px";
-          bar.style.display = panel.scrollWidth > panel.clientWidth + 1 ? "block" : "none";
+          var w = contentWidth();
+          spacer.style.width = w + "px";
+          bar.style.display = w > scroller.clientWidth + 1 ? "block" : "none";
         }
         sync();
         window.addEventListener("resize", sync);
+        // Re-measure after column-resize script finishes.
+        setTimeout(sync, 0);
+        setTimeout(sync, 200);
 
         var lock = false;
         bar.addEventListener("scroll", function () {
-          if (lock) return; lock = true; panel.scrollLeft = bar.scrollLeft; lock = false;
+          if (lock) return; lock = true; scroller.scrollLeft = bar.scrollLeft; lock = false;
         });
-        panel.addEventListener("scroll", function () {
-          if (lock) return; lock = true; bar.scrollLeft = panel.scrollLeft; lock = false;
+        scroller.addEventListener("scroll", function () {
+          if (lock) return; lock = true; bar.scrollLeft = scroller.scrollLeft; lock = false;
         });
+      });
+
+      // Keep multi-column freeze offsets in sync with resized widths.
+      window.updateFreezeColOffsets = function (table) {
+        if (!table || !table.tHead) return;
+        var head =
+          table.tHead.querySelector("tr.col-row") ||
+          table.tHead.rows[table.tHead.rows.length - 1];
+        if (!head) return;
+        var left = 0;
+        Array.prototype.forEach.call(head.cells, function (th, i) {
+          if (!th.classList.contains("freeze-col")) return;
+          var isEdge = left < 0.5;
+          Array.prototype.forEach.call(table.rows, function (tr) {
+            var cell = tr.cells[i];
+            if (cell && cell.classList.contains("freeze-col")) {
+              cell.style.left = left + "px";
+              cell.classList.toggle("freeze-edge", isEdge);
+            }
+          });
+          left += th.getBoundingClientRect().width;
+        });
+      };
+      document.querySelectorAll("table.data").forEach(function (t) {
+        window.updateFreezeColOffsets(t);
       });
     });
 
@@ -251,9 +377,21 @@
     document.addEventListener("DOMContentLoaded", function () {
       document.querySelectorAll("table.data").forEach(function (table) {
         if (!table.id || !table.tHead) return;
-        var head = table.tHead.rows[0];
-        if (!head) return;
-        var key = "colw3:" + table.id;   // v3: ignore stale widths from earlier builds
+        // Prefer the leaf column header row (two-level thead); never the colspan group row.
+        var head =
+          table.tHead.querySelector("tr.col-row") ||
+          Array.prototype.slice.call(table.tHead.rows).sort(function (a, b) {
+            return b.cells.length - a.cells.length;
+          })[0];
+        if (!head || head.cells.length < 2) return;
+        // Skip if this row is mostly colspans (group labels).
+        var spanSum = 0;
+        Array.prototype.forEach.call(head.cells, function (c) {
+          spanSum += c.colSpan || 1;
+        });
+        if (head.cells.length < spanSum * 0.6) return;
+
+        var key = "colw5:" + table.id;   // v5: Market Data dual-header + 63D columns
         var saved = {};
         try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) {}
         var ths = Array.prototype.slice.call(head.cells);
@@ -271,7 +409,7 @@
         // Measure natural widths (content-based) before fixing the layout.
         table.style.tableLayout = "auto";
         table.style.width = "auto";
-        var natural = ths.map(function (th) { return th.offsetWidth; });
+        var natural = ths.map(function (th) { return Math.max(48, th.offsetWidth); });
 
         var widths = ths.map(function (th, i) { return saved[i] || natural[i]; });
         function applyCol(i) { cols[i].style.width = widths[i] + "px"; }
@@ -280,6 +418,7 @@
         table.style.tableLayout = "fixed";
         table.style.width = totalWidth() + "px";
         table.classList.add("resizable");
+        if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
 
         function persist() {
           try { localStorage.setItem(key, JSON.stringify(saved)); } catch (e) {}
@@ -315,6 +454,7 @@
               widths[i] = Math.max(40, startW + (ev.clientX - startX));
               applyCol(i);
               table.style.width = totalWidth() + "px";
+              if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
             }
             function up() {
               document.removeEventListener("mousemove", move);
@@ -323,6 +463,7 @@
               if (moved) {                       // only persist a real drag
                 saved[i] = widths[i];
                 persist();
+                if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
                 window.dispatchEvent(new Event("resize"));
               }
               setTimeout(function () { didResize = false; }, 0);
@@ -339,6 +480,7 @@
             widths[i] = natural[i];
             applyCol(i);
             table.style.width = totalWidth() + "px";
+            if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
             persist();
           });
         });

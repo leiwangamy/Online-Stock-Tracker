@@ -8,26 +8,32 @@ import glob
 import re
 from datetime import datetime, timezone
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 import yfinance as yf
 import matplotlib.pyplot as plt
 
 from db import (
+    alert_status,
     dashboard_meta,
+    get_alert_prices,
     get_all_settings,
     get_dashboard_by_tickers,
     get_setting,
     get_universe_flags,
     init_db,
     list_dashboard,
-    list_oversold,
-    list_pullback,
+    list_setup,
+    list_low_target_ratio,
     set_setting,
     universe_count,
+    upsert_alert_price,
 )
 from market_data import (
     compute_ai_score,
+    compute_row_mos,
     fetch_metrics_for_ticker,
+    get_fund_cached_only,
+    get_news_cached_only,
     get_signals,
     refresh_dashboard_cache,
 )
@@ -41,6 +47,14 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.jinja_env.auto_reload = True
 
 init_db()
+
+# Background auto-refresh (weekly names + weekday EOD prices) while the app runs.
+try:
+    from scheduler import start_scheduler
+
+    start_scheduler()
+except Exception:
+    pass
 
 DEFAULT_USD_STOCKS = ["MSFT"]
 DEFAULT_CAD_STOCKS = ["TD.TO"]
@@ -696,8 +710,42 @@ def refresh_dashboard():
     return redirect(url_for("market_dashboard", group=group))
 
 
+@app.route("/refresh/all-prices", methods=["POST"])
+def refresh_all_prices():
+    """
+    Manual: refresh ALL index-pool dashboard prices + Watchlist (incl. MANUAL).
+    Same job as weekday EOD schedule (update_jobs.job_refresh_prices).
+    """
+    nxt = (request.form.get("next") or "").strip()
+    # Only allow internal relative redirects
+    if not nxt.startswith("/") or nxt.startswith("//"):
+        nxt = url_for("market_dashboard")
+    try:
+        from update_jobs import job_refresh_prices
+
+        result = job_refresh_prices(max_workers=4)
+        flash(
+            f"全部股池行情已刷新：成功 {result.get('ok')} / 失败 {result.get('errors')} "
+            f"（共 {result.get('universe')} 只）· "
+            f"Watchlist 成功 {result.get('watchlist_ok')} / 失败 {result.get('watchlist_errors')}",
+            "ok",
+        )
+    except Exception as exc:
+        flash(f"全部股池 / Watchlist 刷新失败：{exc}", "warning")
+    return redirect(nxt)
+
+
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
+    weekdays = [
+        ("mon", "周一"),
+        ("tue", "周二"),
+        ("wed", "周三"),
+        ("thu", "周四"),
+        ("fri", "周五"),
+        ("sat", "周六"),
+        ("sun", "周日"),
+    ]
     if request.method == "POST":
         try:
             sma_period = int(request.form.get("sma_period", 25))
@@ -709,8 +757,32 @@ def settings():
             set_setting("sma_period", sma_period)
             set_setting("rebound_lookback", rebound_lookback)
             set_setting("data_source", "yahoo")
+
+            weekday = (request.form.get("schedule_universe_weekday") or "sun").lower()
+            if weekday not in {w[0] for w in weekdays}:
+                raise ValueError("公司名更新星期无效")
+            u_hour = int(request.form.get("schedule_universe_hour", 10))
+            u_min = int(request.form.get("schedule_universe_minute", 0))
+            p_hour = int(request.form.get("schedule_price_hour", 13))
+            p_min = int(request.form.get("schedule_price_minute", 15))
+            for label, h, m in (
+                ("公司名更新时间", u_hour, u_min),
+                ("收盘行情时间", p_hour, p_min),
+            ):
+                if not (0 <= h <= 23 and 0 <= m <= 59):
+                    raise ValueError(f"{label}无效")
+            set_setting("schedule_universe_weekday", weekday)
+            set_setting("schedule_universe_hour", u_hour)
+            set_setting("schedule_universe_minute", u_min)
+            set_setting("schedule_price_hour", p_hour)
+            set_setting("schedule_price_minute", p_min)
+
             flash(
-                f"已保存：SMA={sma_period}，反弹回看={rebound_lookback}。请到 Market Dashboard 重新刷新行情。",
+                f"已保存：SMA={sma_period}，反弹回看={rebound_lookback}。"
+                f"自动更新：公司名每周{dict(weekdays)[weekday]} "
+                f"{u_hour:02d}:{u_min:02d}（太平洋时间）；"
+                f"列表行情工作日 {p_hour:02d}:{p_min:02d}（太平洋时间，美股收盘后）。"
+                "重启应用后日程生效；Windows 计划任务也会按安装时的时间运行。",
                 "ok",
             )
             return redirect(url_for("settings"))
@@ -718,21 +790,40 @@ def settings():
             flash(f"保存失败：{exc}", "warning")
 
     settings_data = get_all_settings()
+    try:
+        from scheduler import scheduler_status
+
+        sched = scheduler_status()
+    except Exception:
+        sched = {"enabled": False, "running": False, "jobs": []}
     return render_template(
         "settings.html",
         sma_period=int(settings_data.get("sma_period", 25)),
         rebound_lookback=int(settings_data.get("rebound_lookback", 25)),
         presets=settings_data.get("sma_presets", [25, 50, 63, 90]),
+        weekdays=weekdays,
+        schedule_universe_weekday=str(settings_data.get("schedule_universe_weekday", "sun")),
+        schedule_universe_hour=int(settings_data.get("schedule_universe_hour", 10)),
+        schedule_universe_minute=int(settings_data.get("schedule_universe_minute", 0)),
+        schedule_price_hour=int(settings_data.get("schedule_price_hour", 13)),
+        schedule_price_minute=int(settings_data.get("schedule_price_minute", 15)),
+        scheduler=sched,
     )
 
 
-# Group ③ — long-term saved names (hardcoded until per-user accounts exist).
-MY_WATCHLIST = ["AAPL", "NVDA"]
+# Group ③ — long-term saved names (see watchlist_config; shared with update_jobs).
+from watchlist_config import MY_WATCHLIST, collect_watchlist_tickers
+
 MAX_TEMP_TICKERS = 20
-MAX_AUTO_ROWS = 30  # cap oversold/pullback rows we enrich live (bounds page latency)
+MAX_AUTO_ROWS = 30  # cap auto setup rows we enrich live (bounds page latency)
+# Progressive fill per page load; full Watchlist is warmed by batch_watchlist_valuations.py
+# using the same ensure_valuations / ensure_clvs engines (single source of truth).
+VALUATION_MAX_NEW_PER_REQUEST = 8
+CLV_MAX_NEW_PER_REQUEST = 8
 
 
 def _pools_label(row: dict) -> str:
+    """Index membership for display. Tickers outside our universe pools → MANUAL."""
     labels = []
     if row.get("in_sp500"):
         labels.append("S&P500")
@@ -744,7 +835,7 @@ def _pools_label(row: dict) -> str:
         labels.append("S&P600")
     if row.get("in_tsx"):
         labels.append("TSX")
-    return " / ".join(labels) if labels else "—"
+    return " / ".join(labels) if labels else "MANUAL"
 
 
 def _enrich(row: dict) -> dict:
@@ -754,7 +845,11 @@ def _enrich(row: dict) -> dict:
 
 
 def _rows_for_tickers(tickers: list[str]) -> list[dict]:
-    """Build watchlist rows for explicit tickers: prefer cache, else fetch live."""
+    """Build watchlist rows for explicit tickers: prefer fresh cache, else fetch live."""
+    import valuation_config as cfg
+    from db import save_dashboard_rows
+    from market_data import resolve_watchlist_mos_price
+
     clean = []
     seen = set()
     for t in tickers:
@@ -770,20 +865,43 @@ def _rows_for_tickers(tickers: list[str]) -> list[dict]:
     settings_data = get_all_settings()
     sma = int(settings_data.get("sma_period", 25))
     reb = int(settings_data.get("rebound_lookback", sma))
+    stale_limit = float(getattr(cfg, "MOS_PRICE_STALE_HOURS", 72))
 
     out = []
+    refreshed: list[dict] = []
     for t in clean:
-        if t in cached:
-            out.append(_enrich(cached[t]))
+        row = cached.get(t)
+        use_cache = False
+        if row and row.get("price") is not None:
+            mos_px = resolve_watchlist_mos_price(row, stale_hours=stale_limit)
+            use_cache = not mos_px.get("stale")
+        if use_cache:
+            enriched = _enrich(row)
+            enriched.setdefault("price_source", "dashboard_cache")
+            out.append(enriched)
             continue
         meta = flags.get(t, {})
         metrics = fetch_metrics_for_ticker(t, sma_period=sma, rebound_lookback=reb, meta=meta)
         if metrics:
             merged = dict(metrics)
-            merged.update({k: meta.get(k) for k in ("in_sp500", "in_ndx100", "in_sp400", "in_sp600", "in_tsx")})
+            merged.update(
+                {k: meta.get(k) for k in ("in_sp500", "in_ndx100", "in_sp400", "in_sp600", "in_tsx")}
+            )
+            merged["price_source"] = "live_yahoo"
             out.append(_enrich(merged))
+            refreshed.append(merged)
+        elif row:
+            # Live fetch failed — keep stale cache rather than blanking the row
+            enriched = _enrich(row)
+            enriched.setdefault("price_source", "dashboard_cache_stale")
+            out.append(enriched)
         else:
-            out.append({"ticker": t, "pools": "—", "not_found": True})
+            out.append({"ticker": t, "pools": "MANUAL", "not_found": True})
+    if refreshed:
+        try:
+            save_dashboard_rows(refreshed, replace_all=False)
+        except Exception:
+            pass
     return out
 
 
@@ -806,38 +924,176 @@ def watchlist():
     sma_period = int(settings_data.get("sma_period", 25))
     temp_tickers = session.get("temp_watchlist", [])
 
-    tab = request.args.get("tab", "oversold")
-    if tab not in ("oversold", "pullback", "mine", "temp"):
-        tab = "oversold"
+    tab = request.args.get("tab", "setup")
+    # Legacy bookmarks: oversold / pullback → merged setup tab
+    if tab in ("oversold", "pullback"):
+        tab = "setup"
+    if tab not in ("setup", "low_target", "mine", "temp"):
+        tab = "setup"
 
     # Cheap cache-only lists (no live fetch) — used for data and tab counts.
-    oversold = [_enrich(r) for r in list_oversold(-20.0)]
-    pullback = [_enrich(r) for r in list_pullback(-3.0)]
+    setup = [_enrich(r) for r in list_setup(-10.0)]
+    for r in setup:
+        r.setdefault("price_source", "dashboard_cache")
+    low_target = [_enrich(r) for r in list_low_target_ratio(0.8)]
+    for r in low_target:
+        r.setdefault("price_source", "dashboard_cache")
 
     # Live-fetch groups only build rows for the active tab (they hit Yahoo).
     rows = []
-    if tab == "oversold":
-        rows = oversold[:MAX_AUTO_ROWS]
-    elif tab == "pullback":
-        rows = pullback[:MAX_AUTO_ROWS]
+    skip_heavy = False  # 新闻 / DCF / CLV / AI（及 live 财报抓取）
+    fund_cache_only = False
+    if tab == "setup":
+        rows = setup[:MAX_AUTO_ROWS]
+    elif tab == "low_target":
+        # Lightweight: all ratio hits; 财报 from existing cache only (no refetch).
+        rows = low_target
+        skip_heavy = True
+        fund_cache_only = True
     elif tab == "mine":
         rows = _rows_for_tickers(MY_WATCHLIST)
     elif tab == "temp":
         rows = _rows_for_tickers(temp_tickers)
 
-    # Enrich only the rows we actually show with fundamentals (财报) + news (新闻).
-    signals = get_signals([r["ticker"] for r in rows if r.get("ticker")])
+    signals = {}
+    iv_results = {}
+    clv_results = {}
+    fund_cache_hits = 0
+    fund_cache_total = len(rows)
+    low_target_ms = None
+    if fund_cache_only:
+        import time as _time
+
+        t0 = _time.perf_counter()
+        tickers = [r["ticker"] for r in rows if r.get("ticker")]
+        fund_map = get_fund_cached_only(tickers)
+        news_map = get_news_cached_only(tickers)
+        for r in rows:
+            f = fund_map.get((r.get("ticker") or "").upper())
+            r["fund"] = f
+            if f and f.get("health") != "unknown":
+                fund_cache_hits += 1
+            # News only for Financial green (health=good); yellow/red stay empty.
+            if f and f.get("health") == "good":
+                r["news"] = news_map.get((r.get("ticker") or "").upper())
+            else:
+                r["news"] = None
+            r["est_value"] = None
+            r["bear_value"] = None
+            r["bull_value"] = None
+            r["mos_pct"] = None
+            r["est_tooltip"] = "本页暂不计算估值（DCF）"
+            r["clv"] = None
+            r["clv_pct_price"] = None
+            r["clv_tooltip"] = "本页暂不计算 CLV"
+            r["dcf_below_clv"] = False
+            r["ai"] = None
+        low_target_ms = int((_time.perf_counter() - t0) * 1000)
+    elif not skip_heavy:
+        # Enrich only the rows we actually show with fundamentals (财报) + news (新闻).
+        signals = get_signals([r["ticker"] for r in rows if r.get("ticker")])
+        # Valuation Engine V1 (DCF-FCFF) — cached; MOS% follows current price.
+        tickers_shown = [r["ticker"] for r in rows if r.get("ticker") and not r.get("not_found")]
+        try:
+            from valuation_engine import ensure_valuations
+
+            # Same production engines as batch_watchlist_valuations.py (DCF v1.3 / CLV).
+            # Slow cache; max_new only bounds cold-fill latency — not a separate formula.
+            iv_results = ensure_valuations(
+                tickers_shown, force=False, max_new=VALUATION_MAX_NEW_PER_REQUEST
+            )
+        except Exception:
+            iv_results = {}
+        try:
+            from clv_engine import ensure_clvs
+
+            clv_results = ensure_clvs(
+                tickers_shown, force=False, max_new=CLV_MAX_NEW_PER_REQUEST
+            )
+        except Exception:
+            clv_results = {}
+
     for r in rows:
+        if skip_heavy:
+            continue
+
         sig = signals.get(r.get("ticker"))
         if sig:
             r["fund"] = sig.get("fund")
             r["news"] = sig.get("news")
+        vr = iv_results.get(r.get("ticker") or "")
+        # Est.Value from slow valuation cache; MOS always from this row's Current Price
+        mos_info = compute_row_mos(
+            getattr(vr, "est_value", None) if (vr is not None and getattr(vr, "ok", False)) else None,
+            r,
+        )
+        r["mos_price"] = mos_info["price"]
+        r["mos_price_source"] = mos_info["source"]
+        r["mos_price_as_of"] = mos_info["as_of"]
+        r["mos_price_age_hours"] = mos_info.get("age_hours")
+        r["mos_stale"] = bool(mos_info.get("stale"))
+        r["mos_stale_reason"] = mos_info.get("stale_reason")
+        if vr is not None and getattr(vr, "ok", False):
+            r["est_value"] = getattr(vr, "est_value", None)
+            r["bear_value"] = getattr(vr, "bear_value", None)
+            r["bull_value"] = getattr(vr, "bull_value", None)
+            r["mos_pct"] = mos_info["mos_pct"]  # None when price stale
+            try:
+                r["est_tooltip"] = vr.tooltip() if hasattr(vr, "tooltip") else ""
+            except Exception:
+                r["est_tooltip"] = "Valuation available"
+        else:
+            reason = getattr(vr, "failure_reason", None) if vr is not None else None
+            r["est_value"] = None
+            r["bear_value"] = None
+            r["bull_value"] = None
+            r["mos_pct"] = None
+            if vr is not None and hasattr(vr, "tooltip"):
+                try:
+                    r["est_tooltip"] = vr.tooltip()
+                except Exception:
+                    r["est_tooltip"] = reason or "Valuation unavailable"
+            else:
+                r["est_tooltip"] = reason or "Valuation unavailable"
+
+        # CLV (independent of DCF) + cross-check warning only
+        cr = clv_results.get(r.get("ticker") or "")
+        r["clv"] = None
+        r["clv_pct_price"] = None
+        r["clv_tooltip"] = "CLV unavailable"
+        r["dcf_below_clv"] = False
+        if cr is not None:
+            try:
+                px = r.get("price")
+                r["clv_tooltip"] = cr.tooltip(px if isinstance(px, (int, float)) else None)
+            except Exception:
+                r["clv_tooltip"] = cr.failure_reason or "CLV unavailable"
+            if getattr(cr, "ok", False) and cr.clv_per_share is not None:
+                r["clv"] = cr.clv_per_share
+                if r.get("price") and r["price"] > 0:
+                    r["clv_pct_price"] = round(cr.clv_per_share / float(r["price"]) * 100, 1)
+                if r.get("est_value") is not None and r["est_value"] < cr.clv_per_share:
+                    r["dcf_below_clv"] = True
+                    warn = "DCF below conservative asset floor — review valuation assumptions"
+                    r["est_tooltip"] = (r.get("est_tooltip") or "") + "\n" + warn
+                    r["clv_tooltip"] = (r.get("clv_tooltip") or "") + "\n" + warn
+            elif cr.failure_reason:
+                r["clv_tooltip"] = cr.tooltip()
+
         if not r.get("not_found"):
             r["ai"] = compute_ai_score(r)
 
+    # Attach manual Alert Prices (independent of valuation / AI).
+    alert_map = get_alert_prices([r.get("ticker") for r in rows if r.get("ticker")])
+    for r in rows:
+        t = (r.get("ticker") or "").upper()
+        ap = alert_map.get(t)
+        r["alert_price"] = ap
+        r["alert"] = alert_status(r.get("price"), ap)
+
     tabs = [
-        {"key": "oversold", "label": "🔻 超卖建议", "count": len(oversold)},
-        {"key": "pullback", "label": "🟢 强势回调", "count": len(pullback)},
+        {"key": "setup", "label": "🔻 超卖 / 强势回调", "count": len(setup)},
+        {"key": "low_target", "label": "🎯 Target Ratio < 80%", "count": len(low_target)},
         {"key": "mine", "label": "⭐ 我的自选", "count": len(MY_WATCHLIST)},
         {"key": "temp", "label": "🕒 临时", "count": len(temp_tickers)},
     ]
@@ -850,6 +1106,47 @@ def watchlist():
         rows=rows,
         temp_tickers=temp_tickers,
         max_temp=MAX_TEMP_TICKERS,
+        mine_list_label="、".join(MY_WATCHLIST),
+        fund_cache_hits=fund_cache_hits,
+        fund_cache_total=fund_cache_total,
+        low_target_ms=low_target_ms,
+        show_alert=(tab == "mine"),
+    )
+
+
+@app.route("/watchlist/alert-price", methods=["POST"])
+def watchlist_alert_price():
+    """Inline save/clear for manual Alert Price (我的自选). JSON only."""
+    data = request.get_json(silent=True) or {}
+    ticker = (data.get("ticker") or request.form.get("ticker") or "").strip().upper()
+    raw = data.get("alert_price", request.form.get("alert_price", ""))
+    if isinstance(raw, str):
+        raw = raw.strip().replace("$", "").replace(",", "")
+    try:
+        if raw is None or raw == "":
+            price = None
+        else:
+            price = float(raw)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid alert_price"}), 400
+    try:
+        stored = upsert_alert_price(ticker, price)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    # Optional live status if client sent current price
+    cur = data.get("price")
+    try:
+        cur_f = float(cur) if cur is not None and cur != "" else None
+    except (TypeError, ValueError):
+        cur_f = None
+    st = alert_status(cur_f, stored)
+    return jsonify(
+        {
+            "ok": True,
+            "ticker": ticker,
+            "alert_price": stored,
+            "alert": st,
+        }
     )
 
 

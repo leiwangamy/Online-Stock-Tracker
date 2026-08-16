@@ -40,12 +40,62 @@
     .rtag { display: inline-block; margin-left: 4px; font-size: 0.72rem; padding: 1px 5px; border-radius: 4px; white-space: nowrap; }
     .rtag.good { background: #dcfce7; color: #166534; }
     .rtag.flag { background: #fef3c7; color: #92400e; }
-    /* === 列宽微调（改这里的 px 即可）=== 列序：1# 2股票 3行业 4趋势 5现价
-       6市值 7均值 8当日% 9RVOL 10日均波动 11 20D均量 12离均值% 13反弹率 14财报日。
-       同时改表头(th)和单元格(td)才生效。 */
+    /* === 列宽微调（改这里的 px 即可）===
+       列序：0# 1股票 2行业 | 3趋势 4现价 5市值 6均值 7当日% 8离均值%
+       | 9–11 63D Low/High/Pos 12反弹率 13RVOL 14 20D均量 15日均波动 | 16财报日 */
+    #dash-table {
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+    #dash-table thead tr.group-row th {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #e8eef5;
+      color: #475569;
+      text-align: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid #dbe3ee;
+      padding-top: 6px;
+      padding-bottom: 6px;
+      box-shadow: 0 -20px 0 0 #e8eef5, 0 1px 0 var(--border);
+    }
+    #dash-table thead tr.col-row th {
+      position: sticky;
+      top: 28px;
+      z-index: 20;
+      background-color: #f8fafc !important;
+      box-shadow: 0 -2px 0 0 #f8fafc, 0 1px 0 var(--border);
+    }
     #dash-table th:nth-child(1), #dash-table td:nth-child(1) { width: 40px;  }  /* # */
-    #dash-table th:nth-child(2), #dash-table td:nth-child(2) { width: 380px; }  /* 股票 */
-    #dash-table th:nth-child(3), #dash-table td:nth-child(3) { width: 150px; }  /* 行业 */
+    #dash-table th:nth-child(2), #dash-table td:nth-child(2) { width: 280px; }  /* 股票 */
+    #dash-table th:nth-child(3), #dash-table td:nth-child(3) { width: 140px; }  /* 行业 */
+    #dash-table thead tr.group-row th.freeze-col {
+      z-index: 31;
+      background-color: #e8eef5 !important;
+    }
+    #dash-table thead tr.col-row th.freeze-col {
+      z-index: 30;
+      background-color: #f8fafc !important;
+    }
+    #dash-table tbody td.freeze-col {
+      z-index: 5;
+      background-color: #ffffff !important;
+    }
+    #dash-table td.freeze-col .name-sub {
+      width: auto;
+      max-width: 100%;
+    }
+    #dash-table thead tr.group-row th.freeze-col.freeze-edge {
+      box-shadow:
+        -40px 0 0 0 #e8eef5,
+        0 -20px 0 0 #e8eef5,
+        2px 0 6px rgba(15, 23, 42, 0.14),
+        0 1px 0 var(--border);
+    }
   </style>
 {% endblock %}
 {% block content %}
@@ -66,53 +116,77 @@
     · 缓存 {{ meta.count }} 行
     {% if meta.updated_at %}· 更新 {{ meta.updated_at }}{% endif %}
   </p>
-  <p class="hint">同一张完整表：电脑适合分析，手机可左右滑动。默认按「离均值%」从低到高，<strong>点表头可排序</strong>（这样没跌到底线但趋势好的股票也不会错过）。<strong>趋势</strong> = SMA63 vs SMA252 + SMA252 斜率（🟢 UP / 🟡 MIXED / 🔴 DOWN）。<strong>财报日</strong> = 财报夜市审核日（只显示日期，方便晚上看新闻再决策）。<strong>市值</strong>自动缩写（M/B/T）。<strong>RVOL</strong> = 今日量 / 前20日均量，需结合当日%解读：涨+RVOL≥1.2× 记「↑确认」，跌+RVOL≥2× 记「放量跌·查新闻」，>3× 视为异常勿机械加分。<strong>20D均量</strong>为流动性门槛（太低=难交易，不是越大越好）。</p>
+  <p class="hint">同一张完整表：电脑适合分析，手机可左右滑动。默认按「离均值%」从低到高，<strong>点表头可排序</strong>。<strong>趋势</strong> = SMA63 vs SMA252 + SMA252 斜率（🟢 UP / 🟡 MIXED / 🔴 DOWN）。<strong>63D Low/High/Position%</strong> = 近63个交易日高低点及现价在区间中的位置（0%=低点，100%=高点，仅观察）。<strong>1Y Target / Target Ratio</strong> = Yahoo 分析师一年目标均价；Ratio = 现价÷目标价，越小越值得关注（点表头 ↕ 排序）。<strong>财报日</strong> = 财报夜市审核日。<strong>RVOL</strong> = 今日量 / 前20日均量。刷新行情后才会写入新的 63D / 1Y Target 字段。</p>
 
   <div class="actions">
     <form method="post" action="{{ url_for('refresh_universe') }}" style="display:inline">
       <input type="hidden" name="group" value="{{ group }}">
-      <button class="btn" type="submit">更新股票池（全部）</button>
+      <button class="btn" type="submit">更新股票池成分（每周）</button>
+    </form>
+    <form method="post" action="{{ url_for('refresh_all_prices') }}" style="display:inline"
+          onsubmit="this.querySelector('button').textContent='更新中（可能需数分钟）…'; this.querySelector('button').disabled=true;">
+      <input type="hidden" name="next" value="{{ url_for('market_dashboard', group=group) }}">
+      <button class="btn primary" type="submit" title="刷新全部指数股池行情缓存，并同步更新 Watchlist（含 MANUAL）">刷新全部行情 + Watchlist</button>
     </form>
     <form method="post" action="{{ url_for('refresh_dashboard') }}" style="display:inline"
-          onsubmit="this.querySelector('button').textContent='更新中（可能需几分钟）…'; this.querySelector('button').disabled=true;">
+          onsubmit="this.querySelector('button').textContent='更新中…'; this.querySelector('button').disabled=true;">
       <input type="hidden" name="group" value="{{ group }}">
-      <button class="btn primary" type="submit">用 Yahoo 刷新本组行情 / 均线</button>
+      <button class="btn" type="submit">仅刷新本组</button>
     </form>
-    <a class="btn" href="{{ url_for('settings') }}">改均线周期</a>
+    <a class="btn" href="{{ url_for('settings') }}">改均线 / 定时</a>
   </div>
 
   <div class="panel">
     {% if not rows %}
-      <p class="hint">「{{ group_label }}」还没有缓存数据。请先点「更新股票池（全部）」，再点「用 Yahoo 刷新本组行情 / 均线」。</p>
+      <p class="hint">「{{ group_label }}」还没有缓存数据。请先点「更新股票池成分（每周）」，再点「刷新全部行情 + Watchlist」。</p>
     {% else %}
       <table class="data" id="dash-table">
         <thead>
-          <tr>
-            <th>#</th>
-            <th class="sortable" data-type="text">股票</th>
-            <th class="sortable" data-type="text">行业</th>
-            <th class="sortable" data-type="num" title="长期趋势：SMA63 vs SMA252 + SMA252 斜率">趋势</th>
-            <th class="sortable num" data-type="num">现价</th>
-            <th class="sortable num" data-type="num" title="Market Cap 市值">市值</th>
-            <th class="sortable num" data-type="num">均值(SMA{{ sma_period }})</th>
-            <th class="sortable num" data-type="num" title="当日涨跌幅（最近两个收盘价）">当日%</th>
-            <th class="sortable num" data-type="num" title="RVOL 相对成交量 = 今日量 / 前20日均量。结合当日%解读，不是越大越好">RVOL</th>
-            <th class="sortable num" data-type="num" title="Avg Daily Move：近63个交易日每日绝对涨跌幅的均值">日均波动% (63D)</th>
-            <th class="sortable num" data-type="num" title="Avg Volume 20D 20日平均成交量（流动性门槛）">20D均量</th>
-            <th class="sortable num" data-type="num">离均值%</th>
-            <th class="sortable num" data-type="num">反弹率</th>
-            <th class="sortable" data-type="text" title="Earnings Night Review — date only for evening news checks">财报日</th>
+          <tr class="group-row">
+            <th class="freeze-col freeze-edge"></th>
+            <th class="freeze-col"></th>
+            <th colspan="1">基本信息</th>
+            <th colspan="6">价格 / 趋势</th>
+            <th colspan="7">区间 / 动量</th>
+            <th colspan="2">价值参考</th>
+            <th colspan="1">风险 / 事件</th>
+          </tr>
+          <tr class="col-row">
+            <th class="freeze-col freeze-edge" data-col="0">#</th>
+            <th class="sortable freeze-col" data-col="1" data-type="text">股票</th>
+            <th class="sortable" data-col="2" data-type="text">行业</th>
+
+            <th class="sortable" data-col="3" data-type="num" title="长期趋势：SMA63 vs SMA252 + SMA252 斜率">趋势</th>
+            <th class="sortable num" data-col="4" data-type="num">现价</th>
+            <th class="sortable num" data-col="5" data-type="num" title="Market Cap 市值">市值</th>
+            <th class="sortable num" data-col="6" data-type="num">均值(SMA{{ sma_period }})</th>
+            <th class="sortable num" data-col="7" data-type="num" title="当日涨跌幅（最近两个收盘价）">当日%</th>
+            <th class="sortable num" data-col="8" data-type="num" title="相对短期均值的偏离">离均值%</th>
+
+            <th class="sortable num" data-col="9" data-type="num" title="近63个交易日最低收盘价">63D Low</th>
+            <th class="sortable num" data-col="10" data-type="num" title="近63个交易日最高收盘价">63D High</th>
+            <th class="sortable num" data-col="11" data-type="num" title="(现价−Low)/(High−Low)×100；0%=近63日低点，100%=近63日高点。仅观察">63D Position%</th>
+            <th class="sortable num" data-col="12" data-type="num">反弹率</th>
+            <th class="sortable num" data-col="13" data-type="num" title="RVOL 相对成交量 = 今日量 / 前20日均量。结合当日%解读，不是越大越好">RVOL</th>
+            <th class="sortable num" data-col="14" data-type="num" title="Avg Volume 20D 20日平均成交量（流动性门槛）">20D均量</th>
+            <th class="sortable num" data-col="15" data-type="num" title="Avg Daily Move：近63个交易日每日绝对涨跌幅的均值">日均波动%(63D)</th>
+
+            <th class="sortable num" data-col="16" data-type="num" title="Yahoo 1-year analyst mean target price">1Y Target</th>
+            <th class="sortable num" data-col="17" data-type="num" title="Target Ratio = 现价 / 1Y Target；越小越值得关注">Target Ratio</th>
+
+            <th class="sortable" data-col="18" data-type="text" title="Earnings Night Review — date only for evening news checks">财报日</th>
           </tr>
         </thead>
         <tbody>
           {% for row in rows %}
           <tr>
-            <td>{{ loop.index }}</td>
-            <td>
+            <td class="freeze-col freeze-edge">{{ loop.index }}</td>
+            <td class="freeze-col" data-sort="{{ row.ticker }}">
               <strong>{{ row.ticker }}</strong>
               {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
             </td>
-            <td>{{ row.industry or row.sector or "—" }}</td>
+            <td data-sort="{{ (row.industry or row.sector or '')|lower }}">{{ row.industry or row.sector or "—" }}</td>
+
             {% set trend_rank = {'UP': 2, 'MIXED': 1, 'DOWN': 0}.get(row.trend, -1) %}
             <td data-sort="{{ trend_rank }}">
               {% if row.trend == 'UP' %}<span class="trend up">🟢 UP</span>
@@ -120,7 +194,7 @@
               {% elif row.trend == 'MIXED' %}<span class="trend mixed">🟡 MIXED</span>
               {% else %}—{% endif %}
             </td>
-            <td class="num">{% if row.price is not none %}{{ '%.2f'|format(row.price) }}{% else %}—{% endif %}</td>
+            <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">{% if row.price is not none %}{{ '%.2f'|format(row.price) }}{% else %}—{% endif %}</td>
             <td class="num" data-sort="{{ row.market_cap if row.market_cap is not none else '' }}">
               {% set m = row.market_cap %}
               {% if m %}
@@ -130,10 +204,28 @@
                 {% else %}{{ '%.0f'|format(m) }}{% endif %}
               {% else %}—{% endif %}
             </td>
-            <td class="num">{% if row.sma is not none %}{{ '%.2f'|format(row.sma) }}{% else %}—{% endif %}</td>
+            <td class="num" data-sort="{{ row.sma if row.sma is not none else '' }}">{% if row.sma is not none %}{{ '%.2f'|format(row.sma) }}{% else %}—{% endif %}</td>
             <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
                 data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
               {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num {% if row.dist_pct is not none and row.dist_pct < 0 %}down{% elif row.dist_pct is not none and row.dist_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.dist_pct if row.dist_pct is not none else '' }}">
+              {% if row.dist_pct is not none %}{{ '%+.2f'|format(row.dist_pct) }}%{% else %}—{% endif %}
+            </td>
+
+            <td class="num" data-sort="{{ row.range_63d_low if row.range_63d_low is not none else '' }}">
+              {% if row.range_63d_low is not none %}{{ '%.2f'|format(row.range_63d_low) }}{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.range_63d_high if row.range_63d_high is not none else '' }}">
+              {% if row.range_63d_high is not none %}{{ '%.2f'|format(row.range_63d_high) }}{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.range_63d_pos if row.range_63d_pos is not none else '' }}">
+              {% if row.range_63d_pos is not none %}{{ '%.1f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num {% if row.rebound_pct is not none and row.rebound_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.rebound_pct if row.rebound_pct is not none else '' }}">
+              {% if row.rebound_pct is not none %}{{ '%+.2f'|format(row.rebound_pct) }}%{% else %}—{% endif %}
             </td>
             <td class="num" data-sort="{{ row.rvol if row.rvol is not none else '' }}"
                 title="RVOL=今日量/前20日均量。<0.7 缺量；0.7–1.2 正常；1.2–2 放量确认；2–3 明显放量(结合新闻)；>3 异常，勿机械加分。">
@@ -147,9 +239,6 @@
                 {% elif c is not none and c < 0 and r >= 2 %}<span class="rtag flag">放量跌·查新闻</span>{% endif %}
               {% else %}—{% endif %}
             </td>
-            <td class="num" data-sort="{{ row.avg_move_pct if row.avg_move_pct is not none else '' }}">
-              {% if row.avg_move_pct is not none %}{{ '%.2f'|format(row.avg_move_pct) }}%{% else %}—{% endif %}
-            </td>
             <td class="num" data-sort="{{ row.avg_vol_20d if row.avg_vol_20d is not none else '' }}">
               {% set v = row.avg_vol_20d %}
               {% if v %}
@@ -159,15 +248,22 @@
                 {% else %}{{ '%.0f'|format(v) }}{% endif %}
               {% else %}—{% endif %}
             </td>
-            <td class="num {% if row.dist_pct is not none and row.dist_pct < 0 %}down{% elif row.dist_pct is not none and row.dist_pct > 0 %}up{% endif %}"
-                data-sort="{{ row.dist_pct if row.dist_pct is not none else '' }}">
-              {% if row.dist_pct is not none %}{{ '%+.2f'|format(row.dist_pct) }}%{% else %}—{% endif %}
+            <td class="num" data-sort="{{ row.avg_move_pct if row.avg_move_pct is not none else '' }}">
+              {% if row.avg_move_pct is not none %}{{ '%.2f'|format(row.avg_move_pct) }}%{% else %}—{% endif %}
             </td>
-            <td class="num {% if row.rebound_pct is not none and row.rebound_pct > 0 %}up{% endif %}"
-                data-sort="{{ row.rebound_pct if row.rebound_pct is not none else '' }}">
-              {% if row.rebound_pct is not none %}{{ '%+.2f'|format(row.rebound_pct) }}%{% else %}—{% endif %}
+
+            <td class="num" data-sort="{{ row.target_1y if row.target_1y is not none else '' }}">
+              {% if row.target_1y is not none %}${{ '%.2f'|format(row.target_1y) }}{% else %}—{% endif %}
             </td>
-            <td>{{ row.earnings_date or "—" }}</td>
+            <td class="num {% if row.price is not none and row.target_1y is not none and row.target_1y > 0 and (row.price / row.target_1y) < 1 %}up{% endif %}"
+                data-sort="{% if row.price is not none and row.target_1y is not none and row.target_1y > 0 %}{{ '%.6f'|format(row.price / row.target_1y) }}{% endif %}"
+                title="Target Ratio = 现价 / 1Y Target；越小越值得关注">
+              {% if row.price is not none and row.target_1y is not none and row.target_1y > 0 %}
+                {{ '%.2f'|format(row.price / row.target_1y) }}
+              {% else %}—{% endif %}
+            </td>
+
+            <td data-sort="{{ row.earnings_date or '' }}">{{ row.earnings_date or "—" }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -186,7 +282,7 @@
         if (!td) return type === "num" ? NaN : "";
         var raw = td.dataset.sort !== undefined ? td.dataset.sort : td.textContent.trim();
         if (type === "num") {
-          var n = parseFloat(String(raw).replace(/[%+,\s]/g, ""));
+          var n = parseFloat(String(raw).replace(/[%+,\s×]/g, ""));
           return isNaN(n) ? NaN : n;
         }
         return String(raw).toLowerCase();
@@ -198,12 +294,14 @@
         });
       }
 
-      table.querySelectorAll("th.sortable").forEach(function (th) {
+      table.querySelectorAll("thead tr.col-row th.sortable").forEach(function (th) {
         th.addEventListener("click", function () {
-          var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+          var idx = th.dataset.col !== undefined
+            ? parseInt(th.dataset.col, 10)
+            : Array.prototype.indexOf.call(th.parentNode.children, th);
           var type = th.dataset.type || "text";
           var asc = !th.classList.contains("asc");
-          table.querySelectorAll("th").forEach(function (h) {
+          table.querySelectorAll("thead tr.col-row th").forEach(function (h) {
             h.classList.remove("asc", "desc");
           });
           th.classList.add(asc ? "asc" : "desc");
@@ -215,7 +313,7 @@
             if (type === "num") {
               var an = isNaN(av), bn = isNaN(bv);
               if (an && bn) return 0;
-              if (an) return 1;   // missing values always sink to the bottom
+              if (an) return 1;
               if (bn) return -1;
               return asc ? av - bv : bv - av;
             }

@@ -23,9 +23,55 @@
     </select>
     <input type="hidden" name="data_source" value="yahoo" />
 
+    <h2 style="margin-top:28px;font-size:1.15rem">自动更新（太平洋时间）</h2>
+    <p class="meta">
+      公司名 / 指数成分：每周一天从 Wikipedia 更新。<br>
+      列表行情：每个交易日美股收盘后从 Yahoo 更新全部股池，并同步 Watchlist（含 MANUAL）。<br>
+      默认 13:15 太平洋 ≈ 16:15 美东。也可在 Dashboard / Watchlist 点「刷新全部行情 + Watchlist」手动更新。
+    </p>
+
+    <label for="schedule_universe_weekday">公司名更新 · 星期</label>
+    <select id="schedule_universe_weekday" name="schedule_universe_weekday">
+      {% for key, label in weekdays %}
+        <option value="{{ key }}" {% if key == schedule_universe_weekday %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+
+    <label>公司名更新 · 时间</label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input name="schedule_universe_hour" type="number" min="0" max="23" value="{{ schedule_universe_hour }}" style="width:5rem" required />
+      <span>:</span>
+      <input name="schedule_universe_minute" type="number" min="0" max="59" value="{{ schedule_universe_minute }}" style="width:5rem" required />
+    </div>
+
+    <label>列表行情 · 工作日收盘后时间</label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input name="schedule_price_hour" type="number" min="0" max="23" value="{{ schedule_price_hour }}" style="width:5rem" required />
+      <span>:</span>
+      <input name="schedule_price_minute" type="number" min="0" max="59" value="{{ schedule_price_minute }}" style="width:5rem" required />
+    </div>
+
+    {% if scheduler %}
+    <p class="meta" style="margin-top:12px">
+      应用内调度：{% if scheduler.running %}运行中{% else %}未运行{% endif %}
+      {% if scheduler.jobs %}
+        · 下次：
+        {% for j in scheduler.jobs %}
+          {{ j.id }}{% if j.next_run %} {{ j.next_run }}{% endif %}{% if not loop.last %}；{% endif %}
+        {% endfor %}
+      {% endif %}
+    </p>
+    {% endif %}
+
     <div style="margin-top:18px">
       <button class="btn primary" type="submit">保存</button>
       <a class="btn" href="{{ url_for('market_dashboard') }}">返回 Dashboard</a>
     </div>
+  </form>
+
+  <form class="settings-form" method="post" action="{{ url_for('refresh_all_prices') }}" style="margin-top:16px"
+        onsubmit="this.querySelector('button').textContent='更新中（可能需数分钟）…'; this.querySelector('button').disabled=true;">
+    <input type="hidden" name="next" value="{{ url_for('settings') }}">
+    <button class="btn" type="submit" style="width:100%">立即刷新全部行情 + Watchlist</button>
   </form>
 {% endblock %}

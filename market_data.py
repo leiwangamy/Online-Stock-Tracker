@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -32,6 +35,7 @@ def _sma(series: pd.Series, period: int) -> float | None:
 
 # Window for "average daily move" (typical daily volatility), in trading days.
 AVG_MOVE_LOOKBACK = 63
+RANGE_63D_LOOKBACK = 63  # trading days for 63D High/Low/Position% (same window as avg move)
 
 
 def _change_pct(series: pd.Series) -> float | None:
@@ -112,6 +116,144 @@ def _rebound_pct(series: pd.Series, lookback: int) -> float | None:
     return round((last / low - 1) * 100, 2)
 
 
+def _range_63d(
+    series: pd.Series, lookback: int = RANGE_63D_LOOKBACK
+) -> tuple[float | None, float | None, float | None]:
+    """
+    63-trading-day low / high / position%.
+    Position% = (price - low) / (high - low) × 100.
+    Returns (None, None, None) if fewer than `lookback` bars; position None if high==low.
+    """
+    clean = series.dropna()
+    if len(clean) < lookback:
+        return None, None, None
+    window = clean.iloc[-lookback:]
+    try:
+        low = float(window.min())
+        high = float(window.max())
+        last = float(window.iloc[-1])
+    except (TypeError, ValueError):
+        return None, None, None
+    if any(v != v for v in (low, high, last)):  # NaN check
+        return None, None, None
+    if low <= 0 or high <= 0:
+        return None, None, None
+    low_r, high_r = round(low, 2), round(high, 2)
+    if high == low:
+        return low_r, high_r, None
+    pos = (last - low) / (high - low) * 100
+    if pos != pos:  # NaN
+        return low_r, high_r, None
+    return low_r, high_r, round(pos, 2)
+
+
+def mos_pct(est_value: float | None, price: float | None) -> float | None:
+    """
+    Margin of Safety % = (Est.Value − Price) / Est.Value × 100.
+    Positive when Est.Value > price. Does not alter AI / Opportunity score.
+
+    Price MUST be the same figure shown on Watchlist (dashboard_cache / live
+    row price), not a separate Yahoo snapshot from the valuation fetch,
+    and never a price stored inside the intrinsic_value cache.
+    """
+    if est_value is None or price is None:
+        return None
+    try:
+        ev = float(est_value)
+        px = float(price)
+    except (TypeError, ValueError):
+        return None
+    if ev == 0 or ev != ev or px != px:
+        return None
+    return round((ev - px) / ev * 100, 2)
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    if value is None or value == "":
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+
+def resolve_watchlist_mos_price(
+    row: dict[str, Any],
+    *,
+    stale_hours: float | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """
+    MOS price = Watchlist / Market Data row Current Price only.
+
+    - Never reads valuation / intrinsic_value cache prices.
+    - If price timestamp is missing or older than MOS_PRICE_STALE_HOURS → stale.
+    - Stale prices must not produce a current MOS% (caller shows — / warning).
+    """
+    import valuation_config as cfg
+
+    price = None
+    try:
+        if row.get("price") is not None:
+            price = float(row["price"])
+    except (TypeError, ValueError):
+        price = None
+    source = row.get("price_source") or (
+        "dashboard_cache" if row.get("updated_at") else "watchlist_row"
+    )
+    as_of = row.get("updated_at") or row.get("price_as_of") or None
+    limit_h = cfg.MOS_PRICE_STALE_HOURS if stale_hours is None else stale_hours
+    ts = _parse_ts(as_of)
+    now_utc = now or datetime.now(timezone.utc)
+    age_hours: float | None = None
+    stale = False
+    stale_reason: str | None = None
+    if price is None:
+        stale = True
+        stale_reason = "missing_price"
+    elif ts is None:
+        stale = True
+        stale_reason = "missing_price_timestamp"
+    else:
+        age_hours = (now_utc - ts).total_seconds() / 3600.0
+        if age_hours > float(limit_h):
+            stale = True
+            stale_reason = f"price_stale_{age_hours:.0f}h>{limit_h}h"
+
+    return {
+        "price": price,
+        "source": source,
+        "as_of": as_of,
+        "age_hours": None if age_hours is None else round(age_hours, 1),
+        "stale": stale,
+        "stale_reason": stale_reason,
+        "stale_hours_limit": float(limit_h),
+    }
+
+
+def compute_row_mos(
+    est_value: float | None,
+    row: dict[str, Any],
+    *,
+    stale_hours: float | None = None,
+) -> dict[str, Any]:
+    """
+    Dynamic MOS from Est.Value (may be cached) × latest row Current Price.
+    Does not trigger DCF. Returns mos_pct=None when price is stale/missing.
+    """
+    mos_px = resolve_watchlist_mos_price(row, stale_hours=stale_hours)
+    mos = None
+    if not mos_px["stale"] and est_value is not None:
+        mos = mos_pct(est_value, mos_px["price"])
+    return {
+        **mos_px,
+        "mos_pct": mos,
+    }
+
+
 def _format_earnings_date(value: Any) -> str | None:
     """Return a short calendar date only (for evening news / decision checks)."""
     if value is None or value == "":
@@ -170,6 +312,38 @@ def _market_cap(ticker_obj: yf.Ticker) -> float | None:
     except Exception:
         pass
     return None
+
+
+def _target_1y(ticker_obj: yf.Ticker) -> float | None:
+    """Yahoo 1-year analyst mean target price (targetMeanPrice)."""
+    try:
+        info = ticker_obj.info or {}
+    except Exception:
+        info = {}
+    for key in ("targetMeanPrice", "targetMean", "targetMeanPriceRaw"):
+        val = info.get(key)
+        if val is None:
+            continue
+        try:
+            f = float(val)
+            if f > 0:
+                return round(f, 2)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def target_ratio(price: float | None, target_1y: float | None) -> float | None:
+    """Target Ratio = Current Price / 1Y Target. Smaller → more interesting."""
+    try:
+        if price is None or target_1y is None:
+            return None
+        p, t = float(price), float(target_1y)
+        if t <= 0 or p <= 0:
+            return None
+        return round(p / t, 2)
+    except (TypeError, ValueError):
+        return None
 
 
 def _next_earnings_date(ticker_obj: yf.Ticker) -> str | None:
@@ -245,10 +419,12 @@ def fetch_metrics_for_ticker(
         rebound = _rebound_pct(closes, rebound_lookback)
         change_pct = _change_pct(closes)
         avg_move_pct = _avg_daily_move(closes)
+        range_low, range_high, range_pos = _range_63d(closes)
         trend = _trend(closes)
         avg_vol_20d, rvol = _volume_stats(hist["Volume"]) if "Volume" in hist else (None, None)
         market_cap = _market_cap(t)
         earnings_date = _next_earnings_date(t)
+        target_1y = _target_1y(t)
         return {
             "ticker": ticker,
             "name": meta.get("name") or "",
@@ -257,6 +433,9 @@ def fetch_metrics_for_ticker(
             "price": round(price, 2),
             "change_pct": change_pct,
             "avg_move_pct": avg_move_pct,
+            "range_63d_low": range_low,
+            "range_63d_high": range_high,
+            "range_63d_pos": range_pos,
             "sma": None if sma is None else round(sma, 2),
             "dist_pct": dist_pct,
             "rebound_pct": rebound,
@@ -266,6 +445,7 @@ def fetch_metrics_for_ticker(
             "rvol": rvol,
             "sma_period": sma_period,
             "earnings_date": earnings_date,
+            "target_1y": target_1y,
             "ai_note": None,  # reserved
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -325,11 +505,323 @@ def refresh_dashboard_cache(
 
 # ---------------------------------------------------------------------------
 # Fundamentals (财报) + News (新闻) signals — Yahoo Finance, cached in-process.
+# Fund portion is also mirrored to disk so lightweight tables can read without refetch.
 # ---------------------------------------------------------------------------
 
 NEWS_LOOKBACK_DAYS = 30
 _SIGNAL_TTL = 900  # seconds (15 min) — .info / .news are slow, so cache hard
 _signal_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_FUND_DISK_PATH = Path(__file__).resolve().parent / "data" / "logs" / "fund_cache.json"
+_NEWS_DISK_PATH = Path(__file__).resolve().parent / "data" / "logs" / "news_cache.json"
+_NEWS_DISK_TTL = 6 * 3600  # 6h — shared news cache; missing/expired → refetch
+_fund_disk_cache: dict[str, Any] | None = None
+_news_disk_cache: dict[str, Any] | None = None
+_fund_disk_lock = threading.Lock()
+_news_disk_lock = threading.Lock()
+
+
+def fund_cache_path() -> Path:
+    return _FUND_DISK_PATH
+
+
+def news_cache_path() -> Path:
+    return _NEWS_DISK_PATH
+
+
+def _fund_payload_valid(fund: Any) -> bool:
+    """True when Financial Score payload is usable for display (existing rules)."""
+    return isinstance(fund, dict) and fund.get("health") not in (None, "unknown")
+
+
+def _fund_period_meta(info: dict[str, Any] | None) -> dict[str, Any]:
+    """Snapshot of filing identity fields — used to detect new quarter/year later."""
+    info = info or {}
+    return {
+        "mostRecentQuarter": info.get("mostRecentQuarter"),
+        "lastFiscalYearEnd": info.get("lastFiscalYearEnd"),
+        "earningsTimestamp": info.get("earningsTimestamp") or info.get("earningsTimestampStart"),
+    }
+
+
+def _fund_entry_valid(entry: Any) -> bool:
+    return isinstance(entry, dict) and _fund_payload_valid(entry.get("fund"))
+
+
+def _fund_entry_stale_vs_info(entry: dict[str, Any], info: dict[str, Any] | None) -> bool:
+    """
+    Stale when Yahoo reports a newer quarter / fiscal year / earnings stamp
+    than what we stored. Missing meta on either side → not forced stale
+    (caller may still treat empty fund as invalid).
+    """
+    if not info:
+        return False
+    live = _fund_period_meta(info)
+    for key in ("mostRecentQuarter", "lastFiscalYearEnd", "earningsTimestamp"):
+        old = entry.get(key)
+        new = live.get(key)
+        if old is None or new is None:
+            continue
+        # Normalize timestamps / dates to string for stable compare
+        if str(old) != str(new):
+            return True
+    return False
+
+
+def _load_fund_disk() -> dict[str, Any]:
+    global _fund_disk_cache
+    if _fund_disk_cache is not None:
+        return _fund_disk_cache
+    cache: dict[str, Any] = {}
+    if _FUND_DISK_PATH.exists():
+        try:
+            raw = json.loads(_FUND_DISK_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                cache = raw
+        except Exception:
+            cache = {}
+    _fund_disk_cache = cache
+    return cache
+
+
+def _persist_fund_disk(
+    ticker: str,
+    fund: dict[str, Any] | None,
+    *,
+    info: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> None:
+    """Write/update one ticker's fund snapshot immediately (shared persistent cache)."""
+    if not fund:
+        return
+    t = (ticker or "").strip().upper()
+    if not t:
+        return
+    period = meta if meta is not None else _fund_period_meta(info)
+    entry = {
+        "ts": time.time(),
+        "fund": fund,
+        "mostRecentQuarter": period.get("mostRecentQuarter"),
+        "lastFiscalYearEnd": period.get("lastFiscalYearEnd"),
+        "earningsTimestamp": period.get("earningsTimestamp"),
+    }
+    with _fund_disk_lock:
+        cache = _load_fund_disk()
+        cache[t] = entry
+        try:
+            _FUND_DISK_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _FUND_DISK_PATH.write_text(
+                json.dumps(cache, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+
+def get_fund_cached_only(tickers: list[str]) -> dict[str, dict[str, Any] | None]:
+    """
+    Batch-read Financial Score / 财报 from existing caches only.
+    Order: in-process signal cache → disk fund_cache.json.
+    Never hits Yahoo, never refreshes TTL, never loads news.
+    Missing / invalid tickers map to None.
+    """
+    disk = _load_fund_disk()
+    out: dict[str, dict[str, Any] | None] = {}
+    seen: set[str] = set()
+    for raw in tickers:
+        t = (raw or "").strip().upper()
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        fund = None
+        mem = _signal_cache.get(t)
+        if mem and isinstance(mem[1], dict) and _fund_payload_valid(mem[1].get("fund")):
+            fund = mem[1].get("fund")
+        if fund is None:
+            entry = disk.get(t)
+            if _fund_entry_valid(entry):
+                fund = entry.get("fund")
+        out[t] = fund if _fund_payload_valid(fund) else None
+    return out
+
+
+def _fetch_fund_one(ticker: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """
+    Fund-only Yahoo read + existing Financial Score logic (no news / DCF / CLV).
+    Returns (fund, info).
+    """
+    tk = yf.Ticker(ticker)
+    try:
+        info = tk.info or {}
+    except Exception:
+        info = {}
+    if not isinstance(info, dict):
+        info = {}
+    cf = _cashflow_trend(tk)
+    fund = _fundamentals_from_info(info, cf)
+    return fund, info
+
+
+def ensure_fund_cache(
+    tickers: list[str],
+    *,
+    max_workers: int = 3,
+    force: bool = False,
+) -> dict[str, Any]:
+    """
+    Fill shared persistent fund_cache for tickers.
+    Reuses valid disk/memory entries; only downloads missing/invalid (unless force).
+    Writes each success immediately. Failures are collected; job continues.
+    Does not run News / AI / DCF / CLV.
+    """
+    uniq: list[str] = []
+    seen: set[str] = set()
+    for raw in tickers:
+        t = (raw or "").strip().upper()
+        if t and t not in seen:
+            seen.add(t)
+            uniq.append(t)
+
+    disk = _load_fund_disk()
+    already = [t for t in uniq if (not force) and _fund_entry_valid(disk.get(t))]
+    # Also treat valid in-memory as already present
+    for t in uniq:
+        if t in already:
+            continue
+        mem = _signal_cache.get(t)
+        if (
+            not force
+            and mem
+            and isinstance(mem[1], dict)
+            and _fund_payload_valid(mem[1].get("fund"))
+        ):
+            # Mirror memory → disk so all pages share it
+            _persist_fund_disk(t, mem[1].get("fund"))
+            already.append(t)
+
+    already_set = set(already)
+    todo = [t for t in uniq if t not in already_set]
+
+    ok_new: list[str] = []
+    failures: list[dict[str, str]] = []
+
+    def _one(t: str) -> tuple[str, str | None]:
+        try:
+            fund, info = _fetch_fund_one(t)
+            if not _fund_payload_valid(fund):
+                return t, "fundamentals unavailable / unknown health"
+            _persist_fund_disk(t, fund, info=info)
+            # Refresh in-process signal cache fund slice without inventing news
+            prev = _signal_cache.get(t)
+            news = (prev[1].get("news") if prev and isinstance(prev[1], dict) else None)
+            _signal_cache[t] = (time.time(), {"fund": fund, "news": news})
+            return t, None
+        except Exception as exc:
+            return t, f"{type(exc).__name__}: {exc}"
+
+    if todo:
+        with ThreadPoolExecutor(max_workers=max(1, min(max_workers, 4))) as pool:
+            futures = {pool.submit(_one, t): t for t in todo}
+            for fut in as_completed(futures):
+                t, err = fut.result()
+                if err:
+                    failures.append({"ticker": t, "reason": err})
+                else:
+                    ok_new.append(t)
+
+    # Reload disk for final coverage
+    disk = _load_fund_disk()
+    final_hits = sum(1 for t in uniq if _fund_entry_valid(disk.get(t)))
+    return {
+        "total": len(uniq),
+        "already_cached": len(already_set),
+        "fetched": len(todo),
+        "ok_new": len(ok_new),
+        "ok_new_tickers": ok_new,
+        "failures": failures,
+        "failed": len(failures),
+        "final_cached": final_hits,
+        "coverage": round(final_hits / len(uniq), 4) if uniq else 0.0,
+        "cache_path": str(_FUND_DISK_PATH),
+    }
+
+
+def _load_news_disk() -> dict[str, Any]:
+    global _news_disk_cache
+    if _news_disk_cache is not None:
+        return _news_disk_cache
+    cache: dict[str, Any] = {}
+    if _NEWS_DISK_PATH.exists():
+        try:
+            raw = json.loads(_NEWS_DISK_PATH.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                cache = raw
+        except Exception:
+            cache = {}
+    _news_disk_cache = cache
+    return cache
+
+
+def _news_payload_valid(news: Any) -> bool:
+    return isinstance(news, dict) and ("tone" in news or "label" in news)
+
+
+def _news_entry_valid(entry: Any, *, now: float | None = None, ttl: float = _NEWS_DISK_TTL) -> bool:
+    if not isinstance(entry, dict) or not _news_payload_valid(entry.get("news")):
+        return False
+    ts = entry.get("ts")
+    if not isinstance(ts, (int, float)):
+        return False
+    age_limit = now if now is not None else time.time()
+    return (age_limit - float(ts)) <= ttl
+
+
+def _persist_news_disk(ticker: str, news: dict[str, Any] | None) -> None:
+    """Write/update one ticker's news snapshot immediately (shared persistent cache)."""
+    if not _news_payload_valid(news):
+        return
+    t = (ticker or "").strip().upper()
+    if not t:
+        return
+    entry = {"ts": time.time(), "news": news}
+    with _news_disk_lock:
+        cache = _load_news_disk()
+        cache[t] = entry
+        try:
+            _NEWS_DISK_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _NEWS_DISK_PATH.write_text(
+                json.dumps(cache, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+
+def get_news_cached_only(tickers: list[str]) -> dict[str, dict[str, Any] | None]:
+    """
+    Batch-read news from existing caches only (memory → disk).
+    Never hits Yahoo. Missing / expired → None.
+    """
+    now = time.time()
+    disk = _load_news_disk()
+    out: dict[str, dict[str, Any] | None] = {}
+    seen: set[str] = set()
+    for raw in tickers:
+        t = (raw or "").strip().upper()
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        news = None
+        mem = _signal_cache.get(t)
+        if mem and (now - mem[0]) <= _SIGNAL_TTL and isinstance(mem[1], dict):
+            cand = mem[1].get("news")
+            if _news_payload_valid(cand):
+                news = cand
+        if news is None:
+            entry = disk.get(t)
+            if _news_entry_valid(entry, now=now):
+                news = entry.get("news")
+        out[t] = news if _news_payload_valid(news) else None
+    return out
 
 
 def _cashflow_trend(tk: "yf.Ticker") -> dict[str, Any] | None:
@@ -631,19 +1123,149 @@ def _news_from_ticker(tk: yf.Ticker, days: int = NEWS_LOOKBACK_DAYS) -> dict[str
 
 def _fetch_signals_one(ticker: str) -> dict[str, Any]:
     tk = yf.Ticker(ticker)
-    try:
-        info = tk.info or {}
-    except Exception:
-        info = {}
-    cf = _cashflow_trend(tk)
+    disk_entry = _load_fund_disk().get(ticker)
+    # Shared fund cache: reuse valid entry (skip Yahoo fund/info).
+    if _fund_entry_valid(disk_entry):
+        fund = disk_entry.get("fund")
+    else:
+        try:
+            info = tk.info or {}
+        except Exception:
+            info = {}
+        if not isinstance(info, dict):
+            info = {}
+        cf = _cashflow_trend(tk)
+        fund = _fundamentals_from_info(info, cf)
+        if _fund_payload_valid(fund):
+            _persist_fund_disk(ticker, fund, info=info)
+
+    news_entry = _load_news_disk().get(ticker)
+    if _news_entry_valid(news_entry):
+        news = news_entry.get("news")
+    else:
+        news = _news_from_ticker(tk)
+        _persist_news_disk(ticker, news)
+
+    return {"fund": fund, "news": news}
+
+
+def _fetch_news_one(ticker: str) -> dict[str, Any]:
+    """News-only Yahoo read using existing 30-day classifier (no fund/DCF/CLV)."""
+    tk = yf.Ticker(ticker)
+    return _news_from_ticker(tk)
+
+
+def ensure_news_cache(
+    tickers: list[str],
+    *,
+    max_workers: int = 3,
+    force: bool = False,
+) -> dict[str, Any]:
+    """
+    Fill shared persistent news_cache for tickers (existing news logic only).
+    Reuses valid non-expired disk/memory entries; fetches missing/expired.
+    """
+    uniq: list[str] = []
+    seen: set[str] = set()
+    for raw in tickers:
+        t = (raw or "").strip().upper()
+        if t and t not in seen:
+            seen.add(t)
+            uniq.append(t)
+
+    now = time.time()
+    disk = _load_news_disk()
+    already: list[str] = []
+    for t in uniq:
+        if force:
+            continue
+        if _news_entry_valid(disk.get(t), now=now):
+            already.append(t)
+            continue
+        mem = _signal_cache.get(t)
+        if (
+            mem
+            and (now - mem[0]) <= _SIGNAL_TTL
+            and isinstance(mem[1], dict)
+            and _news_payload_valid(mem[1].get("news"))
+        ):
+            _persist_news_disk(t, mem[1].get("news"))
+            already.append(t)
+
+    already_set = set(already)
+    todo = [t for t in uniq if t not in already_set]
+    ok_new: list[str] = []
+    failures: list[dict[str, str]] = []
+    results: dict[str, dict[str, Any] | None] = {}
+
+    # Seed results with already-cached news for classification report
+    cached_map = get_news_cached_only(already)
+    for t in already:
+        results[t] = cached_map.get(t)
+
+    def _one(t: str) -> tuple[str, dict[str, Any] | None, str | None]:
+        try:
+            news = _fetch_news_one(t)
+            if not _news_payload_valid(news):
+                return t, None, "news payload invalid"
+            _persist_news_disk(t, news)
+            prev = _signal_cache.get(t)
+            fund = (prev[1].get("fund") if prev and isinstance(prev[1], dict) else None)
+            _signal_cache[t] = (time.time(), {"fund": fund, "news": news})
+            return t, news, None
+        except Exception as exc:
+            return t, None, f"{type(exc).__name__}: {exc}"
+
+    if todo:
+        with ThreadPoolExecutor(max_workers=max(1, min(max_workers, 4))) as pool:
+            futures = {pool.submit(_one, t): t for t in todo}
+            for fut in as_completed(futures):
+                t, news, err = fut.result()
+                if err:
+                    failures.append({"ticker": t, "reason": err})
+                    results[t] = None
+                else:
+                    ok_new.append(t)
+                    results[t] = news
+
+    def _bucket(news: dict[str, Any] | None) -> str:
+        if not news:
+            return "failed"
+        tone = news.get("tone")
+        if tone == "pos":
+            return "pos"
+        if tone == "neg":
+            return "neg"
+        return "neutral"  # neutral / none / NO NEWS
+
+    counts = {"pos": 0, "neutral": 0, "neg": 0, "failed": 0}
+    for t in uniq:
+        if t in {f["ticker"] for f in failures}:
+            counts["failed"] += 1
+        else:
+            counts[_bucket(results.get(t))] += 1
+
+    disk = _load_news_disk()
+    final_hits = sum(1 for t in uniq if _news_entry_valid(disk.get(t)))
     return {
-        "fund": _fundamentals_from_info(info, cf),
-        "news": _news_from_ticker(tk),
+        "total": len(uniq),
+        "already_cached": len(already_set),
+        "fetched": len(todo),
+        "ok_new": len(ok_new),
+        "failures": failures,
+        "failed": len(failures),
+        "final_cached": final_hits,
+        "counts": counts,
+        "results": results,
+        "cache_path": str(_NEWS_DISK_PATH),
     }
 
 
 def get_signals(tickers: list[str], *, max_workers: int = 8) -> dict[str, dict[str, Any]]:
-    """Return {ticker: {fund, news}} using a 15-min in-process cache."""
+    """Return {ticker: {fund, news}} using a 15-min in-process cache.
+
+    Fund/news prefer shared persistent caches when still valid.
+    """
     now = time.time()
     uniq = []
     seen = set()

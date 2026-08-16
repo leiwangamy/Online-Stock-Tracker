@@ -52,14 +52,132 @@
     .ai.mid { background: #fef3c7; color: #92400e; }
     .ai.bad { background: #fee2e2; color: #991b1b; }
     .ai-sub { font-size: 0.7rem; color: #64748b; white-space: nowrap; margin-top: 2px; }
-    /* === 列宽微调（改这里的 px 即可）=== 列序：1股票 2所属股池 3AI 4趋势
-       5现价 6市值 7均值 8当日% 9RVOL 10日均波动 11 20D均量 12离均值% 13反弹率
-       14财报日 15财报 16新闻。同时改表头(th)和单元格(td)才生效。 */
-    #wl-table th:nth-child(1),  #wl-table td:nth-child(1)  { width: 380px; }  /* 股票 */
-    #wl-table th:nth-child(2),  #wl-table td:nth-child(2)  { width: 130px; }  /* 所属股池 */
-    #wl-table th:nth-child(3),  #wl-table td:nth-child(3)  { width: 90px;  }  /* AI */
-    #wl-table th:nth-child(15), #wl-table td:nth-child(15) { width: 150px; }  /* 财报 */
-    #wl-table th:nth-child(16), #wl-table td:nth-child(16) { width: 130px; }  /* 新闻 */
+    /* Watchlist: vertical scroll in panel; horizontal via top .hscroll-top bar. */
+    .panel.wl-panel {
+      overflow-x: hidden;
+      overflow-y: auto;
+      padding: 0;
+    }
+    .panel.wl-panel > table {
+      margin: 0;
+    }
+    /* Two-level header: group row + column row (both sticky within .wl-panel). */
+    #wl-table {
+      border-collapse: separate;
+      border-spacing: 0;
+      min-width: max-content;
+    }
+    #wl-table thead tr.group-row th {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #e8eef5;
+      color: #475569;
+      text-align: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid #dbe3ee;
+      padding-top: 6px;
+      padding-bottom: 6px;
+      box-shadow: 0 -20px 0 0 #e8eef5, 0 1px 0 var(--border);
+    }
+    #wl-table thead tr.col-row th {
+      position: sticky;
+      top: 28px;
+      z-index: 20;
+      background: #f8fafc;
+      box-shadow: 0 -2px 0 0 #f8fafc, 0 1px 0 var(--border);
+    }
+    #wl-table th.col-ticker, #wl-table td.col-ticker { min-width: 200px; }
+    #wl-table thead tr.group-row th.freeze-col {
+      z-index: 31;
+      background-color: #e8eef5 !important;
+      left: 0;
+      overflow: hidden;
+    }
+    #wl-table thead tr.col-row th.freeze-col {
+      z-index: 30;
+      background-color: #f8fafc !important;
+      overflow: hidden;
+    }
+    #wl-table tbody td.freeze-col {
+      z-index: 5;
+      background-color: #ffffff !important;
+      overflow: hidden;
+    }
+    #wl-table td.freeze-col .name-sub {
+      width: auto;
+      max-width: 100%;
+    }
+    #wl-table thead tr.group-row th.freeze-col.freeze-edge {
+      box-shadow:
+        -40px 0 0 0 #e8eef5,
+        0 -20px 0 0 #e8eef5,
+        2px 0 6px rgba(15, 23, 42, 0.14),
+        0 1px 0 var(--border);
+    }
+    #wl-table th.col-pools, #wl-table td.col-pools { min-width: 110px; }
+    #wl-table th.col-ai, #wl-table td.col-ai { min-width: 88px; }
+    #wl-table th.col-fund, #wl-table td.col-fund { min-width: 140px; }
+    #wl-table th.col-news, #wl-table td.col-news { min-width: 120px; }
+    #wl-table th.col-alert, #wl-table td.col-alert { min-width: 96px; }
+    .alert-dot {
+      display: inline-block;
+      margin-right: 6px;
+      font-size: 0.95em;
+      vertical-align: baseline;
+      cursor: help;
+      line-height: 1;
+    }
+    .alert-dot.ready { filter: none; }
+    .alert-edit {
+      width: 5.5rem;
+      padding: 3px 6px;
+      font: inherit;
+      text-align: right;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+    }
+    .alert-edit:hover, .alert-edit:focus {
+      border-color: var(--border, #ccc);
+      background: var(--panel, #fff);
+      outline: none;
+    }
+    .alert-edit.saving { opacity: 0.55; }
+    .alert-edit.saved { border-color: var(--up, #16a34a); }
+    .alert-edit.err { border-color: var(--down, #dc2626); }
+    .clv-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .clv-sub { font-size: 0.68rem; color: #94a3b8; line-height: 1.1; }
+    .clv-flag { font-size: 0.65rem; color: #b45309; font-weight: 600; }
+    td.clv-warn { background: #fffbeb; }
+    #wl-table th, #wl-table td { white-space: nowrap; }
+    #wl-table td.col-est { white-space: normal; vertical-align: middle; }
+    .est-bbb {
+      display: inline-flex; flex-direction: column; align-items: stretch;
+      gap: 2px; line-height: 1.15; cursor: help; min-width: 132px;
+    }
+    .est-vals, .est-labs {
+      display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 4px 8px;
+      align-items: baseline; justify-items: center;
+    }
+    .est-bear, .est-bull {
+      font-size: 0.78rem; font-weight: 500; color: #94a3b8;
+      font-variant-numeric: tabular-nums;
+    }
+    .est-base {
+      font-size: 0.98rem; font-weight: 700; color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .est-labs small {
+      font-size: 0.62rem; color: #94a3b8; font-weight: 500; letter-spacing: 0.02em;
+    }
+    .est-labs small.est-lab-base { color: #64748b; font-weight: 600; }
+    .mos-stale { color: #94a3b8; }
+    .mos-stale-tag { color: #94a3b8; font-weight: 600; letter-spacing: 0.02em; }
     table.data th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
     table.data th.sortable:hover { color: var(--accent); }
     table.data th.sortable::after { content: "\2195"; opacity: 0.35; margin-left: 4px; font-size: 0.8em; }
@@ -75,67 +193,134 @@
   {% else %}—{% endif %}
 {% endmacro %}
 
-{% macro wl_table(rows, sma_period) %}
+{% macro fmt_money(m) %}
+  {% if m %}
+    {% if m >= 1e12 %}{{ '%.2f'|format(m / 1e12) }}T
+    {% elif m >= 1e9 %}{% if m >= 1e11 %}{{ '%.0f'|format(m / 1e9) }}B{% else %}{{ '%.1f'|format(m / 1e9) }}B{% endif %}
+    {% elif m >= 1e6 %}{{ '%.0f'|format(m / 1e6) }}M
+    {% else %}{{ '%.0f'|format(m) }}{% endif %}
+  {% else %}—{% endif %}
+{% endmacro %}
+
+{% macro fmt_vol(v) %}
+  {% if v %}
+    {% if v >= 1e9 %}{{ '%.1f'|format(v / 1e9) }}B
+    {% elif v >= 1e6 %}{{ '%.1f'|format(v / 1e6) }}M
+    {% elif v >= 1e3 %}{{ '%.0f'|format(v / 1e3) }}K
+    {% else %}{{ '%.0f'|format(v) }}{% endif %}
+  {% else %}—{% endif %}
+{% endmacro %}
+
+{% macro wl_table(rows, sma_period, show_alert=False) %}
   {% if not rows %}
     <p class="empty">暂无数据。（超卖/强势回调需先到 Market Dashboard 刷新行情；我的自选/临时会实时抓取。）</p>
   {% else %}
-  <div class="panel">
+  <div class="panel wl-panel">
     <table class="data" id="wl-table">
       <thead>
-        <tr>
-          <th class="sortable" data-type="text">股票</th>
-          <th class="sortable" data-type="text" title="该股票所属指数池">所属股池</th>
-          <th class="sortable" data-type="num" title="AI Score V1 = 机会分(0–100) − 风险扣分。悬停看回调/趋势/反弹/成交量/财务/新闻的拆分">AI</th>
-          <th class="sortable" data-type="num" title="长期趋势：SMA63 vs SMA252 + SMA252 斜率">趋势</th>
-          <th class="sortable num" data-type="num">现价</th>
-          <th class="sortable num" data-type="num" title="Market Cap 市值">市值</th>
-          <th class="sortable num" data-type="num">均值(SMA{{ sma_period }})</th>
-          <th class="sortable num" data-type="num">当日%</th>
-          <th class="sortable num" data-type="num" title="RVOL 相对成交量 = 今日量 / 前20日均量。结合当日%解读，不是越大越好">RVOL</th>
-          <th class="sortable num" data-type="num" title="近63个交易日日均绝对涨跌幅">日均波动% (63D)</th>
-          <th class="sortable num" data-type="num" title="Avg Volume 20D 20日平均成交量（流动性门槛）">20D均量</th>
-          <th class="sortable num" data-type="num">离均值%</th>
-          <th class="sortable num" data-type="num">反弹率</th>
-          <th class="sortable" data-type="text">财报日</th>
-          <th class="sortable" data-type="num" title="财报健康：7 项基本面红旗数（🟢好 / 🟡一般 / 🔴差），悬停看明细">财报</th>
-          <th class="sortable" data-type="num" title="近30天新闻：A财报/B业务/C分析师/D公司/E财务法律 + 情绪(+/−)，重大负面优先；NO NEWS=无重要新闻">新闻</th>
+        <tr class="group-row">
+          <th class="col-ticker freeze-col freeze-edge"></th>
+          <th colspan="3">基本信息</th>
+          <th colspan="1">机会 / 时机</th>
+          <th colspan="5">价格 / 趋势</th>
+          <th colspan="7">区间 / 动量</th>
+          <th colspan="5">投资价值</th>
+          <th colspan="2">价值参考</th>
+          <th colspan="1">风险 / 事件</th>
+          {% if show_alert %}<th colspan="1">人工关注</th>{% endif %}
+        </tr>
+        <tr class="col-row">
+          <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">股票</th>
+          <th class="sortable col-pools" data-col="1" data-type="text" title="指数池：S&P500 / Nasdaq100 / …；不在池内的自选股票或基金显示 MANUAL">所属股池</th>
+          <th class="sortable" data-col="2" data-type="text" title="行业（来自股票池）">行业</th>
+          <th class="sortable num" data-col="3" data-type="num" title="Market Cap 市值">市值</th>
+
+          <th class="sortable col-ai" data-col="4" data-type="num" title="AI Score V1 = 机会分(0–100) − 风险扣分。悬停看拆分。与 Est.Value/MOS 独立。">AI</th>
+
+          <th class="sortable" data-col="5" data-type="num" title="长期趋势：SMA63 vs SMA252 + SMA252 斜率">趋势</th>
+          <th class="sortable num" data-col="6" data-type="num">现价</th>
+          <th class="sortable num" data-col="7" data-type="num">SMA{{ sma_period }}</th>
+          <th class="sortable num" data-col="8" data-type="num" title="相对短期均值的偏离">离均值%</th>
+          <th class="sortable num" data-col="9" data-type="num">当日%</th>
+
+          <th class="sortable num" data-col="10" data-type="num" title="近63个交易日最低收盘价">63D Low</th>
+          <th class="sortable num" data-col="11" data-type="num" title="近63个交易日最高收盘价">63D High</th>
+          <th class="sortable num" data-col="12" data-type="num" title="(现价−Low)/(High−Low)×100；0%=近63日低点，100%=近63日高点。仅观察，不进 AI / 自动组筛选">63D Position%</th>
+          <th class="sortable num" data-col="13" data-type="num">反弹率</th>
+          <th class="sortable num" data-col="14" data-type="num" title="RVOL = 今日量 / 前20日均量">RVOL</th>
+          <th class="sortable num" data-col="15" data-type="num" title="20日平均成交量">20D均量</th>
+          <th class="sortable num" data-col="16" data-type="num" title="近63个交易日日均绝对涨跌幅">日均波动%(63D)</th>
+
+          <th class="sortable num col-est" data-col="17" data-type="num" title="Bear / Base / Bull 每股内在价值（DCF 情景敏感性；MOS% 用 Base。悬停看 WACC / g / Confidence）">Est.Value</th>
+          <th class="sortable num" data-col="18" data-type="num" title="MOS% = (Est.Value − 现价) / Est.Value × 100。正=低估空间；随现价更新，不改 AI Score">MOS%</th>
+          <th class="sortable num col-clv" data-col="19" data-type="num" title="Conservative Liquidation Value — 保守清算价值（资产负债表资产底线，不是目标价）">CLV</th>
+          <th class="sortable col-fund" data-col="20" data-type="num" title="财报健康：7 项基本面红旗">财报</th>
+          <th class="sortable col-news" data-col="21" data-type="num" title="近30天新闻">新闻</th>
+
+          <th class="sortable num" data-col="22" data-type="num" title="Yahoo 1-year analyst mean target price">1Y Target</th>
+          <th class="sortable num" data-col="23" data-type="num" title="Target Ratio = 现价 / 1Y Target；越小越值得关注">Target Ratio</th>
+
+          <th class="sortable" data-col="24" data-type="text">财报日</th>
+          {% if show_alert %}
+          <th class="sortable num col-alert" data-col="25" data-type="num"
+              title="人工关注价（Alert Price）。持久保存，不随现价/SMA/目标价自动改变。可在单元格内直接修改。">Alert Price</th>
+          {% endif %}
         </tr>
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr>
-          <td data-sort="{{ row.ticker }}">
+        <tr data-ticker="{{ row.ticker }}"
+            data-price="{% if row.price is not none %}{{ row.price }}{% endif %}">
+          <td class="col-ticker freeze-col freeze-edge" data-sort="{{ row.ticker }}">
+            {% if show_alert and row.alert and row.alert.state == 'ready' %}
+              <span class="alert-dot ready" title="READY — 现价已进入关注区（可复查财报/新闻/买入条件，不代表自动 BUY）&#10;Current: ${{ '%.2f'|format(row.alert.price) }}&#10;Alert: ${{ '%.2f'|format(row.alert.alert_price) }}&#10;Distance: {{ '%+.2f'|format(row.alert.dist_pct) }}%">🟢</span>
+            {% elif show_alert and row.alert and row.alert.state == 'near' %}
+              <span class="alert-dot near" title="NEAR — 距关注价 ≤5%&#10;Current: ${{ '%.2f'|format(row.alert.price) }}&#10;Alert: ${{ '%.2f'|format(row.alert.alert_price) }}&#10;Distance: {{ '%+.2f'|format(row.alert.dist_pct) }}%">🟡</span>
+            {% endif %}
             <strong>{{ row.ticker }}</strong>
             {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
           </td>
-          <td class="pools">{{ row.pools }}</td>
           {% if row.not_found %}
-            <td colspan="14" class="empty">未找到该股票的行情数据（可能代码有误或已退市）。</td>
+            <td colspan="{% if show_alert %}25{% else %}24{% endif %}" class="empty">未找到该股票的行情数据（可能代码有误或已退市）。</td>
           {% else %}
+            <td class="pools col-pools" data-sort="{{ row.pools }}">{{ row.pools }}</td>
+            <td data-sort="{{ (row.industry or '')|lower }}">{% if row.industry %}{{ row.industry }}{% else %}—{% endif %}</td>
+            <td class="num" data-sort="{{ row.market_cap if row.market_cap is not none else '' }}">{{ fmt_money(row.market_cap) }}</td>
+
             {% set a = row.ai %}
-            <td data-sort="{{ a.final if a else '' }}" {% if a %}title="{{ a.detail }}"{% endif %}>
+            <td class="col-ai" data-sort="{{ a.final if a else '' }}" {% if a %}title="{{ a.detail }}"{% endif %}>
               {% if a %}
                 {% set cls = 'good' if a.final >= 70 else ('mid' if a.final >= 40 else 'bad') %}
                 <span class="ai {{ cls }}">{{ a.final }}</span>
                 <div class="ai-sub">机会 {{ a.opp }} · 风险 −{{ a.risk }}</div>
               {% else %}—{% endif %}
             </td>
+
             {% set trend_rank = {'UP': 2, 'MIXED': 1, 'DOWN': 0}.get(row.trend, -1) %}
             <td data-sort="{{ trend_rank }}">{{ trend_badge(row.trend) }}</td>
-            <td class="num">{% if row.price is not none %}{{ '%.2f'|format(row.price) }}{% else %}—{% endif %}</td>
-            <td class="num" data-sort="{{ row.market_cap if row.market_cap is not none else '' }}">
-              {% set m = row.market_cap %}
-              {% if m %}
-                {% if m >= 1e12 %}{{ '%.2f'|format(m / 1e12) }}T
-                {% elif m >= 1e9 %}{% if m >= 1e11 %}{{ '%.0f'|format(m / 1e9) }}B{% else %}{{ '%.1f'|format(m / 1e9) }}B{% endif %}
-                {% elif m >= 1e6 %}{{ '%.0f'|format(m / 1e6) }}M
-                {% else %}{{ '%.0f'|format(m) }}{% endif %}
-              {% else %}—{% endif %}
+            <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">{% if row.price is not none %}{{ '%.2f'|format(row.price) }}{% else %}—{% endif %}</td>
+            <td class="num" data-sort="{{ row.sma if row.sma is not none else '' }}">{% if row.sma is not none %}{{ '%.2f'|format(row.sma) }}{% else %}—{% endif %}</td>
+            <td class="num {% if row.dist_pct is not none and row.dist_pct < 0 %}down{% elif row.dist_pct is not none and row.dist_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.dist_pct if row.dist_pct is not none else '' }}">
+              {% if row.dist_pct is not none %}{{ '%+.2f'|format(row.dist_pct) }}%{% else %}—{% endif %}
             </td>
-            <td class="num">{% if row.sma is not none %}{{ '%.2f'|format(row.sma) }}{% else %}—{% endif %}</td>
             <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
                 data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
               {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+            </td>
+
+            <td class="num" data-sort="{{ row.range_63d_low if row.range_63d_low is not none else '' }}">
+              {% if row.range_63d_low is not none %}{{ '%.2f'|format(row.range_63d_low) }}{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.range_63d_high if row.range_63d_high is not none else '' }}">
+              {% if row.range_63d_high is not none %}{{ '%.2f'|format(row.range_63d_high) }}{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.range_63d_pos if row.range_63d_pos is not none else '' }}">
+              {% if row.range_63d_pos is not none %}{{ '%.1f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num {% if row.rebound_pct is not none and row.rebound_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.rebound_pct if row.rebound_pct is not none else '' }}">
+              {% if row.rebound_pct is not none %}{{ '%+.2f'|format(row.rebound_pct) }}%{% else %}—{% endif %}
             </td>
             <td class="num" data-sort="{{ row.rvol if row.rvol is not none else '' }}"
                 title="RVOL=今日量/前20日均量。<0.7 缺量；0.7–1.2 正常；1.2–2 放量确认；2–3 明显放量(结合新闻)；>3 异常，勿机械加分。">
@@ -149,29 +334,57 @@
                 {% elif c is not none and c < 0 and r >= 2 %}<span class="rtag flag">放量跌·查新闻</span>{% endif %}
               {% else %}—{% endif %}
             </td>
+            <td class="num" data-sort="{{ row.avg_vol_20d if row.avg_vol_20d is not none else '' }}">{{ fmt_vol(row.avg_vol_20d) }}</td>
             <td class="num" data-sort="{{ row.avg_move_pct if row.avg_move_pct is not none else '' }}">
               {% if row.avg_move_pct is not none %}{{ '%.2f'|format(row.avg_move_pct) }}%{% else %}—{% endif %}
             </td>
-            <td class="num" data-sort="{{ row.avg_vol_20d if row.avg_vol_20d is not none else '' }}">
-              {% set v = row.avg_vol_20d %}
-              {% if v %}
-                {% if v >= 1e9 %}{{ '%.1f'|format(v / 1e9) }}B
-                {% elif v >= 1e6 %}{{ '%.1f'|format(v / 1e6) }}M
-                {% elif v >= 1e3 %}{{ '%.0f'|format(v / 1e3) }}K
-                {% else %}{{ '%.0f'|format(v) }}{% endif %}
+
+            <td class="num col-est" data-sort="{{ row.est_value if row.est_value is not none else '' }}"
+                title="{{ row.est_tooltip or 'Valuation unavailable' }}">
+              {% if row.est_value is not none %}
+              <div class="est-bbb">
+                <div class="est-vals">
+                  <span class="est-bear">{% if row.bear_value is not none %}${{ '%.0f'|format(row.bear_value) }}{% else %}—{% endif %}</span>
+                  <span class="est-base">${{ '%.0f'|format(row.est_value) }}</span>
+                  <span class="est-bull">{% if row.bull_value is not none %}${{ '%.0f'|format(row.bull_value) }}{% else %}—{% endif %}</span>
+                </div>
+                <div class="est-labs">
+                  <small>Bear</small>
+                  <small class="est-lab-base">Base</small>
+                  <small>Bull</small>
+                </div>
+              </div>
               {% else %}—{% endif %}
             </td>
-            <td class="num {% if row.dist_pct is not none and row.dist_pct < 0 %}down{% elif row.dist_pct is not none and row.dist_pct > 0 %}up{% endif %}"
-                data-sort="{{ row.dist_pct if row.dist_pct is not none else '' }}">
-              {% if row.dist_pct is not none %}{{ '%+.2f'|format(row.dist_pct) }}%{% else %}—{% endif %}
+            <td class="num {% if row.mos_stale %}mos-stale{% elif row.mos_pct is not none and row.mos_pct > 0 %}up{% elif row.mos_pct is not none and row.mos_pct < 0 %}down{% endif %}"
+                data-sort="{{ row.mos_pct if row.mos_pct is not none else '' }}"
+                title="{% if row.mos_stale %}MOS unavailable: price stale / missing timestamp
+Price: {{ row.mos_price if row.mos_price is not none else '—' }}
+Source: {{ row.mos_price_source or '—' }}
+as_of: {{ row.mos_price_as_of or '—' }}
+age: {{ row.get('mos_price_age_hours', '—') }}h
+reason: {{ row.mos_stale_reason or 'stale' }}
+(Est.Value cache unchanged — refresh Market Data prices){% elif row.est_value is not none and row.mos_price is not none %}MOS% = ({{ '%.2f'|format(row.est_value) }} − {{ '%.2f'|format(row.mos_price) }}) / {{ '%.2f'|format(row.est_value) }} × 100
+Price source: {{ row.mos_price_source or 'watchlist' }}{% if row.mos_price_as_of %}
+Price as_of: {{ row.mos_price_as_of }}{% endif %}{% if row.get('mos_price_age_hours') is not none %}
+Age: {{ '%.1f'|format(row.get('mos_price_age_hours')) }}h{% endif %}{% else %}需要有效的 Est.Value 与新鲜 Watchlist 现价{% endif %}">
+              {% if row.mos_stale %}<span class="mos-stale-tag" title="price stale">—</span>
+              {% elif row.mos_pct is not none %}{{ '%+.1f'|format(row.mos_pct) }}%
+              {% else %}—{% endif %}
             </td>
-            <td class="num {% if row.rebound_pct is not none and row.rebound_pct > 0 %}up{% endif %}"
-                data-sort="{{ row.rebound_pct if row.rebound_pct is not none else '' }}">
-              {% if row.rebound_pct is not none %}{{ '%+.2f'|format(row.rebound_pct) }}%{% else %}—{% endif %}
+            <td class="num col-clv {% if row.dcf_below_clv %}clv-warn{% endif %}"
+                data-sort="{{ row.clv if row.clv is not none else '' }}"
+                title="{{ row.clv_tooltip or 'CLV unavailable' }}">
+              {% if row.clv is not none %}
+                <span class="clv-val">${{ '%.0f'|format(row.clv) }}</span>
+                {% if row.clv_pct_price is not none %}
+                <div class="clv-sub">{{ '%.0f'|format(row.clv_pct_price) }}% of px</div>
+                {% endif %}
+                {% if row.dcf_below_clv %}<div class="clv-flag">DCF&lt;CLV</div>{% endif %}
+              {% else %}—{% endif %}
             </td>
-            <td>{{ row.earnings_date or "—" }}</td>
             {% set f = row.fund %}
-            <td data-sort="{{ f.warnings if f and f.total_known else '' }}"
+            <td class="col-fund" data-sort="{{ f.warnings if f and f.total_known else '' }}"
                 {% if f and f.detail %}title="{{ f.detail }}"{% endif %}>
               {% if f and f.health != 'unknown' %}
                 <span class="fund {{ f.health }}">{{ {'good':'🟢','ok':'🟡','bad':'🔴'}[f.health] }} {{ f.ok }}/{{ f.total_known }}</span>
@@ -180,7 +393,7 @@
               {% else %}—{% endif %}
             </td>
             {% set nw = row.news %}
-            <td data-sort="{{ nw.sort if nw else 0 }}"
+            <td class="col-news" data-sort="{{ nw.sort if nw else 0 }}"
                 {% if nw and nw.detail %}title="{{ nw.detail }}"{% endif %}>
               {% if nw and nw.has_news %}
                 <span class="news {{ nw.tone }}">{{ nw.label }}</span>
@@ -188,6 +401,29 @@
                 <span class="news none">NO NEWS</span>
               {% else %}—{% endif %}
             </td>
+
+            <td class="num" data-sort="{{ row.target_1y if row.target_1y is not none else '' }}">
+              {% if row.target_1y is not none %}${{ '%.2f'|format(row.target_1y) }}{% else %}—{% endif %}
+            </td>
+            <td class="num {% if row.price is not none and row.target_1y is not none and row.target_1y > 0 and (row.price / row.target_1y) < 1 %}up{% endif %}"
+                data-sort="{% if row.price is not none and row.target_1y is not none and row.target_1y > 0 %}{{ '%.6f'|format(row.price / row.target_1y) }}{% endif %}"
+                title="Target Ratio = 现价 / 1Y Target；越小越值得关注">
+              {% if row.price is not none and row.target_1y is not none and row.target_1y > 0 %}
+                {{ '%.2f'|format(row.price / row.target_1y) }}
+              {% else %}—{% endif %}
+            </td>
+
+            <td data-sort="{{ row.earnings_date or '' }}">{{ row.earnings_date or "—" }}</td>
+            {% if show_alert %}
+            <td class="num col-alert"
+                data-sort="{{ row.alert_price if row.alert_price is not none else '' }}">
+              <input class="alert-edit" type="text" inputmode="decimal"
+                     data-ticker="{{ row.ticker }}"
+                     placeholder="—"
+                     value="{% if row.alert_price is not none %}{{ '%.2f'|format(row.alert_price) }}{% endif %}"
+                     title="人工关注价。回车或失焦保存；清空后保存即删除。不触发自动交易。">
+            </td>
+            {% endif %}
           {% endif %}
         </tr>
         {% endfor %}
@@ -198,9 +434,9 @@
 {% endmacro %}
 
 {% set descriptions = {
-  'oversold': '自动生成：离均值% ≤ -20%。优先级：Trend UP > MIXED > DOWN（同趋势内按离均值% 从低到高）。',
-  'pullback': '自动生成：Trend = UP 且 离均值% < -3%（上升趋势中已回落到均值下方 3% 以上的实质回调）。',
-  'mine': '长期保存（当前：AAPL、NVDA）。以后开通登录账户后可自行增删。',
+  'setup': '原「超卖建议」与「强势回调」已合并。自动生成：离均值% < -10%（相对 SMA 至少低一成以上）。Trend 可为 UP / MIXED / DOWN；优先级 UP > MIXED > DOWN，同趋势内按离均值% 从低到高。Est.Value / MOS / CLV 计算复杂时可为空；Target Ratio 仍显示（有 Yahoo 目标价时）。63D 区间仅观察，不作硬筛选。',
+  'low_target': '自动生成：Target Ratio < 0.80，并排除 63D Position% > 70%。财报只读共享缓存。新闻仅对 Financial 绿色（good）股票读取共享新闻缓存（近30天）；黄/红不抓新闻。本页不跑 DCF/CLV/MOS/AI。',
+  'mine': '长期观察 / 我的自选（当前：' ~ (mine_list_label or '—') ~ '）。最右侧 Alert Price 为人工关注价，持久保存、可直接改；左侧 🟢 READY = 现价≤关注价，🟡 NEAR = 距关注价≤5%。不代表自动 BUY，也不改估值/AI 规则。',
   'temp': '朋友临时输入的股票，仅本次会话有效，关闭浏览器后自动清空。'
 } %}
 
@@ -208,10 +444,10 @@
   <h1>Watchlist</h1>
 
   <details class="legend" open>
-    <summary>📖 代码说明（AI 打分 / 财报 / 新闻）</summary>
+    <summary>📖 代码说明（AI 打分 / 财报 / 新闻 / 估值）</summary>
     <div class="legend-body">
       <div class="legend-col">
-        <strong>AI Score V1 = 机会分(0–100) − 风险扣分</strong>
+        <strong>AI Score V1 = 机会分(0–100) − 风险扣分（Opportunity / Timing）</strong>
         <ul style="columns:1">
           <li>回调深度 <code>30</code>（离SMA越深越高，≤−30%满分）</li>
           <li>长期趋势 <code>20</code>（UP20 / MIXED10 / DOWN0）</li>
@@ -220,7 +456,36 @@
           <li>财务质量 <code>15</code>（🟢15 / 🟡8–12 / 🔴0–7）</li>
           <li>新闻 <code>10</code>（正面10 / 中性5 / 负面0）</li>
         </ul>
-        <p class="hint" style="text-align:left;margin:0">风险扣分：严重财务 −0~15、重大负面新闻 −0~15、放量暴跌 −0~5、高波动/低流动 −0~5、临近财报 −0~15（越近扣越多）。悬停 AI 看每项拆分。绿≥70 / 黄40–69 / 红&lt;40。</p>
+        <p class="hint" style="text-align:left;margin:0">风险扣分：严重财务 −0~15、重大负面新闻 −0~15、放量暴跌 −0~5、高波动/低流动 −0~5、临近财报 −0~15（越近扣越多）。悬停 AI 看每项拆分。绿≥70 / 黄40–69 / 红&lt;40。<strong>不包含 Est.Value / MOS / 63D Position。</strong></p>
+      </div>
+      <div class="legend-col">
+        <strong>投资价值（DCF v1.3 frozen + CLV，与 AI 独立）</strong>
+        <ul style="columns:1">
+          <li><code>Est.Value</code> = Bear / <strong>Base</strong> / Bull（DCF 情景；金融/亏损/数据不足 → —）</li>
+          <li><code>MOS%</code> = (Base − <strong>行内最新现价</strong>) / Base × 100；价格过期（默认 &gt;72h）→ —，不重跑 DCF</li>
+          <li><code>CLV</code> — Conservative Liquidation Value（保守清算价值）</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">
+          CLV 基于最新资产负债表，对现金、证券、应收账款、存货、投资及 PP&E 等现有资产采用统一的保守回收折扣，再扣除全部负债后计算的每股资产价值。
+          <strong>CLV 是资产底线参考，不是目标价，也不是对公司持续经营价值的完整估计。</strong>
+        </p>
+        <p class="hint" style="text-align:left;margin:0">
+          当前统一 recovery：Cash 100% | Marketable Securities 100% | Receivables 80% | Inventory 50% | Non-marketable Investments 50% | PP&E 25% | Goodwill &amp; Intangibles 0%。
+          所有公司相同规则，不根据市场价格调整。
+        </p>
+        <p class="hint" style="text-align:left;margin:0">
+          与 DCF 区别：CLV = 已有资产的保守价值底线；DCF = 持续经营下未来现金流估计。
+          当 DCF Base &lt; CLV 时显示 warning（检查 DCF），但不自动修改 DCF。
+        </p>
+        <p class="hint" style="text-align:left;margin:0">
+          <strong>价值参考：</strong><code>1Y Target</code> = Yahoo 分析师一年目标均价；
+          <code>Target Ratio</code> = 现价 ÷ 1Y Target（越小越值得关注；点表头 ↕ 排序）。与 DCF/CLV 独立。
+        </p>
+        <ul style="columns:1">
+          <li>增长：Revenue CAGR 为锚（Growth v1.1 冻结）</li>
+          <li>WACC / Tiered Kd：见 <code>valuation_config.py</code>（v1.3 冻结）</li>
+          <li>悬停 Est.Value / CLV 可看完整拆分</li>
+        </ul>
       </div>
       <div class="legend-col">
         <strong>财报红旗（⚠ = 红旗，计入健康分）</strong>
@@ -270,7 +535,23 @@
     {% endfor %}
   </div>
 
-  <p class="hint">{{ descriptions[tab] }} 所有组都显示「所属股池」，<strong>点表头可排序</strong>。<strong>财报 / 新闻</strong>为实时抓取（首次打开该标签可能等待十几秒，结果缓存 15 分钟）；财报/新闻列可鼠标悬停看明细。</p>
+  <div class="actions" style="margin-bottom:12px">
+    <form method="post" action="{{ url_for('refresh_all_prices') }}" style="display:inline"
+          onsubmit="this.querySelector('button').textContent='更新中（可能需数分钟）…'; this.querySelector('button').disabled=true;">
+      <input type="hidden" name="next" value="{{ url_for('watchlist', tab=tab) }}">
+      <button class="btn primary" type="submit" title="刷新全部指数股池行情缓存，并同步更新 Watchlist（含 MANUAL）">刷新全部行情 + Watchlist</button>
+    </form>
+    <a class="btn" href="{{ url_for('market_dashboard') }}">Market Dashboard</a>
+  </div>
+
+  <p class="hint">{{ descriptions[tab] }} 所有组都显示「所属股池」，<strong>点第二列表头可排序</strong>。<strong>财报 / 新闻</strong>为实时抓取（首次打开该标签可能等待十几秒，结果缓存 15 分钟）；财报/新闻列可鼠标悬停看明细。默认：每周更新股池成分，每个交易日收盘后自动更新行情并同步 Watchlist；也可点上方按钮手动刷新。</p>
+  {% if tab == 'low_target' %}
+    <p class="hint" style="margin-top:6px">
+      财报缓存覆盖：<strong>{{ fund_cache_hits }} / {{ fund_cache_total }}</strong>
+      {% if low_target_ms is not none %}· 装配 {{ low_target_ms }} ms{% endif %}
+      · 新闻仅显示 Financial 🟢 的缓存结果；黄/红新闻列为空 · Est / MOS / CLV / AI 本页留空。
+    </p>
+  {% endif %}
 
   {% if tab == 'temp' %}
     <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='temp') }}">
@@ -285,7 +566,7 @@
     <p class="hint" style="margin:0 0 12px">临时列表最多 {{ max_temp }} 个股票（超出的会被忽略）；关闭浏览器后自动清空。当前 {{ temp_tickers|length }} / {{ max_temp }}。</p>
   {% endif %}
 
-  {{ wl_table(rows, sma_period) }}
+  {{ wl_table(rows, sma_period, show_alert=show_alert|default(False)) }}
 
   <script>
     (function () {
@@ -297,20 +578,26 @@
         if (!td) return type === "num" ? NaN : "";
         var raw = td.dataset.sort !== undefined ? td.dataset.sort : td.textContent.trim();
         if (type === "num") {
-          var n = parseFloat(String(raw).replace(/[%+,\s]/g, ""));
+          var n = parseFloat(String(raw).replace(/[%+,\s×$]/g, ""));
           return isNaN(n) ? NaN : n;
         }
         return String(raw).toLowerCase();
       }
-      table.querySelectorAll("th.sortable").forEach(function (th) {
+      table.querySelectorAll("thead tr.col-row th.sortable").forEach(function (th) {
         th.addEventListener("click", function () {
-          var idx = Array.prototype.indexOf.call(th.parentNode.children, th);
+          var idx = th.dataset.col !== undefined
+            ? parseInt(th.dataset.col, 10)
+            : Array.prototype.indexOf.call(th.parentNode.children, th);
           var type = th.dataset.type || "text";
           var asc = !th.classList.contains("asc");
-          table.querySelectorAll("th").forEach(function (h) { h.classList.remove("asc", "desc"); });
+          table.querySelectorAll("thead tr.col-row th").forEach(function (h) {
+            h.classList.remove("asc", "desc");
+          });
           th.classList.add(asc ? "asc" : "desc");
           var rows = Array.prototype.slice.call(tbody.rows);
           rows.sort(function (a, b) {
+            // Skip incomplete "not found" rows that use colspan
+            if (a.cells.length < 2 || b.cells.length < 2) return 0;
             var av = cellValue(a, idx, type), bv = cellValue(b, idx, type);
             if (type === "num") {
               var an = isNaN(av), bn = isNaN(bv);
@@ -325,6 +612,68 @@
           });
           rows.forEach(function (r) { tbody.appendChild(r); });
         });
+      });
+
+      function refreshAlertDot(tr, alert) {
+        var td = tr.querySelector("td.col-ticker");
+        if (!td) return;
+        var old = td.querySelector(".alert-dot");
+        if (old) old.remove();
+        if (!alert || !alert.state) return;
+        var span = document.createElement("span");
+        span.className = "alert-dot " + alert.state;
+        var label = alert.state === "ready" ? "READY" : "NEAR";
+        var tip = label + "\nCurrent: $" + Number(alert.price).toFixed(2)
+          + "\nAlert: $" + Number(alert.alert_price).toFixed(2)
+          + "\nDistance: " + (alert.dist_pct >= 0 ? "+" : "") + Number(alert.dist_pct).toFixed(2) + "%";
+        span.title = tip;
+        span.textContent = alert.state === "ready" ? "🟢" : "🟡";
+        td.insertBefore(span, td.firstChild);
+      }
+
+      function saveAlert(input) {
+        var ticker = input.getAttribute("data-ticker");
+        var tr = input.closest("tr");
+        var price = tr ? tr.getAttribute("data-price") : "";
+        var raw = (input.value || "").trim().replace(/[$,]/g, "");
+        var body = { ticker: ticker, alert_price: raw === "" ? "" : raw, price: price };
+        input.classList.remove("saved", "err");
+        input.classList.add("saving");
+        fetch("{{ url_for('watchlist_alert_price') }}", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(body)
+        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+          .then(function (res) {
+            input.classList.remove("saving");
+            if (!res.ok || !res.j.ok) {
+              input.classList.add("err");
+              return;
+            }
+            var ap = res.j.alert_price;
+            var td = input.closest("td");
+            if (td) td.setAttribute("data-sort", ap == null ? "" : String(ap));
+            input.value = ap == null ? "" : Number(ap).toFixed(2);
+            input.classList.add("saved");
+            if (tr) refreshAlertDot(tr, res.j.alert);
+            setTimeout(function () { input.classList.remove("saved"); }, 800);
+          })
+          .catch(function () {
+            input.classList.remove("saving");
+            input.classList.add("err");
+          });
+      }
+
+      table.querySelectorAll("input.alert-edit").forEach(function (input) {
+        input.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            input.blur();
+          }
+        });
+        input.addEventListener("blur", function () { saveAlert(input); });
+        // Prevent column sort when clicking the editor
+        input.addEventListener("click", function (e) { e.stopPropagation(); });
       });
     })();
   </script>

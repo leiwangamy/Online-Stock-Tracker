@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,12 @@ DEFAULT_SETTINGS = {
     "sma_presets": [25, 50, 63, 90],
     "rebound_lookback": 25,  # days used for recent low (phase 2 / reserved)
     "data_source": "yahoo",  # later: ibkr
+    # Auto-update (Pacific). Prices: weekdays after US close (~16:15 ET).
+    "schedule_universe_weekday": "sun",
+    "schedule_universe_hour": 10,
+    "schedule_universe_minute": 0,
+    "schedule_price_hour": 13,
+    "schedule_price_minute": 15,
 }
 
 
@@ -86,6 +93,10 @@ def init_db() -> None:
                 price REAL,
                 change_pct REAL,
                 avg_move_pct REAL,
+                range_63d_low REAL,
+                range_63d_high REAL,
+                range_63d_pos REAL,
+                target_1y REAL,
                 sma REAL,
                 dist_pct REAL,
                 rebound_pct REAL,
@@ -97,6 +108,32 @@ def init_db() -> None:
                 earnings_date TEXT,
                 ai_note TEXT,
                 updated_at TEXT
+            );
+
+            -- Cached estimated intrinsic value (valuation layer; independent of AI Score).
+            -- Recompute when fundamentals / model update — not on every price tick.
+            CREATE TABLE IF NOT EXISTS intrinsic_value (
+                ticker TEXT PRIMARY KEY,
+                est_value REAL,
+                currency TEXT,
+                model TEXT,
+                as_of TEXT,
+                notes TEXT,
+                updated_at TEXT,
+                wacc REAL,
+                terminal_growth REAL,
+                confidence TEXT,
+                failure_reason TEXT,
+                growth_path TEXT,
+                financial_period TEXT,
+                meta_json TEXT
+            );
+
+            -- Manual watchlist Alert Price (human observation only; never auto-overwritten).
+            CREATE TABLE IF NOT EXISTS watchlist_alerts (
+                ticker TEXT PRIMARY KEY,
+                alert_price REAL NOT NULL,
+                updated_at TEXT NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_daily_bars_ticker ON daily_bars(ticker);
@@ -111,10 +148,37 @@ def init_db() -> None:
                 )
         # Migrate dashboard_cache for daily change % and long-term trend columns.
         cache_cols = {r["name"] for r in conn.execute("PRAGMA table_info(dashboard_cache)")}
-        for col, decl in (("change_pct", "REAL"), ("trend", "TEXT"), ("avg_move_pct", "REAL"),
-                          ("market_cap", "REAL"), ("avg_vol_20d", "REAL"), ("rvol", "REAL")):
+        for col, decl in (
+            ("change_pct", "REAL"),
+            ("trend", "TEXT"),
+            ("avg_move_pct", "REAL"),
+            ("market_cap", "REAL"),
+            ("avg_vol_20d", "REAL"),
+            ("rvol", "REAL"),
+            ("range_63d_low", "REAL"),
+            ("range_63d_high", "REAL"),
+            ("range_63d_pos", "REAL"),
+            ("target_1y", "REAL"),
+        ):
             if col not in cache_cols:
                 conn.execute(f"ALTER TABLE dashboard_cache ADD COLUMN {col} {decl}")
+        # Migrate intrinsic_value for Valuation Engine V1 metadata.
+        iv_cols = {
+            r["name"]
+            for r in conn.execute("PRAGMA table_info(intrinsic_value)")
+        }
+        if iv_cols:  # table exists
+            for col, decl in (
+                ("wacc", "REAL"),
+                ("terminal_growth", "REAL"),
+                ("confidence", "TEXT"),
+                ("failure_reason", "TEXT"),
+                ("growth_path", "TEXT"),
+                ("financial_period", "TEXT"),
+                ("meta_json", "TEXT"),
+            ):
+                if col not in iv_cols:
+                    conn.execute(f"ALTER TABLE intrinsic_value ADD COLUMN {col} {decl}")
         for key, value in DEFAULT_SETTINGS.items():
             existing = conn.execute("SELECT 1 FROM settings WHERE key = ?", (key,)).fetchone()
             if not existing:
@@ -122,6 +186,125 @@ def init_db() -> None:
                     "INSERT INTO settings (key, value) VALUES (?, ?)",
                     (key, json.dumps(value)),
                 )
+        seed_default_alert_prices()
+
+
+# First-edition manual Alert Prices for 我的自选 (observation only; not model params).
+DEFAULT_ALERT_PRICES: dict[str, float] = {
+    "TSLA": 310.0,
+    "AAPL": 285.0,
+    "IBM": 215.0,
+    "DVA": 170.0,
+    "GOOG": 320.0,
+    "INTU": 310.0,
+    "DELL": 430.0,
+    "NVDA": 205.0,
+    "XBI": 145.0,
+    "JEPI": 55.0,
+    "DGRO": 75.0,
+}
+
+
+def seed_default_alert_prices() -> None:
+    """Insert defaults only when ticker has no alert yet — never overwrite user edits.
+    Caller must ensure init_db() / table exists (invoked at end of init_db).
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        for ticker, price in DEFAULT_ALERT_PRICES.items():
+            existing = conn.execute(
+                "SELECT 1 FROM watchlist_alerts WHERE ticker = ?",
+                (ticker,),
+            ).fetchone()
+            if existing:
+                continue
+            conn.execute(
+                "INSERT INTO watchlist_alerts (ticker, alert_price, updated_at) VALUES (?, ?, ?)",
+                (ticker, float(price), now),
+            )
+
+
+def get_alert_prices(tickers: list[str] | None = None) -> dict[str, float]:
+    """Return {TICKER: alert_price}. If tickers given, only those keys (when present)."""
+    init_db()
+    with get_conn() as conn:
+        if tickers:
+            clean = [((t or "").strip().upper()) for t in tickers if (t or "").strip()]
+            if not clean:
+                return {}
+            placeholders = ",".join("?" * len(clean))
+            rows = conn.execute(
+                f"SELECT ticker, alert_price FROM watchlist_alerts WHERE ticker IN ({placeholders})",
+                clean,
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT ticker, alert_price FROM watchlist_alerts"
+            ).fetchall()
+    out: dict[str, float] = {}
+    for r in rows:
+        try:
+            out[str(r["ticker"]).upper()] = float(r["alert_price"])
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def upsert_alert_price(ticker: str, alert_price: float | None) -> float | None:
+    """
+    Set or clear manual Alert Price for a ticker.
+    alert_price=None deletes the row (display —).
+    Returns stored price or None after clear.
+    """
+    t = (ticker or "").strip().upper()
+    if not t:
+        raise ValueError("ticker required")
+    init_db()
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        if alert_price is None:
+            conn.execute("DELETE FROM watchlist_alerts WHERE ticker = ?", (t,))
+            return None
+        px = float(alert_price)
+        if px <= 0 or px != px:  # NaN check
+            raise ValueError("alert_price must be a positive number")
+        conn.execute(
+            "INSERT INTO watchlist_alerts (ticker, alert_price, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(ticker) DO UPDATE SET "
+            "alert_price = excluded.alert_price, updated_at = excluded.updated_at",
+            (t, px, now),
+        )
+    return px
+
+
+def alert_status(price: float | None, alert_price: float | None) -> dict[str, Any] | None:
+    """
+    READY: price <= alert
+    NEAR: alert < price <= alert * 1.05
+    else None (normal — no icon)
+    """
+    if price is None or alert_price is None:
+        return None
+    try:
+        px = float(price)
+        ap = float(alert_price)
+    except (TypeError, ValueError):
+        return None
+    if ap <= 0:
+        return None
+    dist_pct = (px - ap) / ap * 100.0
+    if px <= ap:
+        state = "ready"
+    elif px <= ap * 1.05:
+        state = "near"
+    else:
+        return None
+    return {
+        "state": state,
+        "price": px,
+        "alert_price": ap,
+        "dist_pct": round(dist_pct, 2),
+    }
 
 
 def get_setting(key: str, default: Any = None) -> Any:
@@ -206,20 +389,31 @@ def universe_count(group: str | None = None) -> int:
 
 def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -> None:
     init_db()
+    # Ensure newer optional metrics exist so older callers don't break INSERT.
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        r = dict(row)
+        for k in ("range_63d_low", "range_63d_high", "range_63d_pos", "target_1y"):
+            r.setdefault(k, None)
+        normalized.append(r)
     with get_conn() as conn:
         if replace_all:
             conn.execute("DELETE FROM dashboard_cache")
-        if rows:
+        if normalized:
             # Upsert so a group-scoped refresh only touches its own tickers,
             # leaving the other tabs' cached rows intact.
             conn.executemany(
                 """
                 INSERT INTO dashboard_cache (
-                    ticker, name, industry, sector, price, change_pct, avg_move_pct, sma, dist_pct,
+                    ticker, name, industry, sector, price, change_pct, avg_move_pct,
+                    range_63d_low, range_63d_high, range_63d_pos, target_1y,
+                    sma, dist_pct,
                     rebound_pct, trend, market_cap, avg_vol_20d, rvol, sma_period, earnings_date,
                     ai_note, updated_at
                 ) VALUES (
-                    :ticker, :name, :industry, :sector, :price, :change_pct, :avg_move_pct, :sma, :dist_pct,
+                    :ticker, :name, :industry, :sector, :price, :change_pct, :avg_move_pct,
+                    :range_63d_low, :range_63d_high, :range_63d_pos, :target_1y,
+                    :sma, :dist_pct,
                     :rebound_pct, :trend, :market_cap, :avg_vol_20d, :rvol, :sma_period, :earnings_date,
                     :ai_note, :updated_at
                 )
@@ -230,6 +424,10 @@ def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -
                     price = excluded.price,
                     change_pct = excluded.change_pct,
                     avg_move_pct = excluded.avg_move_pct,
+                    range_63d_low = excluded.range_63d_low,
+                    range_63d_high = excluded.range_63d_high,
+                    range_63d_pos = excluded.range_63d_pos,
+                    target_1y = excluded.target_1y,
                     sma = excluded.sma,
                     dist_pct = excluded.dist_pct,
                     rebound_pct = excluded.rebound_pct,
@@ -242,7 +440,7 @@ def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -
                     ai_note = excluded.ai_note,
                     updated_at = excluded.updated_at
                 """,
-                rows,
+                normalized,
             )
 
 
@@ -277,10 +475,14 @@ _POOLS_SELECT = (
 )
 
 
-def list_oversold(threshold: float = -20.0) -> list[dict[str, Any]]:
-    """Auto group ①: distance from mean ≤ threshold, ranked UP > MIXED > DOWN."""
+def list_setup(threshold: float = -10.0) -> list[dict[str, Any]]:
+    """
+    Combined auto Watchlist group (超卖 / 强势回调):
+    dist_pct < threshold (default -10%), any trend UP / MIXED / DOWN.
+    Ranked UP > MIXED > DOWN, then deepest discount first.
+    """
     sql = (
-        f"{_POOLS_SELECT} WHERE d.dist_pct IS NOT NULL AND d.dist_pct <= ? "
+        f"{_POOLS_SELECT} WHERE d.dist_pct IS NOT NULL AND d.dist_pct < ? "
         f"ORDER BY {_TREND_RANK_SQL}, d.dist_pct ASC, d.ticker"
     )
     init_db()
@@ -289,16 +491,115 @@ def list_oversold(threshold: float = -20.0) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def list_pullback(max_dist: float = 3.0) -> list[dict[str, Any]]:
-    """Auto group ②: trend UP and distance from mean < max_dist (pullback to mean)."""
+def list_low_target_ratio(
+    max_ratio: float = 0.8,
+    *,
+    max_range_pos: float = 70.0,
+) -> list[dict[str, Any]]:
+    """
+    Auto group: Target Ratio = price / target_1y < max_ratio (default 0.8 = 80%).
+    Drop names with 63D Position% > max_range_pos (default 70); missing Position kept.
+    Requires price and positive Yahoo 1Y target. Ordered by ratio ascending.
+    """
     sql = (
-        f"{_POOLS_SELECT} WHERE d.trend = 'UP' AND d.dist_pct IS NOT NULL AND d.dist_pct < ? "
-        "ORDER BY d.dist_pct ASC, d.ticker"
+        f"{_POOLS_SELECT} WHERE d.price IS NOT NULL AND d.target_1y IS NOT NULL "
+        "AND d.target_1y > 0 AND (d.price / d.target_1y) < ? "
+        "AND (d.range_63d_pos IS NULL OR d.range_63d_pos <= ?) "
+        "ORDER BY (d.price / d.target_1y) ASC, d.ticker"
     )
     init_db()
     with get_conn() as conn:
-        rows = conn.execute(sql, (max_dist,)).fetchall()
+        rows = conn.execute(sql, (max_ratio, max_range_pos)).fetchall()
     return [dict(r) for r in rows]
+
+
+def list_oversold(threshold: float = -10.0) -> list[dict[str, Any]]:
+    """Alias of list_setup (legacy name)."""
+    return list_setup(threshold)
+
+
+def list_pullback(threshold: float = -10.0) -> list[dict[str, Any]]:
+    """Alias of list_setup (legacy name; former UP-only filter removed)."""
+    return list_setup(threshold)
+
+
+def get_intrinsic_values(tickers: list[str]) -> dict[str, dict[str, Any]]:
+    """Cached Est.Value rows keyed by ticker (Valuation Engine V1)."""
+    if not tickers:
+        return {}
+    placeholders = ",".join("?" * len(tickers))
+    init_db()
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT ticker, est_value, currency, model, as_of, notes, updated_at, "
+            f"wacc, terminal_growth, confidence, failure_reason, growth_path, "
+            f"financial_period, meta_json "
+            f"FROM intrinsic_value WHERE ticker IN ({placeholders})",
+            tickers,
+        ).fetchall()
+    return {r["ticker"]: dict(r) for r in rows}
+
+
+def upsert_intrinsic_value(
+    ticker: str,
+    *,
+    est_value: float | None,
+    currency: str | None = None,
+    model: str | None = None,
+    as_of: str | None = None,
+    notes: str | None = None,
+    wacc: float | None = None,
+    terminal_growth: float | None = None,
+    confidence: str | None = None,
+    failure_reason: str | None = None,
+    growth_path: str | None = None,
+    financial_period: str | None = None,
+    meta_json: str | None = None,
+) -> None:
+    """Store / update Estimated Intrinsic Value (does not touch dashboard price cache)."""
+    from datetime import datetime, timezone
+
+    init_db()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO intrinsic_value (
+                ticker, est_value, currency, model, as_of, notes, updated_at,
+                wacc, terminal_growth, confidence, failure_reason, growth_path,
+                financial_period, meta_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(ticker) DO UPDATE SET
+                est_value = excluded.est_value,
+                currency = excluded.currency,
+                model = excluded.model,
+                as_of = excluded.as_of,
+                notes = excluded.notes,
+                updated_at = excluded.updated_at,
+                wacc = excluded.wacc,
+                terminal_growth = excluded.terminal_growth,
+                confidence = excluded.confidence,
+                failure_reason = excluded.failure_reason,
+                growth_path = excluded.growth_path,
+                financial_period = excluded.financial_period,
+                meta_json = excluded.meta_json
+            """,
+            (
+                ticker.strip().upper(),
+                est_value,
+                currency,
+                model,
+                as_of,
+                notes,
+                datetime.now(timezone.utc).isoformat(),
+                wacc,
+                terminal_growth,
+                confidence,
+                failure_reason,
+                growth_path,
+                financial_period,
+                meta_json,
+            ),
+        )
 
 
 def get_dashboard_by_tickers(tickers: list[str]) -> dict[str, dict[str, Any]]:

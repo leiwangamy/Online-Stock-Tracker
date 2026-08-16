@@ -1,3 +1,4 @@
+apscheduler>=3.10.0
 flask
 matplotlib
 yfinance
@@ -6,3 +7,4 @@ pandas
 lxml
 html5lib
 beautifulsoup4
+tzdata
