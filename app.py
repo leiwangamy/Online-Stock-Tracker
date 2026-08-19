@@ -1576,5 +1576,147 @@ def ai_trading():
     )
 
 
+# ---------------------------------------------------------------------------
+# Admin Order Requests + private Local Trading Agent API (V0, no IBKR)
+# ---------------------------------------------------------------------------
+
+
+def _require_private_agent_auth():
+    """Return None if Bearer auth OK; otherwise (jsonify response, status)."""
+    from trading_orders import verify_bearer_token
+
+    if verify_bearer_token(request.headers.get("Authorization")):
+        return None
+    return jsonify({"error": "unauthorized"}), 401
+
+
+@app.route("/admin/order-requests", methods=["GET", "POST"])
+def admin_order_requests():
+    """Admin-only UI to create/list Order Requests for the Local Agent."""
+    from trading_orders import (
+        api_key_configured,
+        create_order_request,
+        list_order_requests,
+    )
+
+    if not is_owner():
+        flash(gettext("Please sign in to manage Order Requests"), "warning")
+        return redirect(
+            url_for("owner_login", next=url_for("admin_order_requests"))
+        )
+
+    prefill: dict = {}
+    if request.method == "POST":
+        action = (request.form.get("action") or "").strip()
+        if action == "create":
+            try:
+                payload = {
+                    "symbol": request.form.get("symbol"),
+                    "action": request.form.get("ord_action") or request.form.get("order_action"),
+                    "quantity": request.form.get("quantity"),
+                    "expected_price": request.form.get("expected_price"),
+                    "allocation_amount": request.form.get("allocation_amount"),
+                    "stop_price": request.form.get("stop_price"),
+                    "take_profit_price": request.form.get("take_profit_price"),
+                    "ai_score": request.form.get("ai_score"),
+                    "mos_t": request.form.get("mos_t"),
+                    "source": request.form.get("source"),
+                    "mode": request.form.get("mode") or "PAPER",
+                }
+                created = create_order_request(payload)
+                flash(
+                    ngettext_format(
+                        "Order Request #{id} created ({symbol}, PENDING)",
+                        id=created["request_id"],
+                        symbol=created["symbol"],
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("admin_order_requests"))
+            except ValueError as exc:
+                flash(str(exc), "warning")
+                prefill = {
+                    "symbol": (request.form.get("symbol") or "").strip().upper(),
+                    "action": (request.form.get("ord_action") or "BUY").strip().upper(),
+                    "quantity": request.form.get("quantity") or "",
+                    "expected_price": request.form.get("expected_price") or "",
+                    "allocation_amount": request.form.get("allocation_amount") or "",
+                    "stop_price": request.form.get("stop_price") or "",
+                    "take_profit_price": request.form.get("take_profit_price") or "",
+                    "ai_score": request.form.get("ai_score") or "",
+                    "mos_t": request.form.get("mos_t") or "",
+                    "source": request.form.get("source") or "",
+                }
+
+    orders = list_order_requests(limit=100)
+    return render_template(
+        "admin_order_requests.html",
+        orders=orders,
+        prefill=prefill,
+        api_key_configured=api_key_configured(),
+    )
+
+
+@app.route("/api/trading/orders/pending", methods=["GET"])
+def api_trading_orders_pending():
+    """Private agent: list PENDING Paper Order Requests."""
+    from trading_orders import list_pending_order_requests
+
+    denied = _require_private_agent_auth()
+    if denied is not None:
+        return denied
+    orders = list_pending_order_requests(limit=100)
+    app.logger.info("trading API: listed %s pending order(s)", len(orders))
+    return jsonify({"orders": orders})
+
+
+@app.route("/api/trading/orders/<int:request_id>", methods=["GET"])
+def api_trading_order_get(request_id: int):
+    """Private agent: fetch one Order Request by id."""
+    from trading_orders import get_order_request
+
+    denied = _require_private_agent_auth()
+    if denied is not None:
+        return denied
+    order = get_order_request(request_id)
+    if not order:
+        app.logger.info("trading API: order %s not found", request_id)
+        return jsonify({"error": "not found"}), 404
+    app.logger.info("trading API: read order %s status=%s", request_id, order.get("status"))
+    return jsonify({"order": order})
+
+
+@app.route("/api/trading/orders/<int:request_id>/status", methods=["POST"])
+def api_trading_order_status(request_id: int):
+    """Private agent: update processing status only (no create / no score edits)."""
+    from trading_orders import update_order_status
+
+    denied = _require_private_agent_auth()
+    if denied is not None:
+        return denied
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        app.logger.warning("trading API: malformed status body for id=%s", request_id)
+        return jsonify({"error": "JSON body required"}), 400
+
+    status = body.get("status")
+    message = body.get("message")
+    try:
+        updated = update_order_status(request_id, status=status, message=message)
+    except LookupError:
+        return jsonify({"error": "not found"}), 404
+    except ValueError as exc:
+        app.logger.warning(
+            "trading API: status update rejected id=%s: %s", request_id, exc
+        )
+        return jsonify({"error": str(exc)}), 400
+
+    app.logger.info(
+        "trading API: status update id=%s -> %s", request_id, updated.get("status")
+    )
+    return jsonify({"order": updated})
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=3000)

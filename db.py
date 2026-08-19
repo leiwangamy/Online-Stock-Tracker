@@ -241,6 +241,31 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_paper_candidates_date ON paper_candidates(as_of_date);
             CREATE INDEX IF NOT EXISTS idx_paper_equity_date ON paper_equity_snapshots(as_of_date);
 
+            -- Admin Order Requests for Local Trading Agent (V0: no IBKR).
+            CREATE TABLE IF NOT EXISTS trading_order_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                action TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                expected_price REAL,
+                allocation_amount REAL,
+                stop_price REAL,
+                take_profit_price REAL,
+                ai_score_at_request REAL,
+                mos_t_at_request REAL,
+                source_at_request TEXT,
+                mode TEXT NOT NULL DEFAULT 'PAPER',
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                status_message TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_trading_order_requests_status
+                ON trading_order_requests(status);
+            CREATE INDEX IF NOT EXISTS idx_trading_order_requests_created
+                ON trading_order_requests(created_at);
+
             CREATE INDEX IF NOT EXISTS idx_daily_bars_ticker ON daily_bars(ticker);
             """
         )

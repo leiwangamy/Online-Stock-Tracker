@@ -323,6 +323,10 @@
     <a href="{{ url_for('ai_trading') }}" class="{% if request.endpoint == 'ai_trading' %}active{% endif %}">{{ _('AI Trading') }}</a>
     <span class="sep">|</span>
     <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">{{ _('Settings') }}</a>
+    {% if is_owner %}
+    <span class="sep">|</span>
+    <a href="{{ url_for('admin_order_requests') }}" class="{% if request.endpoint == 'admin_order_requests' %}active{% endif %}">{{ _('Order Requests') }}</a>
+    {% endif %}
     <span class="sep">|</span>
     {% if is_owner %}
       <a href="{{ url_for('owner_logout') }}" title="{{ _('Logout') }}">{{ _('Logout') }}</a>

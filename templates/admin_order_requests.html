@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Order Requests') }} — LeiBot{% endblock %}
+{% block head %}
+<style>
+  .banner {
+    background: #eff6ff; border: 1px solid #93c5fd; color: #1e3a8a;
+    border-radius: 8px; padding: 10px 14px; margin: 0 0 14px; font-size: 0.9rem; line-height: 1.5;
+  }
+  .panel { overflow-x: auto; margin-top: 12px; }
+  table.data { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  table.data th, table.data td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+  table.data th { background: #f8fafc; font-size: 0.78rem; color: #475569; white-space: nowrap; }
+  table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .form-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px 12px; max-width: 920px; margin: 0 0 12px;
+  }
+  .form-grid label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; }
+  .form-grid input, .form-grid select {
+    width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box;
+  }
+  .hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 10px; }
+  .st-PENDING { color: #b45309; font-weight: 600; }
+  .st-RECEIVED { color: #1d4ed8; font-weight: 600; }
+  .st-REPORTED { color: #166534; font-weight: 600; }
+  .st-ERROR { color: #991b1b; font-weight: 600; }
+</style>
+{% endblock %}
+
+{% macro money(v) -%}
+  {%- if v is none -%}—{%- else -%}${{ '%.2f'|format(v) }}{%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+  <h1>{{ _('Order Requests') }}</h1>
+  <p class="meta" style="margin-top:0">{{ _('Admin only · Private Local Agent API · No IBKR') }}</p>
+
+  <div class="banner" role="note">
+    <strong>{{ _('Safety') }}:</strong>
+    {{ _('Creating an Order Request only stores an internal PENDING record for your Local Trading Agent. It does not connect to IBKR and does not place any brokerage order.') }}
+    {% if not api_key_configured %}
+      <br><br>
+      <strong>{{ _('API key not configured') }}.</strong>
+      {{ _('Set environment variable LEIBOT_PRIVATE_AGENT_API_KEY (min 16 characters) for the Local Agent Bearer token.') }}
+    {% else %}
+      <br><br>{{ _('Private agent API key is configured via environment variable (not shown here).') }}
+    {% endif %}
+  </div>
+
+  <h2 style="font-size:1.05rem;margin:18px 0 8px">{{ _('Create Order Request') }}</h2>
+  <p class="hint">{{ _('Mode is fixed to PAPER for V0. Status starts as PENDING.') }}</p>
+  <form method="post" action="{{ url_for('admin_order_requests') }}">
+    <input type="hidden" name="action" value="create">
+    <div class="form-grid">
+      <div>
+        <label for="symbol">{{ _('Symbol') }}</label>
+        <input id="symbol" name="symbol" required maxlength="12" placeholder="MNST" value="{{ prefill.symbol or '' }}">
+      </div>
+      <div>
+        <label for="ord_action">{{ _('Action') }}</label>
+        <select id="ord_action" name="ord_action">
+          <option value="BUY" {% if (prefill.action or 'BUY') == 'BUY' %}selected{% endif %}>BUY</option>
+          <option value="SELL" {% if prefill.action == 'SELL' %}selected{% endif %}>SELL</option>
+        </select>
+      </div>
+      <div>
+        <label for="quantity">{{ _('Quantity') }}</label>
+        <input id="quantity" name="quantity" type="number" step="any" min="0.0001" required value="{{ prefill.quantity or '' }}">
+      </div>
+      <div>
+        <label for="expected_price">{{ _('Expected Price') }}</label>
+        <input id="expected_price" name="expected_price" type="number" step="any" min="0" value="{{ prefill.expected_price or '' }}">
+      </div>
+      <div>
+        <label for="allocation_amount">{{ _('Allocation Amount') }}</label>
+        <input id="allocation_amount" name="allocation_amount" type="number" step="any" min="0" value="{{ prefill.allocation_amount or '' }}">
+      </div>
+      <div>
+        <label for="stop_price">{{ _('Stop Loss') }}</label>
+        <input id="stop_price" name="stop_price" type="number" step="any" min="0" value="{{ prefill.stop_price or '' }}">
+      </div>
+      <div>
+        <label for="take_profit_price">{{ _('Take Profit') }}</label>
+        <input id="take_profit_price" name="take_profit_price" type="number" step="any" min="0" value="{{ prefill.take_profit_price or '' }}">
+      </div>
+      <div>
+        <label for="ai_score">{{ _('AI Score') }}</label>
+        <input id="ai_score" name="ai_score" type="number" step="any" value="{{ prefill.ai_score or '' }}">
+      </div>
+      <div>
+        <label for="mos_t">{{ _('MOS T') }}</label>
+        <input id="mos_t" name="mos_t" type="number" step="any" value="{{ prefill.mos_t or '' }}">
+      </div>
+      <div>
+        <label for="source">{{ _('Source') }}</label>
+        <input id="source" name="source" maxlength="120" placeholder="Oversold,63D" value="{{ prefill.source or '' }}">
+      </div>
+      <div>
+        <label>{{ _('Mode') }}</label>
+        <input value="PAPER" disabled>
+        <input type="hidden" name="mode" value="PAPER">
+      </div>
+    </div>
+    <button class="btn primary" type="submit">{{ _('Create Order Request') }}</button>
+    <a class="btn" href="{{ url_for('ai_trading') }}">{{ _('AI Trading') }}</a>
+  </form>
+
+  <h2 style="font-size:1.05rem;margin:24px 0 8px">{{ _('Recent Order Requests') }}</h2>
+  <div class="panel">
+    {% if not orders %}
+      <p class="hint">{{ _('No order requests yet.') }}</p>
+    {% else %}
+    <table class="data">
+      <thead>
+        <tr>
+          <th>{{ _('Request ID') }}</th>
+          <th>{{ _('Created') }}</th>
+          <th>{{ _('Symbol') }}</th>
+          <th>{{ _('Action') }}</th>
+          <th class="num">{{ _('Quantity') }}</th>
+          <th class="num">{{ _('Expected Price') }}</th>
+          <th class="num">{{ _('Allocation') }}</th>
+          <th class="num">{{ _('Stop') }}</th>
+          <th class="num">{{ _('Take Profit') }}</th>
+          <th class="num">{{ _('AI Score') }}</th>
+          <th class="num">{{ _('MOS T') }}</th>
+          <th>{{ _('Source') }}</th>
+          <th>{{ _('Mode') }}</th>
+          <th>{{ _('Status') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in orders %}
+        <tr>
+          <td>{{ o.request_id }}</td>
+          <td>{% if o.created_at %}{{ o.created_at|format_ui_datetime }}{% else %}—{% endif %}</td>
+          <td><strong>{{ o.symbol }}</strong></td>
+          <td>{{ o.action }}</td>
+          <td class="num">{{ o.quantity }}</td>
+          <td class="num">{{ money(o.expected_price) }}</td>
+          <td class="num">{{ money(o.allocation_amount) }}</td>
+          <td class="num">{{ money(o.stop_price) }}</td>
+          <td class="num">{{ money(o.take_profit_price) }}</td>
+          <td class="num">{% if o.ai_score is not none %}{{ '%.0f'|format(o.ai_score) }}{% else %}—{% endif %}</td>
+          <td class="num">{% if o.mos_t is not none %}{{ '%+.1f'|format(o.mos_t) }}%{% else %}—{% endif %}</td>
+          <td>{{ o.source or '—' }}</td>
+          <td>{{ o.mode }}</td>
+          <td class="st-{{ o.status }}" title="{{ o.status_message or '' }}">{{ o.status }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+{% endblock %}

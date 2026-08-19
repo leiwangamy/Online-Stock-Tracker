@@ -18,6 +18,7 @@ ZH: dict[str, str] = {
     "Market Dashboard": "市场看板",
     "Watchlist": "观察列表",
     "Settings": "设置",
+    "Order Requests": "订单请求",
     "Login": "登录",
     "Logout": "退出",
     "EN": "EN",
@@ -506,6 +507,51 @@ ZH: dict[str, str] = {
         '关闭',
     'Est.Value / MOS% / CLV visible (signed in).':
         '已登录：Est.Value / MOS% / CLV 可见。',
+    # Admin Order Requests / Private Local Agent API
+    'Admin only · Private Local Agent API · No IBKR':
+        '仅管理员 · 私有本地 Agent API · 不含 IBKR',
+    'Safety':
+        '安全说明',
+    'Creating an Order Request only stores an internal PENDING record for your Local Trading Agent. It does not connect to IBKR and does not place any brokerage order.':
+        '创建订单请求仅会写入一条内部 PENDING 记录，供本地交易 Agent 读取。不会连接 IBKR，也不会下任何券商订单。',
+    'API key not configured':
+        '未配置 API 密钥',
+    'Set environment variable LEIBOT_PRIVATE_AGENT_API_KEY (min 16 characters) for the Local Agent Bearer token.':
+        '请设置环境变量 LEIBOT_PRIVATE_AGENT_API_KEY（至少 16 个字符）作为本地 Agent 的 Bearer 令牌。',
+    'Private agent API key is configured via environment variable (not shown here).':
+        '私有 Agent API 密钥已通过环境变量配置（此处不显示）。',
+    'Create Order Request':
+        '创建订单请求',
+    'Mode is fixed to PAPER for V0. Status starts as PENDING.':
+        'V0 模式下固定为 PAPER，初始状态为 PENDING。',
+    'Action':
+        '方向',
+    'Quantity':
+        '数量',
+    'Mode':
+        '模式',
+    'Expected Price':
+        '预期价格',
+    'Allocation Amount':
+        '分配金额',
+    'Recent Order Requests':
+        '最近订单请求',
+    'No order requests yet.':
+        '暂无订单请求。',
+    'Request ID':
+        '请求 ID',
+    'Created':
+        '创建时间',
+    'Allocation':
+        '分配',
+    'Stop':
+        '止损',
+    'Status':
+        '状态',
+    'Please sign in to manage Order Requests':
+        '请先登录后再管理订单请求',
+    'Order Request #{id} created ({symbol}, PENDING)':
+        '已创建订单请求 #{id}（{symbol}，PENDING）',
     # AI Paper Trading
     'AI Trading':
         'AI 交易',

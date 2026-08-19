@@ -27,6 +27,12 @@ Built for single-name analysis and large-universe ranking on one shared database
 - Yahoo Finance now; IBKR upgrade path later
 - Responsive UI: desktop for analysis, mobile for quick daily checks
 
+**Private Order Request API V0 (Admin → Local Agent)**
+- Admin creates internal PAPER Order Requests (no IBKR / no brokerage orders)
+- Local Trading Agent authenticates with `Authorization: Bearer <LEIBOT_PRIVATE_AGENT_API_KEY>`
+- Agent may only: list pending requests, read one request, update processing status (`PENDING` / `RECEIVED` / `REPORTED` / `ERROR`)
+- Separate from public AI Paper Trading simulator
+
 ---
 
 ✨ Original Tracker Features
@@ -143,10 +149,37 @@ pip install -r requirements.txt
 python app.py
 ```
 
+Optional environment variables (do not commit real secrets):
+
+| Variable | Purpose |
+|---|---|
+| `FLASK_SECRET_KEY` | Flask session secret |
+| `LEIBOT_OWNER_PASSWORD` | Bootstrap owner password (first run) |
+| `LEIBOT_PRIVATE_AGENT_API_KEY` | Bearer token for private Local Trading Agent API (min 16 chars). Used only by `/api/trading/orders/*` — never expose in HTML/JS. |
+
 Then open your browser and navigate to:
 ```
-http://127.0.0.1:5000
+http://127.0.0.1:3000
 ```
+
+### Notes — Order Request API V0
+
+Architecture:
+
+`LeiBot Admin` → Create Order Request → `Private Trading API` → `Local Trading Agent` → Local report
+
+| Piece | Path / detail |
+|---|---|
+| Admin UI | `/admin/order-requests` (owner login required) |
+| Pending list | `GET /api/trading/orders/pending` |
+| One request | `GET /api/trading/orders/<request_id>` |
+| Status update | `POST /api/trading/orders/<request_id>/status` with JSON `{"status":"REPORTED","message":"..."}` |
+| Auth | Bearer token from env `LEIBOT_PRIVATE_AGENT_API_KEY` (min 16 chars); missing/wrong → HTTP 401 |
+| Smoke script | `python scripts/local_agent_v0_smoke.py --base-url http://127.0.0.1:3000` |
+
+**Out of scope for V0:** IBKR / TWS / IB Gateway, Paper or Live brokerage execution, exposing `leibot.db` remotely.
+
+**Keep separate:** public `/ai-trading` Paper Trading vs Admin Order Requests for the Local Agent.
 
 🔐 Production Deployment Notes
 
