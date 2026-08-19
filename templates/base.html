@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="{{ lang|default('en') }}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -39,7 +39,22 @@
       font-size: 0.95rem;
     }
     .topnav a.active { color: var(--accent); }
-    .topnav .sep { color: #94a3b8; }
+    .topnav .lang-switch {
+      margin-left: 8px;
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+    }
+    .topnav .lang-switch a {
+      font-size: 0.85rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+    .topnav .lang-switch a.active {
+      border-color: var(--accent);
+      background: #eff6ff;
+    }
     .page {
       max-width: 1200px;
       margin: 0 auto;
@@ -278,20 +293,46 @@
     @media (max-width: 768px) {
       .hint-mobile { display: block; }
     }
+    .site-disclaimer {
+      max-width: 1100px;
+      margin: 8px auto 28px;
+      padding: 12px 16px;
+      border: 1px solid #f0d9a8;
+      background: #fffbeb;
+      color: #78350f;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      line-height: 1.55;
+    }
+    .site-disclaimer strong {
+      color: #92400e;
+    }
   </style>
   {% block head %}{% endblock %}
 </head>
 <body>
   <nav class="topnav">
-    <a href="{{ url_for('home') }}" class="{% if request.endpoint == 'home' %}active{% endif %}">Home</a>
+    <a href="{{ url_for('home') }}" class="{% if request.endpoint == 'home' %}active{% endif %}">{{ _('Home') }}</a>
     <span class="sep">|</span>
-    <a href="{{ url_for('stock_tracker') }}" class="{% if request.endpoint == 'stock_tracker' %}active{% endif %}">Stock Tracker</a>
+    <a href="{{ url_for('stock_tracker') }}" class="{% if request.endpoint == 'stock_tracker' %}active{% endif %}">{{ _('Stock Tracker') }}</a>
     <span class="sep">|</span>
-    <a href="{{ url_for('market_dashboard') }}" class="{% if request.endpoint == 'market_dashboard' %}active{% endif %}">Market Dashboard</a>
+    <a href="{{ url_for('market_dashboard') }}" class="{% if request.endpoint == 'market_dashboard' %}active{% endif %}">{{ _('Market Dashboard') }}</a>
     <span class="sep">|</span>
-    <a href="{{ url_for('watchlist') }}" class="{% if request.endpoint == 'watchlist' %}active{% endif %}">Watchlist</a>
+    <a href="{{ url_for('watchlist') }}" class="{% if request.endpoint == 'watchlist' %}active{% endif %}">{{ _('Watchlist') }}</a>
     <span class="sep">|</span>
-    <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">Settings</a>
+    <a href="{{ url_for('ai_trading') }}" class="{% if request.endpoint == 'ai_trading' %}active{% endif %}">{{ _('AI Trading') }}</a>
+    <span class="sep">|</span>
+    <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">{{ _('Settings') }}</a>
+    <span class="sep">|</span>
+    {% if is_owner %}
+      <a href="{{ url_for('owner_logout') }}" title="{{ _('Logout') }}">{{ _('Logout') }}</a>
+    {% else %}
+      <a href="{{ url_for('owner_login') }}" class="{% if request.endpoint == 'owner_login' %}active{% endif %}">{{ _('Login') }}</a>
+    {% endif %}
+    <span class="lang-switch" title="Language / 语言">
+      <a href="{{ url_for('set_language', code='en') }}" class="{% if lang == 'en' %}active{% endif %}">EN</a>
+      <a href="{{ url_for('set_language', code='zh') }}" class="{% if lang == 'zh' %}active{% endif %}">中文</a>
+    </span>
   </nav>
   <div class="page">
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -302,6 +343,10 @@
       {% endif %}
     {% endwith %}
     {% block content %}{% endblock %}
+    <aside class="site-disclaimer" role="note">
+      <strong>{{ _('Risk Disclaimer') }}:</strong>
+      {{ _('Stock markets are inherently unpredictable and involve risk. This project is intended solely for educational, research, and experimental purposes. Users are encouraged to use <strong>Paper Trading</strong> or approximately <strong>CAD/USD 100</strong> in small experimental capital through <strong>Fractional Shares</strong>. Any data, analysis, valuation, scoring, or other information provided by this project <strong>does not constitute investment advice</strong>. Users are solely responsible for their own investment decisions and risks.')|safe }}
+    </aside>
   </div>
   <script>
     // Add a horizontal scrollbar ABOVE each wide table, synced with the scroll parent.
@@ -313,7 +358,7 @@
         var scroller = panel.querySelector(".table-scroll") || panel;
         var bar = document.createElement("div");
         bar.className = "hscroll-top";
-        bar.setAttribute("title", "左右拖动查看更多列");
+        bar.setAttribute("title", {{ _("Drag horizontally to see more columns")|tojson }});
         var spacer = document.createElement("div");
         spacer.className = "hscroll-spacer";
         bar.appendChild(spacer);

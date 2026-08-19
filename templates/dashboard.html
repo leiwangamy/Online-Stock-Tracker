@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Market Dashboard{% endblock %}
+{% block title %}{{ _('Market Dashboard') }}{% endblock %}
 {% block head %}
   <style>
     .tabs {
@@ -26,6 +26,37 @@
       color: #fff;
       border-color: var(--accent);
     }
+    .ops-bar {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 8px 16px; margin: 0 0 10px; font-size: 0.9rem; color: var(--muted);
+    }
+    .ops-bar .ops-main { flex: 1 1 auto; min-width: 200px; color: #334155; }
+    .ops-details {
+      margin: 0 0 12px; font-size: 0.85rem; color: var(--muted);
+    }
+    .ops-details summary {
+      cursor: pointer; font-weight: 600; color: #475569; list-style: none;
+    }
+    .ops-details summary::-webkit-details-marker { display: none; }
+    .ops-details summary::before { content: "▸ "; }
+    .ops-details[open] summary::before { content: "▾ "; }
+    .ops-details .ops-details-body {
+      margin-top: 8px; padding: 8px 10px;
+      background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;
+    }
+    dialog.code-guide-dlg {
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 0; max-width: min(720px, 94vw); width: 720px;
+      max-height: 85vh; color: var(--text); background: #fff;
+    }
+    dialog.code-guide-dlg::backdrop { background: rgba(15, 23, 42, 0.45); }
+    .code-guide-dlg .dlg-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border);
+    }
+    .code-guide-dlg .dlg-body { padding: 12px 16px 18px; overflow: auto; }
+    .code-guide-dlg .dlg-body p { margin: 0; line-height: 1.55; font-size: 0.9rem; color: #374151; }
+    .actions { margin-bottom: 12px; }
     table.data th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
     table.data th.sortable:hover { color: var(--accent); }
     table.data th.sortable::after { content: "\2195"; opacity: 0.35; margin-left: 4px; font-size: 0.8em; }
@@ -99,7 +130,7 @@
   </style>
 {% endblock %}
 {% block content %}
-  <h1>Market Dashboard</h1>
+  <h1>{{ _('Market Dashboard') }}</h1>
 
   <div class="tabs">
     {% for tab in tabs %}
@@ -110,71 +141,87 @@
     {% endfor %}
   </div>
 
-  <p class="meta">
-    当前：<strong>{{ group_label }}</strong> · 股票池 {{ universe_count }} 只
-    · 均线周期 SMA{{ sma_period }}
-    · 缓存 {{ meta.count }} 行
-    {% if meta.updated_at %}· 更新 {{ meta.updated_at }}{% endif %}
-  </p>
-  <p class="hint">同一张完整表：电脑适合分析，手机可左右滑动。默认按「离均值%」从低到高，<strong>点表头可排序</strong>。<strong>趋势</strong> = SMA63 vs SMA252 + SMA252 斜率（🟢 UP / 🟡 MIXED / 🔴 DOWN）。<strong>63D Low/High/Position%</strong> = 近63个交易日高低点及现价在区间中的位置（0%=低点，100%=高点，仅观察）。<strong>1Y Target / Target Ratio</strong> = Yahoo 分析师一年目标均价；Ratio = 现价÷目标价，越小越值得关注（点表头 ↕ 排序）。<strong>财报日</strong> = 财报夜市审核日。<strong>RVOL</strong> = 今日量 / 前20日均量。刷新行情后才会写入新的 63D / 1Y Target 字段。</p>
+  <div class="ops-bar">
+    <div class="ops-main">
+      {{ universe_count }} {{ _('stocks') }} · SMA{{ sma_period }}
+      {% if meta.updated_at %} · {{ _('Updated:') }} {{ meta.updated_at|format_ui_datetime }}{% endif %}
+    </div>
+    <button type="button" class="btn" id="open-dash-guide"
+            aria-haspopup="dialog" aria-controls="dash-guide-dlg">ⓘ {{ _('Guide') }}</button>
+  </div>
 
   <div class="actions">
     <form method="post" action="{{ url_for('refresh_universe') }}" style="display:inline">
       <input type="hidden" name="group" value="{{ group }}">
-      <button class="btn" type="submit">更新股票池成分（每周）</button>
+      <button class="btn" type="submit">{{ _("Refresh universe (weekly)") }}</button>
     </form>
     <form method="post" action="{{ url_for('refresh_all_prices') }}" style="display:inline"
-          onsubmit="this.querySelector('button').textContent='更新中（可能需数分钟）…'; this.querySelector('button').disabled=true;">
+          onsubmit="this.querySelector('button').textContent={{ _('Updating (may take a few minutes)…')|tojson }}; this.querySelector('button').disabled=true;">
       <input type="hidden" name="next" value="{{ url_for('market_dashboard', group=group) }}">
-      <button class="btn primary" type="submit" title="刷新全部指数股池行情缓存，并同步更新 Watchlist（含 MANUAL）">刷新全部行情 + Watchlist</button>
+      <button class="btn primary" type="submit" title="{{ _('Refresh all index-pool prices and sync Watchlist (incl. MANUAL)') }}">{{ _("Refresh all prices + Watchlist") }}</button>
     </form>
     <form method="post" action="{{ url_for('refresh_dashboard') }}" style="display:inline"
-          onsubmit="this.querySelector('button').textContent='更新中…'; this.querySelector('button').disabled=true;">
+          onsubmit="this.querySelector('button').textContent={{ _('Updating…')|tojson }}; this.querySelector('button').disabled=true;">
       <input type="hidden" name="group" value="{{ group }}">
-      <button class="btn" type="submit">仅刷新本组</button>
+      <button class="btn" type="submit">{{ _("Refresh this group only") }}</button>
     </form>
-    <a class="btn" href="{{ url_for('settings') }}">改均线 / 定时</a>
+    <a class="btn" href="{{ url_for('settings') }}">{{ _("SMA / schedule") }}</a>
   </div>
+
+  <dialog class="code-guide-dlg" id="dash-guide-dlg">
+    <div class="dlg-head">
+      <strong>ⓘ {{ _('Guide') }}</strong>
+      <button type="button" class="btn" id="close-dash-guide">{{ _('Close') }}</button>
+    </div>
+    <div class="dlg-body">
+      <p>{{ _("Current:") }} <strong>{{ group_label }}</strong> · {{ _("Universe") }} {{ universe_count }}
+        · SMA{{ sma_period }}
+        · {{ _("Cache") }} {{ meta.count }}
+        {% if meta.updated_at %}· {{ _('Updated:') }} {{ meta.updated_at|format_ui_datetime }}{% endif %}
+      </p>
+      <p style="margin-top:10px">{{ _("One full table — desktop for analysis, swipe on mobile. Default sort: Dist. from mean % ascending; click headers to re-sort. Trend = SMA63 vs SMA252 + slope. 63D Low/High/Position% observational. 1Y Target / Target Ratio from Yahoo. Earnings date for evening review. RVOL = today vol / 20D avg. Refresh prices to populate new 63D / target fields.") }}</p>
+    </div>
+  </dialog>
 
   <div class="panel">
     {% if not rows %}
-      <p class="hint">「{{ group_label }}」还没有缓存数据。请先点「更新股票池成分（每周）」，再点「刷新全部行情 + Watchlist」。</p>
+      <p class="hint">{{ _f('No cached data for “{group}”. Refresh universe weekly, then refresh all prices + Watchlist.', group=group_label) }}</p>
     {% else %}
       <table class="data" id="dash-table">
         <thead>
           <tr class="group-row">
             <th class="freeze-col freeze-edge"></th>
             <th class="freeze-col"></th>
-            <th colspan="1">基本信息</th>
-            <th colspan="6">价格 / 趋势</th>
-            <th colspan="7">区间 / 动量</th>
-            <th colspan="2">价值参考</th>
-            <th colspan="1">风险 / 事件</th>
+            <th colspan="1">{{ _("Basic info") }}</th>
+            <th colspan="6">{{ _("Price / trend") }}</th>
+            <th colspan="7">{{ _("Range / momentum") }}</th>
+            <th colspan="2">{{ _("Value reference") }}</th>
+            <th colspan="1">{{ _("Risk / events") }}</th>
           </tr>
           <tr class="col-row">
             <th class="freeze-col freeze-edge" data-col="0">#</th>
-            <th class="sortable freeze-col" data-col="1" data-type="text">股票</th>
-            <th class="sortable" data-col="2" data-type="text">行业</th>
+            <th class="sortable freeze-col" data-col="1" data-type="text">{{ _("Stock") }}</th>
+            <th class="sortable" data-col="2" data-type="text">{{ _("Industry") }}</th>
 
-            <th class="sortable" data-col="3" data-type="num" title="长期趋势：SMA63 vs SMA252 + SMA252 斜率">趋势</th>
-            <th class="sortable num" data-col="4" data-type="num">现价</th>
-            <th class="sortable num" data-col="5" data-type="num" title="Market Cap 市值">市值</th>
-            <th class="sortable num" data-col="6" data-type="num">均值(SMA{{ sma_period }})</th>
-            <th class="sortable num" data-col="7" data-type="num" title="当日涨跌幅（最近两个收盘价）">当日%</th>
-            <th class="sortable num" data-col="8" data-type="num" title="相对短期均值的偏离">离均值%</th>
+            <th class="sortable" data-col="3" data-type="num" title="{{ _('Long-term trend: SMA63 vs SMA252 + SMA252 slope') }}">{{ _("Trend") }}</th>
+            <th class="sortable num" data-col="4" data-type="num">{{ _("Price") }}</th>
+            <th class="sortable num" data-col="5" data-type="num" title="{{ _('Market Cap') }}">{{ _("Market Cap") }}</th>
+            <th class="sortable num" data-col="6" data-type="num">{{ _f('Mean (SMA{n})', n=sma_period) }}</th>
+            <th class="sortable num" data-col="7" data-type="num" title="{{ _('Day change (last two closes)') }}">{{ _("Day %") }}</th>
+            <th class="sortable num" data-col="8" data-type="num" title="{{ _('Distance from short-term SMA') }}">{{ _("Dist. from mean %") }}</th>
 
-            <th class="sortable num" data-col="9" data-type="num" title="近63个交易日最低收盘价">63D Low</th>
-            <th class="sortable num" data-col="10" data-type="num" title="近63个交易日最高收盘价">63D High</th>
-            <th class="sortable num" data-col="11" data-type="num" title="(现价−Low)/(High−Low)×100；0%=近63日低点，100%=近63日高点。仅观察">63D Position%</th>
-            <th class="sortable num" data-col="12" data-type="num">反弹率</th>
-            <th class="sortable num" data-col="13" data-type="num" title="RVOL 相对成交量 = 今日量 / 前20日均量。结合当日%解读，不是越大越好">RVOL</th>
-            <th class="sortable num" data-col="14" data-type="num" title="Avg Volume 20D 20日平均成交量（流动性门槛）">20D均量</th>
-            <th class="sortable num" data-col="15" data-type="num" title="Avg Daily Move：近63个交易日每日绝对涨跌幅的均值">日均波动%(63D)</th>
+            <th class="sortable num" data-col="9" data-type="num" title="{{ _('Lowest close in last 63 trading days') }}">{{ _("63D Low") }}</th>
+            <th class="sortable num" data-col="10" data-type="num" title="{{ _('Highest close in last 63 trading days') }}">{{ _("63D High") }}</th>
+            <th class="sortable num" data-col="11" data-type="num" title="{{ _('(Price−Low)/(High−Low)×100; observational only') }}">{{ _("63D Position%") }}</th>
+            <th class="sortable num" data-col="12" data-type="num">{{ _("Rebound %") }}</th>
+            <th class="sortable num" data-col="13" data-type="num" title="{{ _('RVOL = today volume / 20D avg; not always higher=better') }}">RVOL</th>
+            <th class="sortable num" data-col="14" data-type="num" title="{{ _('20-day average volume (liquidity)') }}">{{ _("Avg vol 20D") }}</th>
+            <th class="sortable num" data-col="15" data-type="num" title="{{ _('Avg absolute daily move over 63 trading days') }}">{{ _("Avg daily move %(63D)") }}</th>
 
-            <th class="sortable num" data-col="16" data-type="num" title="Yahoo 1-year analyst mean target price">1Y Target</th>
-            <th class="sortable num" data-col="17" data-type="num" title="Target Ratio = 现价 / 1Y Target；越小越值得关注">Target Ratio</th>
+            <th class="sortable num" data-col="16" data-type="num" title="{{ _('Yahoo 1-year analyst mean target price') }}">{{ _("1Y Target") }}</th>
+            <th class="sortable num" data-col="17" data-type="num" title="{{ _('Target Ratio = Price / 1Y Target; lower = more interesting') }}">{{ _("Target Ratio") }}</th>
 
-            <th class="sortable" data-col="18" data-type="text" title="Earnings Night Review — date only for evening news checks">财报日</th>
+            <th class="sortable" data-col="18" data-type="text" title="{{ _('Earnings Night Review — date for evening checks') }}">{{ _("Earnings date") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -228,15 +275,15 @@
               {% if row.rebound_pct is not none %}{{ '%+.2f'|format(row.rebound_pct) }}%{% else %}—{% endif %}
             </td>
             <td class="num" data-sort="{{ row.rvol if row.rvol is not none else '' }}"
-                title="RVOL=今日量/前20日均量。<0.7 缺量；0.7–1.2 正常；1.2–2 放量确认；2–3 明显放量(结合新闻)；>3 异常，勿机械加分。">
+                title="{{ _('RVOL guide: <0.7 light; 0.7–1.2 normal; 1.2–2 confirm; 2–3 heavy (with news); >3 unusual — don’t score mechanically.') }}">
               {% if row.rvol is not none %}
                 {% set r = row.rvol %}{% set c = row.change_pct %}
                 {% if r >= 3 %}<span class="rvol warn">{{ '%.1f'|format(r) }}×</span>
                 {% elif r >= 1.2 %}<span class="rvol hi">{{ '%.1f'|format(r) }}×</span>
                 {% elif r < 0.7 %}<span class="rvol lo">{{ '%.1f'|format(r) }}×</span>
                 {% else %}<span class="rvol">{{ '%.1f'|format(r) }}×</span>{% endif %}
-                {% if c is not none and c > 0 and r >= 1.2 %}<span class="rtag good">↑确认</span>
-                {% elif c is not none and c < 0 and r >= 2 %}<span class="rtag flag">放量跌·查新闻</span>{% endif %}
+                {% if c is not none and c > 0 and r >= 1.2 %}<span class="rtag good">{{ _("Volume confirm") }}</span>
+                {% elif c is not none and c < 0 and r >= 2 %}<span class="rtag flag">{{ _("Volume dump · check news") }}</span>{% endif %}
               {% else %}—{% endif %}
             </td>
             <td class="num" data-sort="{{ row.avg_vol_20d if row.avg_vol_20d is not none else '' }}">
@@ -257,7 +304,7 @@
             </td>
             <td class="num {% if row.price is not none and row.target_1y is not none and row.target_1y > 0 and (row.price / row.target_1y) < 1 %}up{% endif %}"
                 data-sort="{% if row.price is not none and row.target_1y is not none and row.target_1y > 0 %}{{ '%.6f'|format(row.price / row.target_1y) }}{% endif %}"
-                title="Target Ratio = 现价 / 1Y Target；越小越值得关注">
+                title="{{ _('Target Ratio = Price / 1Y Target; lower = more interesting') }}">
               {% if row.price is not none and row.target_1y is not none and row.target_1y > 0 %}
                 {{ '%.2f'|format(row.price / row.target_1y) }}
               {% else %}—{% endif %}
@@ -325,6 +372,33 @@
           renumber();
         });
       });
+    })();
+  </script>
+  <script>
+    (function () {
+      var dlg = document.getElementById("dash-guide-dlg");
+      var openBtn = document.getElementById("open-dash-guide");
+      var closeBtn = document.getElementById("close-dash-guide");
+      if (dlg && openBtn) {
+        openBtn.addEventListener("click", function () {
+          if (typeof dlg.showModal === "function") dlg.showModal();
+          else dlg.setAttribute("open", "");
+        });
+      }
+      if (dlg && closeBtn) {
+        closeBtn.addEventListener("click", function () {
+          if (typeof dlg.close === "function") dlg.close();
+          else dlg.removeAttribute("open");
+        });
+      }
+      if (dlg) {
+        dlg.addEventListener("click", function (e) {
+          if (e.target === dlg) {
+            if (typeof dlg.close === "function") dlg.close();
+            else dlg.removeAttribute("open");
+          }
+        });
+      }
     })();
   </script>
 {% endblock %}

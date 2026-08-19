@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Settings{% endblock %}
+{% block title %}{{ _('Settings') }}{% endblock %}
 {% block content %}
-  <h1>Settings</h1>
-  <p class="meta">平均周期不固定 — 可在下面手动修改。改完后请到 Market Dashboard 重新「刷新行情」。</p>
+  <h1>{{ _('Settings') }}</h1>
+  <p class="meta">{{ _('SMA period is configurable — change it below, then refresh prices on Market Dashboard.') }}</p>
 
   <form class="settings-form" method="post" action="{{ url_for('settings') }}">
-    <label for="sma_period">平均周期（SMA 天数）</label>
+    <label for="sma_period">{{ _('SMA period (days)') }}</label>
     <div class="preset-row">
       {% for p in presets %}
         <button type="button" onclick="document.getElementById('sma_period').value='{{ p }}'">{{ p }}</button>
@@ -13,38 +13,38 @@
     </div>
     <input id="sma_period" name="sma_period" type="number" min="5" max="250" step="1" value="{{ sma_period }}" required />
 
-    <label for="rebound_lookback">反弹率回看天数（相对近期低点）</label>
+    <label for="rebound_lookback">{{ _('Rebound lookback (days vs recent low)') }}</label>
     <input id="rebound_lookback" name="rebound_lookback" type="number" min="5" max="250" step="1" value="{{ rebound_lookback }}" required />
 
-    <label>数据源</label>
+    <label>{{ _('Data source') }}</label>
     <select name="data_source" disabled>
-      <option value="yahoo" selected>Yahoo Finance（当前）</option>
-      <option value="ibkr">IBKR（以后升级）</option>
+      <option value="yahoo" selected>{{ _('Yahoo Finance (current)') }}</option>
+      <option value="ibkr">{{ _('IBKR (future)') }}</option>
     </select>
     <input type="hidden" name="data_source" value="yahoo" />
 
-    <h2 style="margin-top:28px;font-size:1.15rem">自动更新（太平洋时间）</h2>
+    <h2 style="margin-top:28px;font-size:1.15rem">{{ _('Auto updates (Pacific Time)') }}</h2>
     <p class="meta">
-      公司名 / 指数成分：每周一天从 Wikipedia 更新。<br>
-      列表行情：每个交易日美股收盘后从 Yahoo 更新全部股池，并同步 Watchlist（含 MANUAL）。<br>
-      默认 13:15 太平洋 ≈ 16:15 美东。也可在 Dashboard / Watchlist 点「刷新全部行情 + Watchlist」手动更新。
+      {{ _('Universe / index members: refresh from Wikipedia one day per week.') }}<br>
+      {{ _('Prices: every US trading day after the close, refresh all pools from Yahoo and sync Watchlist (including MANUAL).') }}<br>
+      {{ _('Default 13:15 Pacific ≈ 16:15 Eastern. You can also click “Refresh all prices + Watchlist” on Dashboard / Watchlist.') }}
     </p>
 
-    <label for="schedule_universe_weekday">公司名更新 · 星期</label>
+    <label for="schedule_universe_weekday">{{ _('Universe update · weekday') }}</label>
     <select id="schedule_universe_weekday" name="schedule_universe_weekday">
       {% for key, label in weekdays %}
         <option value="{{ key }}" {% if key == schedule_universe_weekday %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
 
-    <label>公司名更新 · 时间</label>
+    <label>{{ _('Universe update · time') }}</label>
     <div style="display:flex;gap:8px;align-items:center">
       <input name="schedule_universe_hour" type="number" min="0" max="23" value="{{ schedule_universe_hour }}" style="width:5rem" required />
       <span>:</span>
       <input name="schedule_universe_minute" type="number" min="0" max="59" value="{{ schedule_universe_minute }}" style="width:5rem" required />
     </div>
 
-    <label>列表行情 · 工作日收盘后时间</label>
+    <label>{{ _('Price update · weekday after close') }}</label>
     <div style="display:flex;gap:8px;align-items:center">
       <input name="schedule_price_hour" type="number" min="0" max="23" value="{{ schedule_price_hour }}" style="width:5rem" required />
       <span>:</span>
@@ -53,9 +53,9 @@
 
     {% if scheduler %}
     <p class="meta" style="margin-top:12px">
-      应用内调度：{% if scheduler.running %}运行中{% else %}未运行{% endif %}
+      {{ _('In-app scheduler:') }} {% if scheduler.running %}{{ _('running') }}{% else %}{{ _('not running') }}{% endif %}
       {% if scheduler.jobs %}
-        · 下次：
+        · {{ _('Next:') }}
         {% for j in scheduler.jobs %}
           {{ j.id }}{% if j.next_run %} {{ j.next_run }}{% endif %}{% if not loop.last %}；{% endif %}
         {% endfor %}
@@ -63,15 +63,27 @@
     </p>
     {% endif %}
 
+    <h2 style="margin-top:28px;font-size:1.15rem">{{ _('AI Paper Trading') }}</h2>
+    <p class="meta">
+      {{ _('Simulation only — never places real brokerage orders. Stop / Take Profit % are fixed at paper-order entry and not recalculated daily.') }}
+    </p>
+    <label for="paper_stop_loss_pct">{{ _('Stop Loss %') }}</label>
+    <input id="paper_stop_loss_pct" name="paper_stop_loss_pct" type="number" min="0.5" max="50" step="0.1"
+           value="{{ paper_stop_loss_pct }}" required />
+    <label for="paper_take_profit_pct">{{ _('Take Profit %') }}</label>
+    <input id="paper_take_profit_pct" name="paper_take_profit_pct" type="number" min="0.5" max="100" step="0.1"
+           value="{{ paper_take_profit_pct }}" required />
+
     <div style="margin-top:18px">
-      <button class="btn primary" type="submit">保存</button>
-      <a class="btn" href="{{ url_for('market_dashboard') }}">返回 Dashboard</a>
+      <button class="btn primary" type="submit">{{ _('Save') }}</button>
+      <a class="btn" href="{{ url_for('market_dashboard') }}">{{ _('Back to Dashboard') }}</a>
+      <a class="btn" href="{{ url_for('ai_trading') }}">{{ _('AI Trading') }}</a>
     </div>
   </form>
 
   <form class="settings-form" method="post" action="{{ url_for('refresh_all_prices') }}" style="margin-top:16px"
-        onsubmit="this.querySelector('button').textContent='更新中（可能需数分钟）…'; this.querySelector('button').disabled=true;">
+        onsubmit="this.querySelector('button').textContent={{ _('Updating (may take a few minutes)…')|tojson }}; this.querySelector('button').disabled=true;">
     <input type="hidden" name="next" value="{{ url_for('settings') }}">
-    <button class="btn" type="submit" style="width:100%">立即刷新全部行情 + Watchlist</button>
+    <button class="btn" type="submit" style="width:100%">{{ _('Refresh all prices + Watchlist now') }}</button>
   </form>
 {% endblock %}

@@ -37,6 +37,12 @@ DEFAULT_SETTINGS = {
     "schedule_universe_minute": 0,
     "schedule_price_hour": 13,
     "schedule_price_minute": 15,
+    # AI Paper Trading (simulation only — never IBKR)
+    "paper_starting_capital": 2000.0,
+    "paper_trading_limit": 1500.0,
+    "paper_reserve_cash": 500.0,
+    "paper_stop_loss_pct": 5.0,  # percent; stop = entry × (1 - pct/100)
+    "paper_take_profit_pct": 10.0,
 }
 
 
@@ -136,6 +142,105 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            -- AI Paper Trading (simulation only; never brokerage orders).
+            CREATE TABLE IF NOT EXISTS paper_portfolio (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                starting_capital REAL NOT NULL,
+                trading_limit REAL NOT NULL,
+                reserve_cash REAL NOT NULL,
+                cash REAL NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS paper_priority (
+                ticker TEXT PRIMARY KEY,
+                note TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS paper_candidates (
+                as_of_date TEXT NOT NULL,
+                rank INTEGER NOT NULL,
+                ticker TEXT NOT NULL,
+                name TEXT,
+                ai_score REAL,
+                mos_t REAL,
+                financial_label TEXT,
+                news_label TEXT,
+                price REAL,
+                is_priority INTEGER NOT NULL DEFAULT 0,
+                suggested_alloc REAL,
+                suggested_shares REAL,
+                shares_mode TEXT,
+                stop_price REAL,
+                take_profit_price REAL,
+                meta_json TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (as_of_date, ticker)
+            );
+
+            CREATE TABLE IF NOT EXISTS paper_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                name TEXT,
+                status TEXT NOT NULL,
+                entry_date TEXT NOT NULL,
+                entry_price REAL NOT NULL,
+                shares REAL NOT NULL,
+                shares_mode TEXT,
+                cost REAL NOT NULL,
+                stop_price REAL NOT NULL,
+                take_profit_price REAL NOT NULL,
+                stop_pct REAL,
+                take_profit_pct REAL,
+                ai_score_entry REAL,
+                mos_t_entry REAL,
+                financial_entry TEXT,
+                news_entry TEXT,
+                range_63d_pos_entry REAL,
+                financial_ok_entry INTEGER,
+                financial_known_entry INTEGER,
+                news_tone_entry TEXT,
+                source_at_entry TEXT,
+                is_priority INTEGER NOT NULL DEFAULT 0,
+                rank_at_entry INTEGER,
+                current_price REAL,
+                day_high REAL,
+                day_low REAL,
+                market_value REAL,
+                unrealized_pnl REAL,
+                unrealized_pnl_pct REAL,
+                ai_score_current REAL,
+                exit_date TEXT,
+                exit_price REAL,
+                realized_pnl REAL,
+                return_pct REAL,
+                exit_reason TEXT,
+                exit_note TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            -- Daily portfolio equity (one row per trading date; upsert on re-run).
+            CREATE TABLE IF NOT EXISTS paper_equity_snapshots (
+                as_of_date TEXT PRIMARY KEY,
+                cash REAL NOT NULL,
+                open_market_value REAL NOT NULL,
+                total_equity REAL NOT NULL,
+                daily_unrealized_pnl REAL,
+                cumulative_realized_pnl REAL,
+                trades_closed INTEGER NOT NULL DEFAULT 0,
+                wins INTEGER NOT NULL DEFAULT 0,
+                losses INTEGER NOT NULL DEFAULT 0,
+                realized_pnl_day REAL NOT NULL DEFAULT 0,
+                daily_return_pct REAL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status);
+            CREATE INDEX IF NOT EXISTS idx_paper_candidates_date ON paper_candidates(as_of_date);
+            CREATE INDEX IF NOT EXISTS idx_paper_equity_date ON paper_equity_snapshots(as_of_date);
+
             CREATE INDEX IF NOT EXISTS idx_daily_bars_ticker ON daily_bars(ticker);
             """
         )
@@ -179,6 +284,20 @@ def init_db() -> None:
             ):
                 if col not in iv_cols:
                     conn.execute(f"ALTER TABLE intrinsic_value ADD COLUMN {col} {decl}")
+        # Migrate paper_trades entry-time research columns (do not overwrite existing values).
+        paper_cols = {
+            r["name"] for r in conn.execute("PRAGMA table_info(paper_trades)")
+        }
+        if paper_cols:
+            for col, decl in (
+                ("range_63d_pos_entry", "REAL"),
+                ("financial_ok_entry", "INTEGER"),
+                ("financial_known_entry", "INTEGER"),
+                ("news_tone_entry", "TEXT"),
+                ("source_at_entry", "TEXT"),
+            ):
+                if col not in paper_cols:
+                    conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {decl}")
         for key, value in DEFAULT_SETTINGS.items():
             existing = conn.execute("SELECT 1 FROM settings WHERE key = ?", (key,)).fetchone()
             if not existing:
@@ -491,25 +610,35 @@ def list_setup(threshold: float = -10.0) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def list_low_target_ratio(
-    max_ratio: float = 0.8,
-    *,
-    max_range_pos: float = 70.0,
-) -> list[dict[str, Any]]:
+def list_low_target_ratio(max_ratio: float = 0.8) -> list[dict[str, Any]]:
     """
     Auto group: Target Ratio = price / target_1y < max_ratio (default 0.8 = 80%).
-    Drop names with 63D Position% > max_range_pos (default 70); missing Position kept.
     Requires price and positive Yahoo 1Y target. Ordered by ratio ascending.
+    (63D Position filter removed — all ratio hits included.)
     """
     sql = (
         f"{_POOLS_SELECT} WHERE d.price IS NOT NULL AND d.target_1y IS NOT NULL "
         "AND d.target_1y > 0 AND (d.price / d.target_1y) < ? "
-        "AND (d.range_63d_pos IS NULL OR d.range_63d_pos <= ?) "
         "ORDER BY (d.price / d.target_1y) ASC, d.ticker"
     )
     init_db()
     with get_conn() as conn:
-        rows = conn.execute(sql, (max_ratio, max_range_pos)).fetchall()
+        rows = conn.execute(sql, (max_ratio,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_low_63d_pos(max_pos: float = 25.0) -> list[dict[str, Any]]:
+    """
+    Auto group: 63D Position% = range_63d_pos < max_pos (default 25).
+    Ordered by position ascending (nearest the 63D low first).
+    """
+    sql = (
+        f"{_POOLS_SELECT} WHERE d.range_63d_pos IS NOT NULL AND d.range_63d_pos < ? "
+        "ORDER BY d.range_63d_pos ASC, d.ticker"
+    )
+    init_db()
+    with get_conn() as conn:
+        rows = conn.execute(sql, (max_pos,)).fetchall()
     return [dict(r) for r in rows]
 
 

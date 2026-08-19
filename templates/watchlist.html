@@ -38,6 +38,48 @@
       background: #eef2f7; padding: 1px 5px; border-radius: 4px;
       font-size: 0.82rem; color: #334155;
     }
+    .ops-bar {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 8px 16px; margin: 0 0 10px; font-size: 0.9rem; color: var(--muted);
+    }
+    .ops-bar .ops-main { flex: 1 1 auto; min-width: 200px; }
+    .ops-status {
+      margin: 0 0 10px; font-size: 0.88rem; color: #334155;
+      display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px;
+    }
+    .ops-status .ok { color: #166534; font-weight: 600; }
+    .ops-details {
+      margin: 0; font-size: 0.85rem; color: var(--muted);
+    }
+    .ops-details summary {
+      cursor: pointer; font-weight: 600; color: #475569; list-style: none;
+    }
+    .ops-details summary::-webkit-details-marker { display: none; }
+    .ops-details summary::before { content: "▸ "; }
+    .ops-details[open] summary::before { content: "▾ "; }
+    .ops-details .ops-details-body {
+      margin-top: 8px; padding: 8px 10px;
+      background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;
+      width: min(100%, 920px);
+    }
+    .ops-status > .ops-details { flex: 1 1 100%; }
+    .ops-status > .ops-details:not([open]) { flex: 0 0 auto; }
+    dialog.code-guide-dlg {
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 0; max-width: min(920px, 94vw); width: 920px;
+      max-height: 85vh; color: var(--text); background: #fff;
+    }
+    dialog.code-guide-dlg::backdrop { background: rgba(15, 23, 42, 0.45); }
+    .code-guide-dlg .dlg-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: #fff; z-index: 1;
+    }
+    .code-guide-dlg .dlg-head strong { font-size: 1rem; }
+    .code-guide-dlg .dlg-body {
+      padding: 12px 16px 18px; overflow: auto; max-height: calc(85vh - 56px);
+    }
+    .code-guide-dlg .legend-body { margin-top: 0; }
     .flow { color: #64748b; font-size: 0.8rem; white-space: nowrap; }
     .rvol { font-weight: 600; }
     .rvol.hi { color: #059669; }
@@ -211,59 +253,71 @@
   {% else %}—{% endif %}
 {% endmacro %}
 
-{% macro wl_table(rows, sma_period, show_alert=False) %}
+{% macro wl_table(rows, sma_period, show_alert=False, show_valuation=False, can_edit_alert=False) %}
   {% if not rows %}
-    <p class="empty">暂无数据。（超卖/强势回调需先到 Market Dashboard 刷新行情；我的自选/临时会实时抓取。）</p>
+    <p class="empty">{{ _("No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)") }}</p>
   {% else %}
   <div class="panel wl-panel">
     <table class="data" id="wl-table">
       <thead>
         <tr class="group-row">
           <th class="col-ticker freeze-col freeze-edge"></th>
-          <th colspan="3">基本信息</th>
-          <th colspan="1">机会 / 时机</th>
-          <th colspan="5">价格 / 趋势</th>
-          <th colspan="7">区间 / 动量</th>
-          <th colspan="5">投资价值</th>
-          <th colspan="2">价值参考</th>
-          <th colspan="1">风险 / 事件</th>
-          {% if show_alert %}<th colspan="1">人工关注</th>{% endif %}
+          <th colspan="3">{{ _("Basic info") }}</th>
+          <th colspan="1">{{ _("Score") }}</th>
+          <th colspan="5">{{ _("Price / trend") }}</th>
+          <th colspan="7">{{ _("Range / momentum") }}</th>
+          <th colspan="{{ 5 if show_valuation else 2 }}">{{ _("Investment value") }}</th>
+          <th colspan="3">{{ _("Value reference") }}</th>
+          <th colspan="1">{{ _("Risk / events") }}</th>
+          {% if show_alert %}<th colspan="1">{{ _("Manual alert") }}</th>{% endif %}
         </tr>
         <tr class="col-row">
-          <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">股票</th>
-          <th class="sortable col-pools" data-col="1" data-type="text" title="指数池：S&P500 / Nasdaq100 / …；不在池内的自选股票或基金显示 MANUAL">所属股池</th>
-          <th class="sortable" data-col="2" data-type="text" title="行业（来自股票池）">行业</th>
-          <th class="sortable num" data-col="3" data-type="num" title="Market Cap 市值">市值</th>
+          <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _("Stock") }}</th>
+          <th class="sortable col-pools" data-col="1" data-type="text" title="{{ _('Index pools: S&P500 / Nasdaq100 / …; MANUAL if not in a pool') }}">{{ _("Pool") }}</th>
+          <th class="sortable" data-col="2" data-type="text" title="{{ _('Industry (from universe)') }}">{{ _("Industry") }}</th>
+          <th class="sortable num" data-col="3" data-type="num" title="{{ _('Market Cap') }}">{{ _("Market Cap") }}</th>
 
-          <th class="sortable col-ai" data-col="4" data-type="num" title="AI Score V1 = 机会分(0–100) − 风险扣分。悬停看拆分。与 Est.Value/MOS 独立。">AI</th>
+          <th class="sortable col-ai" data-col="4" data-type="num" title="{{ _('AI Score V1 = opportunity − risk. Uses public MOS T; excludes Admin Est.Value / real MOS and 63D Position.') }}">AI</th>
 
-          <th class="sortable" data-col="5" data-type="num" title="长期趋势：SMA63 vs SMA252 + SMA252 斜率">趋势</th>
-          <th class="sortable num" data-col="6" data-type="num">现价</th>
+          <th class="sortable" data-col="5" data-type="num" title="{{ _('Long-term trend: SMA63 vs SMA252 + SMA252 slope') }}">{{ _("Trend") }}</th>
+          <th class="sortable num" data-col="6" data-type="num">{{ _("Price") }}</th>
           <th class="sortable num" data-col="7" data-type="num">SMA{{ sma_period }}</th>
-          <th class="sortable num" data-col="8" data-type="num" title="相对短期均值的偏离">离均值%</th>
-          <th class="sortable num" data-col="9" data-type="num">当日%</th>
+          <th class="sortable num" data-col="8" data-type="num" title="{{ _('Distance from short-term SMA') }}">{{ _("Dist. from mean %") }}</th>
+          <th class="sortable num" data-col="9" data-type="num">{{ _("Day %") }}</th>
 
-          <th class="sortable num" data-col="10" data-type="num" title="近63个交易日最低收盘价">63D Low</th>
-          <th class="sortable num" data-col="11" data-type="num" title="近63个交易日最高收盘价">63D High</th>
-          <th class="sortable num" data-col="12" data-type="num" title="(现价−Low)/(High−Low)×100；0%=近63日低点，100%=近63日高点。仅观察，不进 AI / 自动组筛选">63D Position%</th>
-          <th class="sortable num" data-col="13" data-type="num">反弹率</th>
-          <th class="sortable num" data-col="14" data-type="num" title="RVOL = 今日量 / 前20日均量">RVOL</th>
-          <th class="sortable num" data-col="15" data-type="num" title="20日平均成交量">20D均量</th>
-          <th class="sortable num" data-col="16" data-type="num" title="近63个交易日日均绝对涨跌幅">日均波动%(63D)</th>
+          <th class="sortable num" data-col="10" data-type="num" title="{{ _('Lowest close in last 63 trading days') }}">63D Low</th>
+          <th class="sortable num" data-col="11" data-type="num" title="{{ _('Highest close in last 63 trading days') }}">63D High</th>
+          <th class="sortable num" data-col="12" data-type="num" title="{{ _('(Price−Low)/(High−Low)×100; observational only') }}">63D Position%</th>
+          <th class="sortable num" data-col="13" data-type="num">{{ _("Rebound %") }}</th>
+          <th class="sortable num" data-col="14" data-type="num" title="{{ _('RVOL = today volume / 20D avg volume') }}">RVOL</th>
+          <th class="sortable num" data-col="15" data-type="num" title="{{ _('20-day average volume') }}">{{ _("Avg vol 20D") }}</th>
+          <th class="sortable num" data-col="16" data-type="num" title="{{ _('Avg absolute daily move over 63 trading days') }}">{{ _("Avg daily move %(63D)") }}</th>
 
+          {% if show_valuation %}
           <th class="sortable num col-est" data-col="17" data-type="num" title="Bear / Base / Bull 每股内在价值（DCF 情景敏感性；MOS% 用 Base。悬停看 WACC / g / Confidence）">Est.Value</th>
           <th class="sortable num" data-col="18" data-type="num" title="MOS% = (Est.Value − 现价) / Est.Value × 100。正=低估空间；随现价更新，不改 AI Score">MOS%</th>
           <th class="sortable num col-clv" data-col="19" data-type="num" title="Conservative Liquidation Value — 保守清算价值（资产负债表资产底线，不是目标价）">CLV</th>
-          <th class="sortable col-fund" data-col="20" data-type="num" title="财报健康：7 项基本面红旗">财报</th>
-          <th class="sortable col-news" data-col="21" data-type="num" title="近30天新闻">新闻</th>
-
-          <th class="sortable num" data-col="22" data-type="num" title="Yahoo 1-year analyst mean target price">1Y Target</th>
-          <th class="sortable num" data-col="23" data-type="num" title="Target Ratio = 现价 / 1Y Target；越小越值得关注">Target Ratio</th>
-
-          <th class="sortable" data-col="24" data-type="text">财报日</th>
+          <th class="sortable col-fund" data-col="20" data-type="num" title="{{ _('Fundamentals health: 7 red-flag checks') }}">{{ _("Financial") }}</th>
+          <th class="sortable col-news" data-col="21" data-type="num" title="{{ _('News (last 30 days)') }}">{{ _("News") }}</th>
+          <th class="sortable num" data-col="22" data-type="num" title="{{ _('Yahoo 1-year analyst mean target price') }}">{{ _("1Y Target") }}</th>
+          <th class="sortable num" data-col="23" data-type="num" title="{{ _('Target Ratio = Price / 1Y Target; lower = more interesting') }}">{{ _("Target Ratio") }}</th>
+          <th class="sortable num" data-col="24" data-type="num" title="{{ _('MOS T — Margin of Safety based on 80% of the 1-Year Analyst Target Price.') }}">{{ _("MOS T") }}</th>
+          <th class="sortable" data-col="25" data-type="text">{{ _("Earnings date") }}</th>
           {% if show_alert %}
-          <th class="sortable num col-alert" data-col="25" data-type="num"
-              title="人工关注价（Alert Price）。持久保存，不随现价/SMA/目标价自动改变。可在单元格内直接修改。">Alert Price</th>
+          <th class="sortable num col-alert" data-col="26" data-type="num"
+              title="{{ _('Alert Price — saved manually; not auto-updated with price/SMA/target. Click cell to edit.') }}">Alert Price</th>
+          {% endif %}
+          {% else %}
+          <th class="sortable col-fund" data-col="17" data-type="num" title="{{ _('Fundamentals health: 7 red-flag checks') }}">{{ _("Financial") }}</th>
+          <th class="sortable col-news" data-col="18" data-type="num" title="{{ _('News (last 30 days)') }}">{{ _("News") }}</th>
+          <th class="sortable num" data-col="19" data-type="num" title="{{ _('Yahoo 1-year analyst mean target price') }}">{{ _("1Y Target") }}</th>
+          <th class="sortable num" data-col="20" data-type="num" title="{{ _('Target Ratio = Price / 1Y Target; lower = more interesting') }}">{{ _("Target Ratio") }}</th>
+          <th class="sortable num" data-col="21" data-type="num" title="{{ _('MOS T — Margin of Safety based on 80% of the 1-Year Analyst Target Price.') }}">{{ _("MOS T") }}</th>
+          <th class="sortable" data-col="22" data-type="text">{{ _("Earnings date") }}</th>
+          {% if show_alert %}
+          <th class="sortable num col-alert" data-col="23" data-type="num"
+              title="{{ _('Alert Price (read-only). Sign in to edit.') }}">Alert Price</th>
+          {% endif %}
           {% endif %}
         </tr>
       </thead>
@@ -273,15 +327,15 @@
             data-price="{% if row.price is not none %}{{ row.price }}{% endif %}">
           <td class="col-ticker freeze-col freeze-edge" data-sort="{{ row.ticker }}">
             {% if show_alert and row.alert and row.alert.state == 'ready' %}
-              <span class="alert-dot ready" title="READY — 现价已进入关注区（可复查财报/新闻/买入条件，不代表自动 BUY）&#10;Current: ${{ '%.2f'|format(row.alert.price) }}&#10;Alert: ${{ '%.2f'|format(row.alert.alert_price) }}&#10;Distance: {{ '%+.2f'|format(row.alert.dist_pct) }}%">🟢</span>
+              <span class="alert-dot ready" title="{{ _('READY — price entered alert zone (review fundamentals/news; not an auto BUY)') }}&#10;Current: ${{ '%.2f'|format(row.alert.price) }}&#10;Alert: ${{ '%.2f'|format(row.alert.alert_price) }}&#10;Distance: {{ '%+.2f'|format(row.alert.dist_pct) }}%">🟢</span>
             {% elif show_alert and row.alert and row.alert.state == 'near' %}
-              <span class="alert-dot near" title="NEAR — 距关注价 ≤5%&#10;Current: ${{ '%.2f'|format(row.alert.price) }}&#10;Alert: ${{ '%.2f'|format(row.alert.alert_price) }}&#10;Distance: {{ '%+.2f'|format(row.alert.dist_pct) }}%">🟡</span>
+              <span class="alert-dot near" title="{{ _('NEAR — within 5% of alert') }}&#10;Current: ${{ '%.2f'|format(row.alert.price) }}&#10;Alert: ${{ '%.2f'|format(row.alert.alert_price) }}&#10;Distance: {{ '%+.2f'|format(row.alert.dist_pct) }}%">🟡</span>
             {% endif %}
             <strong>{{ row.ticker }}</strong>
             {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
           </td>
           {% if row.not_found %}
-            <td colspan="{% if show_alert %}25{% else %}24{% endif %}" class="empty">未找到该股票的行情数据（可能代码有误或已退市）。</td>
+            <td colspan="{% if show_valuation %}{% if show_alert %}26{% else %}25{% endif %}{% else %}{% if show_alert %}23{% else %}22{% endif %}{% endif %}" class="empty">{{ _("Ticker not found (bad symbol or delisted).") }}</td>
           {% else %}
             <td class="pools col-pools" data-sort="{{ row.pools }}">{{ row.pools }}</td>
             <td data-sort="{{ (row.industry or '')|lower }}">{% if row.industry %}{{ row.industry }}{% else %}—{% endif %}</td>
@@ -292,7 +346,7 @@
               {% if a %}
                 {% set cls = 'good' if a.final >= 70 else ('mid' if a.final >= 40 else 'bad') %}
                 <span class="ai {{ cls }}">{{ a.final }}</span>
-                <div class="ai-sub">机会 {{ a.opp }} · 风险 −{{ a.risk }}</div>
+                <div class="ai-sub">{{ _("Opp") }} {{ a.opp }} · {{ _("Risk") }} −{{ a.risk }}</div>
               {% else %}—{% endif %}
             </td>
 
@@ -323,15 +377,15 @@
               {% if row.rebound_pct is not none %}{{ '%+.2f'|format(row.rebound_pct) }}%{% else %}—{% endif %}
             </td>
             <td class="num" data-sort="{{ row.rvol if row.rvol is not none else '' }}"
-                title="RVOL=今日量/前20日均量。<0.7 缺量；0.7–1.2 正常；1.2–2 放量确认；2–3 明显放量(结合新闻)；>3 异常，勿机械加分。">
+                title="{{ _('RVOL guide: <0.7 light; 0.7–1.2 normal; 1.2–2 confirm; 2–3 heavy (with news); >3 unusual — don’t score mechanically.') }}">
               {% if row.rvol is not none %}
                 {% set r = row.rvol %}{% set c = row.change_pct %}
                 {% if r >= 3 %}<span class="rvol warn">{{ '%.1f'|format(r) }}×</span>
                 {% elif r >= 1.2 %}<span class="rvol hi">{{ '%.1f'|format(r) }}×</span>
                 {% elif r < 0.7 %}<span class="rvol lo">{{ '%.1f'|format(r) }}×</span>
                 {% else %}<span class="rvol">{{ '%.1f'|format(r) }}×</span>{% endif %}
-                {% if c is not none and c > 0 and r >= 1.2 %}<span class="rtag good">↑确认</span>
-                {% elif c is not none and c < 0 and r >= 2 %}<span class="rtag flag">放量跌·查新闻</span>{% endif %}
+                {% if c is not none and c > 0 and r >= 1.2 %}<span class="rtag good">{{ _("Volume confirm") }}</span>
+                {% elif c is not none and c < 0 and r >= 2 %}<span class="rtag flag">{{ _("Volume dump · check news") }}</span>{% endif %}
               {% else %}—{% endif %}
             </td>
             <td class="num" data-sort="{{ row.avg_vol_20d if row.avg_vol_20d is not none else '' }}">{{ fmt_vol(row.avg_vol_20d) }}</td>
@@ -339,6 +393,7 @@
               {% if row.avg_move_pct is not none %}{{ '%.2f'|format(row.avg_move_pct) }}%{% else %}—{% endif %}
             </td>
 
+            {% if show_valuation %}
             <td class="num col-est" data-sort="{{ row.est_value if row.est_value is not none else '' }}"
                 title="{{ row.est_tooltip or 'Valuation unavailable' }}">
               {% if row.est_value is not none %}
@@ -367,7 +422,7 @@ reason: {{ row.mos_stale_reason or 'stale' }}
 (Est.Value cache unchanged — refresh Market Data prices){% elif row.est_value is not none and row.mos_price is not none %}MOS% = ({{ '%.2f'|format(row.est_value) }} − {{ '%.2f'|format(row.mos_price) }}) / {{ '%.2f'|format(row.est_value) }} × 100
 Price source: {{ row.mos_price_source or 'watchlist' }}{% if row.mos_price_as_of %}
 Price as_of: {{ row.mos_price_as_of }}{% endif %}{% if row.get('mos_price_age_hours') is not none %}
-Age: {{ '%.1f'|format(row.get('mos_price_age_hours')) }}h{% endif %}{% else %}需要有效的 Est.Value 与新鲜 Watchlist 现价{% endif %}">
+Age: {{ '%.1f'|format(row.get('mos_price_age_hours')) }}h{% endif %}{% else %}{{ _("Needs a valid Est.Value and a fresh Watchlist price") }}{% endif %}">
               {% if row.mos_stale %}<span class="mos-stale-tag" title="price stale">—</span>
               {% elif row.mos_pct is not none %}{{ '%+.1f'|format(row.mos_pct) }}%
               {% else %}—{% endif %}
@@ -383,6 +438,7 @@ Age: {{ '%.1f'|format(row.get('mos_price_age_hours')) }}h{% endif %}{% else %}�
                 {% if row.dcf_below_clv %}<div class="clv-flag">DCF&lt;CLV</div>{% endif %}
               {% else %}—{% endif %}
             </td>
+            {% endif %}
             {% set f = row.fund %}
             <td class="col-fund" data-sort="{{ f.warnings if f and f.total_known else '' }}"
                 {% if f and f.detail %}title="{{ f.detail }}"{% endif %}>
@@ -407,21 +463,34 @@ Age: {{ '%.1f'|format(row.get('mos_price_age_hours')) }}h{% endif %}{% else %}�
             </td>
             <td class="num {% if row.price is not none and row.target_1y is not none and row.target_1y > 0 and (row.price / row.target_1y) < 1 %}up{% endif %}"
                 data-sort="{% if row.price is not none and row.target_1y is not none and row.target_1y > 0 %}{{ '%.6f'|format(row.price / row.target_1y) }}{% endif %}"
-                title="Target Ratio = 现价 / 1Y Target；越小越值得关注">
+                title="{{ _('Target Ratio = Price / 1Y Target; lower = more interesting') }}">
               {% if row.price is not none and row.target_1y is not none and row.target_1y > 0 %}
                 {{ '%.2f'|format(row.price / row.target_1y) }}
               {% else %}—{% endif %}
+            </td>
+            <td class="num {% if row.mos_t is not none and row.mos_t > 0 %}up{% elif row.mos_t is not none and row.mos_t < 0 %}down{% endif %}"
+                data-sort="{{ row.mos_t if row.mos_t is not none else '' }}"
+                title="{% if row.mos_t is not none and row.base_t is not none and row.price is not none %}{{ _('MOS T — Margin of Safety based on 80% of the 1-Year Analyst Target Price.') }}
+Base T = 1Y Target × 80% = ${{ '%.2f'|format(row.base_t) }}
+Bear T ${{ '%.2f'|format(row.bear_t) }} · Bull T ${{ '%.2f'|format(row.bull_t) }}
+MOS T = ({{ '%.2f'|format(row.base_t) }} − {{ '%.2f'|format(row.price) }}) / {{ '%.2f'|format(row.base_t) }} × 100
+method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T — Margin of Safety based on 80% of the 1-Year Analyst Target Price.') }}{% endif %}">
+              {% if row.mos_t is not none %}{{ '%+.1f'|format(row.mos_t) }}%{% else %}—{% endif %}
             </td>
 
             <td data-sort="{{ row.earnings_date or '' }}">{{ row.earnings_date or "—" }}</td>
             {% if show_alert %}
             <td class="num col-alert"
                 data-sort="{{ row.alert_price if row.alert_price is not none else '' }}">
+              {% if can_edit_alert %}
               <input class="alert-edit" type="text" inputmode="decimal"
                      data-ticker="{{ row.ticker }}"
                      placeholder="—"
                      value="{% if row.alert_price is not none %}{{ '%.2f'|format(row.alert_price) }}{% endif %}"
-                     title="人工关注价。回车或失焦保存；清空后保存即删除。不触发自动交易。">
+                     title="{{ _('Alert Price. Enter/blur to save; clear then save to delete. Does not trigger trades.') }}">
+              {% else %}
+                {% if row.alert_price is not none %}${{ '%.2f'|format(row.alert_price) }}{% else %}—{% endif %}
+              {% endif %}
             </td>
             {% endif %}
           {% endif %}
@@ -433,99 +502,10 @@ Age: {{ '%.1f'|format(row.get('mos_price_age_hours')) }}h{% endif %}{% else %}�
   {% endif %}
 {% endmacro %}
 
-{% set descriptions = {
-  'setup': '原「超卖建议」与「强势回调」已合并。自动生成：离均值% < -10%（相对 SMA 至少低一成以上）。Trend 可为 UP / MIXED / DOWN；优先级 UP > MIXED > DOWN，同趋势内按离均值% 从低到高。Est.Value / MOS / CLV 计算复杂时可为空；Target Ratio 仍显示（有 Yahoo 目标价时）。63D 区间仅观察，不作硬筛选。',
-  'low_target': '自动生成：Target Ratio < 0.80，并排除 63D Position% > 70%。财报只读共享缓存。新闻仅对 Financial 绿色（good）股票读取共享新闻缓存（近30天）；黄/红不抓新闻。本页不跑 DCF/CLV/MOS/AI。',
-  'mine': '长期观察 / 我的自选（当前：' ~ (mine_list_label or '—') ~ '）。最右侧 Alert Price 为人工关注价，持久保存、可直接改；左侧 🟢 READY = 现价≤关注价，🟡 NEAR = 距关注价≤5%。不代表自动 BUY，也不改估值/AI 规则。',
-  'temp': '朋友临时输入的股票，仅本次会话有效，关闭浏览器后自动清空。'
-} %}
+{# Tab descriptions from i18n tab_desc #}
 
 {% block content %}
-  <h1>Watchlist</h1>
-
-  <details class="legend" open>
-    <summary>📖 代码说明（AI 打分 / 财报 / 新闻 / 估值）</summary>
-    <div class="legend-body">
-      <div class="legend-col">
-        <strong>AI Score V1 = 机会分(0–100) − 风险扣分（Opportunity / Timing）</strong>
-        <ul style="columns:1">
-          <li>回调深度 <code>30</code>（离SMA越深越高，≤−30%满分）</li>
-          <li>长期趋势 <code>20</code>（UP20 / MIXED10 / DOWN0）</li>
-          <li>反弹确认 <code>15</code>（反弹率 + 当日方向）</li>
-          <li>成交量 <code>10</code>（RVOL×当日方向，非越大越好）</li>
-          <li>财务质量 <code>15</code>（🟢15 / 🟡8–12 / 🔴0–7）</li>
-          <li>新闻 <code>10</code>（正面10 / 中性5 / 负面0）</li>
-        </ul>
-        <p class="hint" style="text-align:left;margin:0">风险扣分：严重财务 −0~15、重大负面新闻 −0~15、放量暴跌 −0~5、高波动/低流动 −0~5、临近财报 −0~15（越近扣越多）。悬停 AI 看每项拆分。绿≥70 / 黄40–69 / 红&lt;40。<strong>不包含 Est.Value / MOS / 63D Position。</strong></p>
-      </div>
-      <div class="legend-col">
-        <strong>投资价值（DCF v1.3 frozen + CLV，与 AI 独立）</strong>
-        <ul style="columns:1">
-          <li><code>Est.Value</code> = Bear / <strong>Base</strong> / Bull（DCF 情景；金融/亏损/数据不足 → —）</li>
-          <li><code>MOS%</code> = (Base − <strong>行内最新现价</strong>) / Base × 100；价格过期（默认 &gt;72h）→ —，不重跑 DCF</li>
-          <li><code>CLV</code> — Conservative Liquidation Value（保守清算价值）</li>
-        </ul>
-        <p class="hint" style="text-align:left;margin:0">
-          CLV 基于最新资产负债表，对现金、证券、应收账款、存货、投资及 PP&E 等现有资产采用统一的保守回收折扣，再扣除全部负债后计算的每股资产价值。
-          <strong>CLV 是资产底线参考，不是目标价，也不是对公司持续经营价值的完整估计。</strong>
-        </p>
-        <p class="hint" style="text-align:left;margin:0">
-          当前统一 recovery：Cash 100% | Marketable Securities 100% | Receivables 80% | Inventory 50% | Non-marketable Investments 50% | PP&E 25% | Goodwill &amp; Intangibles 0%。
-          所有公司相同规则，不根据市场价格调整。
-        </p>
-        <p class="hint" style="text-align:left;margin:0">
-          与 DCF 区别：CLV = 已有资产的保守价值底线；DCF = 持续经营下未来现金流估计。
-          当 DCF Base &lt; CLV 时显示 warning（检查 DCF），但不自动修改 DCF。
-        </p>
-        <p class="hint" style="text-align:left;margin:0">
-          <strong>价值参考：</strong><code>1Y Target</code> = Yahoo 分析师一年目标均价；
-          <code>Target Ratio</code> = 现价 ÷ 1Y Target（越小越值得关注；点表头 ↕ 排序）。与 DCF/CLV 独立。
-        </p>
-        <ul style="columns:1">
-          <li>增长：Revenue CAGR 为锚（Growth v1.1 冻结）</li>
-          <li>WACC / Tiered Kd：见 <code>valuation_config.py</code>（v1.3 冻结）</li>
-          <li>悬停 Est.Value / CLV 可看完整拆分</li>
-        </ul>
-      </div>
-      <div class="legend-col">
-        <strong>财报红旗（⚠ = 红旗，计入健康分）</strong>
-        <ul>
-          <li><code>REV</code> 营收增长 YoY（&lt;0 ⚠）</li>
-          <li><code>EPS</code> 盈利增长 YoY（&lt;0 ⚠）</li>
-          <li><code>OCF</code> 经营现金流（负数或恶化 ⚠）</li>
-          <li><code>CUR</code> 流动比率（&lt;1 ⚠）</li>
-          <li><code>DEBT</code> 负债/权益（&gt;1.5x ⚠）</li>
-          <li><code>CASH</code> 现金 vs 债务（现金&lt;债务 ⚠）</li>
-        </ul>
-        <p class="hint" style="text-align:left;margin:0">显示：🟢好(0旗) / 🟡一般(1–2) / 🔴差(≥3) + 通过/已知，后面列红旗代码（如 <code>REV− DEBT−</code>）。悬停看每项数值。</p>
-      </div>
-      <div class="legend-col">
-        <strong>现金流方向（同比 ↑/↓/→，仅解释不计红旗）</strong>
-        <ul>
-          <li><code>OCF</code> 经营现金流方向</li>
-          <li><code>CAPEX</code> 资本支出方向（↑=投资增加）</li>
-          <li><code>FCF</code> 自由现金流方向（≈OCF−CapEx）</li>
-        </ul>
-        <p class="hint" style="text-align:left;margin:0">
-          <code>FCF↓ CAPEX↑ OCF↑</code> = 扩张投资致自由现金流下降，🟡 不一定坏；
-          <code>FCF↓ OCF↓</code> = 经营本身恶化，🔴 风险高（OCF 记红旗）；
-          <code>FCF↑</code> = 🟢 健康。CapEx 本身不算红旗。
-        </p>
-      </div>
-      <div class="legend-col">
-        <strong>新闻（近30天；情绪 + 正 / − 负）</strong>
-        <ul>
-          <li><code>A</code> 财报 / 指引 ★★★★★</li>
-          <li><code>B</code> 业务 / 产品 ★★★★</li>
-          <li><code>C</code> 分析师 / 评级 ★★★</li>
-          <li><code>D</code> 公司 / 管理层 ★★★★</li>
-          <li><code>E</code> 财务 / 法律风险 ★★★★★</li>
-          <li><code>O</code> 其他</li>
-        </ul>
-        <p class="hint" style="text-align:left;margin:0"><code>NO NEWS</code> = 近30天无重要新闻；<code>NEUTRAL</code> = 有新闻但影响中性。重大负面标红、正面标绿。悬停看标题+日期。</p>
-      </div>
-    </div>
-  </details>
+  <h1>{{ _('Watchlist') }}</h1>
 
   <div class="tabs">
     {% for t in tabs %}
@@ -535,38 +515,216 @@ Age: {{ '%.1f'|format(row.get('mos_price_age_hours')) }}h{% endif %}{% else %}�
     {% endfor %}
   </div>
 
-  <div class="actions" style="margin-bottom:12px">
-    <form method="post" action="{{ url_for('refresh_all_prices') }}" style="display:inline"
-          onsubmit="this.querySelector('button').textContent='更新中（可能需数分钟）…'; this.querySelector('button').disabled=true;">
-      <input type="hidden" name="next" value="{{ url_for('watchlist', tab=tab) }}">
-      <button class="btn primary" type="submit" title="刷新全部指数股池行情缓存，并同步更新 Watchlist（含 MANUAL）">刷新全部行情 + Watchlist</button>
-    </form>
-    <a class="btn" href="{{ url_for('market_dashboard') }}">Market Dashboard</a>
+  <div class="ops-bar">
+    <div class="ops-main">
+      {{ _('Current group') }} · {{ rows|length }} {{ _('stocks') }}
+      {% if wl_updated_at %} · {{ _('Updated:') }} {{ wl_updated_at|format_ui_datetime }}{% endif %}
+    </div>
+    <button type="button" class="btn" id="open-code-guide"
+            aria-haspopup="dialog" aria-controls="code-guide-dlg">ⓘ {{ _('Code Guide') }}</button>
   </div>
 
-  <p class="hint">{{ descriptions[tab] }} 所有组都显示「所属股池」，<strong>点第二列表头可排序</strong>。<strong>财报 / 新闻</strong>为实时抓取（首次打开该标签可能等待十几秒，结果缓存 15 分钟）；财报/新闻列可鼠标悬停看明细。默认：每周更新股池成分，每个交易日收盘后自动更新行情并同步 Watchlist；也可点上方按钮手动刷新。</p>
-  {% if tab == 'low_target' %}
-    <p class="hint" style="margin-top:6px">
-      财报缓存覆盖：<strong>{{ fund_cache_hits }} / {{ fund_cache_total }}</strong>
-      {% if low_target_ms is not none %}· 装配 {{ low_target_ms }} ms{% endif %}
-      · 新闻仅显示 Financial 🟢 的缓存结果；黄/红新闻列为空 · Est / MOS / CLV / AI 本页留空。
+  <div class="actions" style="margin-bottom:10px">
+    <form method="post" action="{{ url_for('refresh_all_prices') }}" style="display:inline"
+          onsubmit="this.querySelector('button').textContent={{ _('Updating (may take a few minutes)…')|tojson }}; this.querySelector('button').disabled=true;">
+      <input type="hidden" name="next" value="{{ url_for('watchlist', tab=tab) }}">
+      <button class="btn primary" type="submit" title="{{ _('Refresh all index-pool prices and sync Watchlist (incl. MANUAL)') }}">{{ _("Refresh all prices + Watchlist") }}</button>
+    </form>
+    <a class="btn" href="{{ url_for('market_dashboard') }}">{{ _("Market Dashboard") }}</a>
+  </div>
+
+  <div class="ops-status">
+    <span class="ok">✓ {{ _('Data ready') }}</span>
+    {% if fund_cache_only|default(false) %}
+      <span>· {{ fund_cache_hits }}/{{ fund_cache_total }}</span>
+      <span>· {{ _('News: Financial ≥60%') }}</span>
+    {% else %}
+      <span>· {{ rows|length }} {{ _('stocks') }}</span>
+    {% endif %}
+    {% if wl_updated_at %}
+      <span>· {{ _('Updated:') }} {{ wl_updated_at|format_ui_datetime }}</span>
+    {% endif %}
+    <details class="ops-details" style="margin:0;display:inline-block">
+      <summary>{{ _('Details') }}</summary>
+      <div class="ops-details-body">
+        <p>{{ tab_desc }} {{ _("All groups show pool membership; click column headers to sort. Fundamentals/news may take a few seconds on first open (15‑min cache). Weekly universe + weekday EOD prices, or use the refresh button.") }}</p>
+        {% if fund_cache_only|default(false) %}
+        <p>
+          {{ _("Fund cache coverage:") }} <strong>{{ fund_cache_hits }} / {{ fund_cache_total }}</strong>
+          {% if low_target_ms is not none %}· {{ _("assembled") }} {{ low_target_ms }} ms{% endif %}
+          · {{ _("News shown only when Financial Pass Rate ≥ 60% (ok/known); below threshold news is — · Est / MOS / CLV / AI blank on this tab.") }}
+        </p>
+        {% endif %}
+        {% if show_valuation|default(false) %}
+        <p>{{ _("Est.Value / MOS% / CLV visible (signed in).") }}</p>
+        {% else %}
+        <p>{{ _("Est.Value / MOS% / CLV are visible only after owner sign-in (methods still in development; hidden publicly).") }}</p>
+        {% endif %}
+      </div>
+    </details>
+  </div>
+
+  <dialog class="code-guide-dlg" id="code-guide-dlg">
+    <div class="dlg-head">
+      <strong>ⓘ {{ _('Code Guide') }}</strong>
+      <button type="button" class="btn" id="close-code-guide">{{ _('Close') }}</button>
+    </div>
+    <div class="dlg-body">
+      <div class="legend-body">
+      <div class="legend-col">
+        <strong>{{ _("AI Score V1 = Opportunity (0–100) − Risk penalty") }}</strong>
+        <ul style="columns:1">
+          <li>{{ _("Pullback depth") }} <code>25</code></li>
+          <li>{{ _("Long-term trend") }} <code>20</code> (UP20 / MIXED10 / DOWN0)</li>
+          <li>{{ _("Rebound confirm") }} <code>15</code></li>
+          <li>{{ _("Volume") }} <code>10</code> (RVOL × day direction)</li>
+          <li>{{ _("Financial quality") }} <code>15</code> (🟢15 / 🟡8–12 / 🔴0–7)</li>
+          <li>{{ _("News") }} <code>10</code> (pos 10 / neu 5 / neg 0)</li>
+          <li>{{ _("MOS T") }} <code>5</code> — {{ _("MOS T — Margin of Safety based on 80% of the 1-Year Analyst Target Price.") }}</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">{{ _("Risk penalties: severe financial −0~15, major negative news −0~15, volume dump −0~5, high vol/low liquidity −0~5, near earnings −0~15. Hover AI for breakdown. Green≥70 / yellow 40–69 / red <40. 63D Position and Admin-only Intrinsic Value / real MOS are excluded from AI Score V1.") }}</p>
+      </div>
+      <div class="legend-col">
+        {% if show_valuation|default(false) %}
+        <strong>{{ _("Investment value (DCF v1.3 frozen + CLV, independent of AI)") }}</strong>
+        <ul style="columns:1">
+          <li><code>Est.Value</code> = Bear / <strong>Base</strong> / Bull ({{ _('DCF scenarios; financials/loss/thin data → —') }})</li>
+          <li><code>MOS%</code> = (Base − <strong>{{ _('row price') }}</strong>) / Base × 100; {{ _('stale price (default >72h) → —; DCF not re-run') }}</li>
+          <li><code>CLV</code> — Conservative Liquidation Value</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">
+          {{ _("CLV applies conservative recovery haircuts to balance-sheet assets, then subtracts all liabilities for a per-share asset floor.") }}
+          <strong>{{ _("CLV is an asset floor — not a target price or full going-concern value.") }}</strong>
+        </p>
+        <p class="hint" style="text-align:left;margin:0">
+          {{ _("Uniform recovery: Cash 100% | Marketable Securities 100% | Receivables 80% | Inventory 50% | Non-marketable Investments 50% | PP&E 25% | Goodwill & Intangibles 0%. Same rules for all names; not tuned to market price.") }}
+        </p>
+        <p class="hint" style="text-align:left;margin:0">
+          {{ _("vs DCF: CLV = conservative asset floor; DCF = going-concern cash flows. If DCF Base < CLV, show a warning — DCF is not auto-changed.") }}
+        </p>
+        <ul style="columns:1">
+          <li>{{ _('Growth anchored on Revenue CAGR (Growth v1.1 frozen)') }}</li>
+          <li>WACC / Tiered Kd: <code>valuation_config.py</code> (v1.3 frozen)</li>
+          <li>{{ _('Hover Est.Value / CLV for full breakdown') }}</li>
+        </ul>
+        {% else %}
+        <strong>{{ _("Investment value") }}</strong>
+        <p class="hint" style="text-align:left;margin:0">
+          {{ _("Est.Value / MOS% / CLV are visible only after owner sign-in (methods still in development; hidden publicly).") }}
+          <a href="{{ url_for('owner_login') }}">{{ _("Sign in") }}</a>
+        </p>
+        {% endif %}
+        <p class="hint" style="text-align:left;margin:0">
+          <strong>{{ _("Value reference:") }}</strong> <code>1Y Target</code> = {{ _("Yahoo 1Y analyst mean target") }};
+          <code>Target Ratio</code> = {{ _("Price ÷ 1Y Target (lower = more interesting; sort via header). Independent of DCF/CLV.") }}
+          <code>MOS T</code> = {{ _("temporary target-based MOS using Base T = 1Y Target × 80% (not intrinsic MOS).") }}
+        </p>
+      </div>
+      <div class="legend-col">
+        <strong>{{ _("Fundamental red flags (⚠ counts toward health)") }}</strong>
+        <ul>
+          <li><code>REV</code> {{ _('Revenue growth YoY') }} (&lt;0 ⚠)</li>
+          <li><code>EPS</code> {{ _('EPS growth YoY') }} (&lt;0 ⚠)</li>
+          <li><code>OCF</code> {{ _('Operating cash flow') }} ({{ _('negative/worsening') }} ⚠)</li>
+          <li><code>CUR</code> {{ _('Current ratio') }} (&lt;1 ⚠)</li>
+          <li><code>DEBT</code> {{ _('Debt / equity') }} (&gt;1.5x ⚠)</li>
+          <li><code>CASH</code> {{ _('Cash vs debt') }} ({{ _('cash < debt') }} ⚠)</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">{{ _("Show: 🟢 good (0) / 🟡 fair (1–2) / 🔴 weak (≥3) + pass/known, then flag codes (e.g. REV− DEBT−). Hover for values.") }}</p>
+      </div>
+      <div class="legend-col">
+        <strong>{{ _("Cash-flow direction (YoY ↑/↓/→ — explanatory only)") }}</strong>
+        <ul>
+          <li><code>OCF</code> {{ _('Operating CF direction') }}</li>
+          <li><code>CAPEX</code> {{ _('CapEx direction') }} (↑={{ _('more investment') }})</li>
+          <li><code>FCF</code> {{ _('Free CF direction') }} (≈OCF−CapEx)</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">
+          {{ _("FCF↓ CAPEX↑ OCF↑ = investing more (not always bad); FCF↓ OCF↓ = ops stress (OCF flags); FCF↑ = healthy. CapEx alone is not a red flag.") }}
+        </p>
+      </div>
+      <div class="legend-col">
+        <strong>{{ _("News (last 30 days; sentiment + / −)") }}</strong>
+        <ul>
+          <li><code>A</code> {{ _('Earnings / guidance') }} ★★★★★</li>
+          <li><code>B</code> {{ _('Business / product') }} ★★★★</li>
+          <li><code>C</code> {{ _('Analyst / rating') }} ★★★</li>
+          <li><code>D</code> {{ _('Company / management') }} ★★★★</li>
+          <li><code>E</code> {{ _('Financial / legal risk') }} ★★★★★</li>
+          <li><code>O</code> {{ _('Other') }}</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">{{ _("NO NEWS = none material in 30d; NEUTRAL = news but muted impact. Major negatives red, positives green. Hover for titles.") }}</p>
+      </div>
+      </div>
+    </div>
+  </dialog>
+
+  {% if tab == 'mine' %}
+    {% if can_edit_mine|default(false) %}
+    <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='mine') }}" style="margin-bottom:8px">
+      <input type="hidden" name="action" value="add_mine">
+      <input type="text" name="mine_tickers" placeholder="{{ _('Add tickers, comma-separated, e.g. AMD, SHOP.TO') }}" required>
+      <button class="btn primary" type="submit">{{ _("Add to My Watchlist") }}</button>
+    </form>
+    <p class="hint" style="margin:0 0 12px;text-align:left">
+      {{ _("Current list:") }}
+      {% for t in mine_list|default([]) %}
+        <form method="post" action="{{ url_for('watchlist', tab='mine') }}" style="display:inline;margin:0 6px 4px 0">
+          <input type="hidden" name="action" value="remove_mine">
+          <input type="hidden" name="ticker" value="{{ t }}">
+          <button class="btn" type="submit" title="{{ _('Remove from My Watchlist') }} {{ t }}" style="padding:2px 8px;font-size:0.85rem">{{ t }} ×</button>
+        </form>
+      {% else %}
+        {{ _("(empty)") }}
+      {% endfor %}
     </p>
+    {% else %}
+    <p class="hint" style="margin:0 0 12px">{{ _("Public visitors can browse My Watchlist quotes but cannot edit the list; Est / MOS / CLV require sign-in.") }} <a href="{{ url_for('owner_login', next=url_for('watchlist', tab='mine')) }}">{{ _("Sign in") }}</a></p>
+    {% endif %}
   {% endif %}
 
   {% if tab == 'temp' %}
     <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='temp') }}">
       <input type="hidden" name="action" value="add_temp">
-      <input type="text" name="temp_tickers" placeholder="输入代码，逗号分隔，如 TSLA, AMD, SHOP.TO">
-      <button class="btn primary" type="submit">添加</button>
+      <input type="text" name="temp_tickers" placeholder="{{ _('Enter tickers, comma-separated, e.g. TSLA, AMD, SHOP.TO') }}">
+      <button class="btn primary" type="submit">{{ _("Add") }}</button>
       {% if temp_tickers %}
         <button class="btn" type="submit"
-                onclick="this.form.querySelector('[name=action]').value='clear_temp'">清空</button>
+                onclick="this.form.querySelector('[name=action]').value='clear_temp'">{{ _("Clear") }}</button>
       {% endif %}
     </form>
-    <p class="hint" style="margin:0 0 12px">临时列表最多 {{ max_temp }} 个股票（超出的会被忽略）；关闭浏览器后自动清空。当前 {{ temp_tickers|length }} / {{ max_temp }}。</p>
+    <p class="hint" style="margin:0 0 12px">{{ _f("Temp list holds up to {max} tickers (extras ignored); cleared when the browser closes. Now {n} / {max}.", max=max_temp, n=temp_tickers|length) }}</p>
   {% endif %}
 
-  {{ wl_table(rows, sma_period, show_alert=show_alert|default(False)) }}
+  {{ wl_table(rows, sma_period, show_alert=show_alert|default(False), show_valuation=show_valuation|default(False), can_edit_alert=can_edit_mine|default(False)) }}
+
+  <script>
+    (function () {
+      var dlg = document.getElementById("code-guide-dlg");
+      var openBtn = document.getElementById("open-code-guide");
+      var closeBtn = document.getElementById("close-code-guide");
+      if (dlg && openBtn) {
+        openBtn.addEventListener("click", function () {
+          if (typeof dlg.showModal === "function") dlg.showModal();
+          else dlg.setAttribute("open", "");
+        });
+      }
+      if (dlg && closeBtn) {
+        closeBtn.addEventListener("click", function () {
+          if (typeof dlg.close === "function") dlg.close();
+          else dlg.removeAttribute("open");
+        });
+      }
+      if (dlg) {
+        dlg.addEventListener("click", function (e) {
+          if (e.target === dlg) {
+            if (typeof dlg.close === "function") dlg.close();
+            else dlg.removeAttribute("open");
+          }
+        });
+      }
+    })();
+  </script>
 
   <script>
     (function () {

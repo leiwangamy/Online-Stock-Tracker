@@ -83,11 +83,11 @@ def job_refresh_watchlist(*, max_workers: int = 4) -> dict:
     log = _setup_logging()
     from db import get_setting, get_universe_flags, init_db, list_universe, save_dashboard_rows
     from market_data import fetch_metrics_for_ticker
-    from watchlist_config import MY_WATCHLIST, collect_watchlist_tickers
+    from watchlist_config import collect_watchlist_tickers, get_my_watchlist
 
     init_db()
     tickers = collect_watchlist_tickers()
-    for t in MY_WATCHLIST:
+    for t in get_my_watchlist():
         if t not in tickers:
             tickers.append(t)
 
@@ -162,7 +162,34 @@ def job_refresh_prices(*, max_workers: int = 4) -> dict:
     wl = job_refresh_watchlist(max_workers=max_workers)
     result["watchlist_ok"] = wl.get("ok")
     result["watchlist_errors"] = wl.get("errors")
+    # Paper Trading daily mark / stop-target (simulation only — never brokerage)
+    try:
+        paper = job_paper_trading_daily()
+        result["paper_closed"] = len(paper.get("closed") or [])
+        result["paper_marked"] = paper.get("marked")
+        result["paper_candidates"] = paper.get("candidates")
+    except Exception:
+        log.exception("Paper trading daily update failed (non-fatal)")
+        result["paper_error"] = 1
     return result
+
+
+def job_paper_trading_daily() -> dict:
+    """Once-per-day AI Paper Trading: Top 10 candidates + open-position OHLC settle."""
+    log = _setup_logging()
+    log.info("Starting AI Paper Trading daily update…")
+    from paper_trading import run_daily_update
+
+    out = run_daily_update(refresh_candidates=True)
+    log.info(
+        "Paper done: day=%s closed=%s marked=%s candidates=%s errors=%s",
+        out.get("day"),
+        len(out.get("closed") or []),
+        out.get("marked"),
+        out.get("candidates"),
+        len(out.get("errors") or []),
+    )
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -178,10 +205,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Refresh Watchlist tickers only (incl. MANUAL)",
     )
+    parser.add_argument(
+        "--paper",
+        action="store_true",
+        help="AI Paper Trading daily update (candidates + OHLC settle; simulation only)",
+    )
     parser.add_argument("--all", action="store_true", help="Universe then prices (+ Watchlist)")
     args = parser.parse_args(argv)
 
-    if not (args.universe or args.prices or args.watchlist or args.all):
+    if not (args.universe or args.prices or args.watchlist or args.paper or args.all):
         parser.print_help()
         return 2
 
@@ -193,6 +225,9 @@ def main(argv: list[str] | None = None) -> int:
             job_refresh_prices()
         elif args.watchlist:
             job_refresh_watchlist()
+        if args.paper and not (args.all or args.prices):
+            # --prices already includes paper settle; standalone --paper for manual runs
+            job_paper_trading_daily()
         log.info("Finished OK")
         return 0
     except Exception:

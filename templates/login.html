@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{% if need_setup %}{{ _('Set owner password') }}{% else %}{{ _('Owner Login') }}{% endif %}{% endblock %}
+{% block content %}
+  <h1>{% if need_setup %}{{ _('Set owner password') }}{% else %}{{ _('Owner Login') }}{% endif %}</h1>
+  <p class="meta">
+    {% if need_setup %}
+      {{ _('First-time setup: choose a password only you know. Use it later to edit My Watchlist and view Est.Value / MOS / CLV (in development; hidden on the public site).') }}
+    {% else %}
+      {{ _('After signing in you can edit My Watchlist and Alert Price, and view Est.Value / MOS / CLV. Public visitors do not see those three valuation columns.') }}
+    {% endif %}
+  </p>
+
+  <form class="settings-form" method="post" action="{{ url_for('owner_login') }}">
+    {% if need_setup %}
+      <label for="password">{{ _('New password') }}</label>
+      <input id="password" name="password" type="password" required minlength="6" autocomplete="new-password" />
+      <label for="password2">{{ _('Confirm password') }}</label>
+      <input id="password2" name="password2" type="password" required minlength="6" autocomplete="new-password" />
+      <div style="margin-top:18px">
+        <button class="btn primary" type="submit">{{ _('Save & sign in') }}</button>
+      </div>
+    {% else %}
+      <label for="password">{{ _('Password') }}</label>
+      <input id="password" name="password" type="password" required autocomplete="current-password" />
+      <input type="hidden" name="next" value="{{ next or url_for('watchlist', tab='mine') }}">
+      <div style="margin-top:18px">
+        <button class="btn primary" type="submit">{{ _('Sign in') }}</button>
+        <a class="btn" href="{{ url_for('watchlist') }}">{{ _('Back to Watchlist') }}</a>
+      </div>
+    {% endif %}
+  </form>
+{% endblock %}

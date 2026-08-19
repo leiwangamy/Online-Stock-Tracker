@@ -1,4 +1,4 @@
-"""Warm shared news cache for Financial-green names in low_target screen only."""
+"""Warm shared news cache for low_target names with Financial Pass Rate >= 60%."""
 
 from __future__ import annotations
 
@@ -7,26 +7,26 @@ import time
 from pathlib import Path
 
 from db import list_low_target_ratio
-from market_data import ensure_news_cache, get_fund_cached_only
+from market_data import ensure_news_cache, fund_pass_rate, fund_qualifies_for_news, get_fund_cached_only
 
 
 def main() -> None:
     tickers = [r["ticker"] for r in list_low_target_ratio(0.8) if r.get("ticker")]
     funds = get_fund_cached_only(tickers)
-    green = [t for t in tickers if (funds.get(t) or {}).get("health") == "good"]
-    print(f"screened={len(tickers)} green={len(green)}")
-    print("green:", ", ".join(green))
+    eligible = [t for t in tickers if fund_qualifies_for_news(funds.get(t))]
+    print(f"screened={len(tickers)} pass_rate_ge_60={len(eligible)}")
+    print("eligible:", ", ".join(eligible))
 
     t0 = time.perf_counter()
-    result = ensure_news_cache(green, max_workers=3, force=False)
+    result = ensure_news_cache(eligible, max_workers=3, force=False)
     result["elapsed_sec"] = round(time.perf_counter() - t0, 1)
 
-    log = Path("data/logs/news_cache_warm_green_low_target.txt")
+    log = Path("data/logs/news_cache_warm_pass60_low_target.txt")
     log.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         f"screened: {len(tickers)}",
-        f"green_count: {len(green)}",
-        f"tickers: {', '.join(green)}",
+        f"pass_rate_ge_60_count: {len(eligible)}",
+        f"tickers: {', '.join(eligible)}",
         f"already_cached: {result['already_cached']}",
         f"fetched: {result['fetched']}",
         f"ok_new: {result['ok_new']}",
@@ -41,9 +41,15 @@ def main() -> None:
         lines.append(f"  {f.get('ticker')}: {f.get('reason')}")
     lines.append("")
     lines.append("per_ticker:")
-    for t in green:
+    for t in eligible:
+        fund = funds.get(t) or {}
+        rate = fund_pass_rate(fund)
+        rate_s = f"{rate:.0%}" if rate is not None else "n/a"
         n = (result.get("results") or {}).get(t) or {}
-        lines.append(f"  {t}: tone={n.get('tone')} label={n.get('label')}")
+        lines.append(
+            f"  {t}: fund={fund.get('ok')}/{fund.get('total_known')} ({rate_s}) "
+            f"tone={n.get('tone')} label={n.get('label')}"
+        )
     log.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     out = {k: v for k, v in result.items() if k != "results"}

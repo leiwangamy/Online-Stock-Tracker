@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 import yfinance as yf
 import matplotlib.pyplot as plt
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import (
     alert_status,
@@ -24,6 +25,7 @@ from db import (
     list_dashboard,
     list_setup,
     list_low_target_ratio,
+    list_low_63d_pos,
     set_setting,
     universe_count,
     upsert_alert_price,
@@ -31,11 +33,23 @@ from db import (
 from market_data import (
     compute_ai_score,
     compute_row_mos,
+    compute_target_proxy_mos,
     fetch_metrics_for_ticker,
+    fund_qualifies_for_news,
     get_fund_cached_only,
     get_news_cached_only,
     get_signals,
     refresh_dashboard_cache,
+)
+from i18n import (
+    format_ui_date,
+    format_ui_datetime,
+    format_ui_time,
+    get_lang,
+    gettext,
+    ngettext_format,
+    set_lang,
+    tab_description,
 )
 from universe import refresh_universe as rebuild_universe
 
@@ -55,6 +69,68 @@ try:
     start_scheduler()
 except Exception:
     pass
+
+
+# ---------------------------------------------------------------------------
+# Owner auth (single operator). Public site hides Est / MOS / CLV.
+# ---------------------------------------------------------------------------
+SESSION_OWNER_KEY = "owner_auth"
+
+
+def is_owner() -> bool:
+    return bool(session.get(SESSION_OWNER_KEY))
+
+
+def owner_password_configured() -> bool:
+    h = get_setting("owner_password_hash", None)
+    return isinstance(h, str) and len(h) > 20
+
+
+def _bootstrap_owner_password_from_env() -> bool:
+    """If hash missing and LEIBOT_OWNER_PASSWORD is set, store hash once."""
+    if owner_password_configured():
+        return True
+    raw = (os.environ.get("LEIBOT_OWNER_PASSWORD") or "").strip()
+    if len(raw) < 6:
+        return False
+    set_setting("owner_password_hash", generate_password_hash(raw))
+    return True
+
+
+@app.context_processor
+def _inject_owner_flags():
+    return {
+        "is_owner": is_owner(),
+        "owner_password_configured": owner_password_configured(),
+        "_": gettext,
+        "_f": ngettext_format,
+        "lang": get_lang(),
+    }
+
+
+@app.template_filter("format_ui_datetime")
+def _format_ui_datetime_filter(value):
+    """Human-readable local date + time for templates."""
+    return format_ui_datetime(value)
+
+
+@app.template_filter("format_ui_date")
+def _format_ui_date_filter(value):
+    return format_ui_date(value)
+
+
+@app.template_filter("format_ui_time")
+def _format_ui_time_filter(value):
+    return format_ui_time(value)
+
+
+@app.route("/lang/<code>")
+def set_language(code: str):
+    set_lang(code)
+    ref = request.referrer
+    if ref and ref.startswith(request.host_url):
+        return redirect(ref)
+    return redirect(url_for("home"))
 
 DEFAULT_USD_STOCKS = ["MSFT"]
 DEFAULT_CAD_STOCKS = ["TD.TO"]
@@ -635,7 +711,42 @@ def stock_tracker():
 
 @app.route("/")
 def home():
-    return render_template("home.html")
+    """Public home — product entrances + live Today's LeiBot status."""
+    today = {
+        "universe_count": None,
+        "ai_candidates": None,
+        "open_positions": None,
+        "paper_equity": None,
+        "today_pnl": None,
+        "updated_at": None,
+    }
+    try:
+        today["universe_count"] = int(universe_count() or 0)
+    except Exception:
+        pass
+    try:
+        from paper_trading import list_candidates, portfolio_summary
+
+        cands = list_candidates()
+        today["ai_candidates"] = len(cands) if cands is not None else None
+        summary = portfolio_summary()
+        today["open_positions"] = summary.get("open_trades")
+        today["paper_equity"] = summary.get("current_equity")
+        today["today_pnl"] = summary.get("today_pnl")
+        today["updated_at"] = (
+            summary.get("last_daily_update")
+            or summary.get("updated_at")
+            or get_setting("paper_candidates_updated_at")
+        )
+    except Exception:
+        pass
+    if not today["updated_at"]:
+        try:
+            meta = dashboard_meta()
+            today["updated_at"] = meta.get("updated_at") if meta else None
+        except Exception:
+            pass
+    return render_template("home.html", today=today)
 
 
 # Market Dashboard tabs (index groups). Order controls the tab order.
@@ -660,7 +771,7 @@ def market_dashboard():
     tabs = [
         {
             "key": key,
-            "label": GROUP_LABELS[key],
+            "label": gettext(GROUP_LABELS[key]),
             "count": universe_count(group=key),
         }
         for key in DASHBOARD_GROUPS
@@ -672,7 +783,7 @@ def market_dashboard():
         universe_count=universe_count(group=group),
         sma_period=int(settings.get("sma_period", 25)),
         group=group,
-        group_label=GROUP_LABELS[group],
+        group_label=gettext(GROUP_LABELS[group]),
         tabs=tabs,
     )
 
@@ -683,13 +794,20 @@ def refresh_universe():
     try:
         result = rebuild_universe()
         flash(
-            f"股票池已更新：S&P500 {result['sp500']} + Nasdaq100 {result['ndx100']} "
-            f"+ S&P400 {result['sp400']} + S&P600 {result['sp600']} "
-            f"+ TSX {result['tsx']} → 去重后 {result['unique']} 只",
+            ngettext_format(
+                "Universe updated: S&P500 {sp500} + Nasdaq100 {ndx100} + S&P400 {sp400} "
+                "+ S&P600 {sp600} + TSX {tsx} → {unique} unique",
+                sp500=result["sp500"],
+                ndx100=result["ndx100"],
+                sp400=result["sp400"],
+                sp600=result["sp600"],
+                tsx=result["tsx"],
+                unique=result["unique"],
+            ),
             "ok",
         )
     except Exception as exc:
-        flash(f"更新股票池失败：{exc}", "warning")
+        flash(ngettext_format("Universe update failed: {exc}", exc=exc), "warning")
     return redirect(url_for("market_dashboard", group=group))
 
 
@@ -701,12 +819,18 @@ def refresh_dashboard():
             rebuild_universe()
         result = refresh_dashboard_cache(group=group)
         flash(
-            f"行情已刷新（{GROUP_LABELS[group]}）：成功 {result['ok']} / 失败 {result['errors']} "
-            f"（SMA{result['sma_period']}，本组 {result['universe']} 只）",
+            ngettext_format(
+                "Prices refreshed ({group}): ok {ok} / errors {errors} (SMA{sma}, universe {universe})",
+                group=gettext(GROUP_LABELS[group]),
+                ok=result["ok"],
+                errors=result["errors"],
+                sma=result["sma_period"],
+                universe=result["universe"],
+            ),
             "ok",
         )
     except Exception as exc:
-        flash(f"刷新行情失败：{exc}", "warning")
+        flash(ngettext_format("Price refresh failed: {exc}", exc=exc), "warning")
     return redirect(url_for("market_dashboard", group=group))
 
 
@@ -725,69 +849,100 @@ def refresh_all_prices():
 
         result = job_refresh_prices(max_workers=4)
         flash(
-            f"全部股池行情已刷新：成功 {result.get('ok')} / 失败 {result.get('errors')} "
-            f"（共 {result.get('universe')} 只）· "
-            f"Watchlist 成功 {result.get('watchlist_ok')} / 失败 {result.get('watchlist_errors')}",
+            ngettext_format(
+                "All pools refreshed: ok {ok} / errors {errors} (universe {universe}) · "
+                "Watchlist ok {watchlist_ok} / errors {watchlist_errors}",
+                ok=result.get("ok"),
+                errors=result.get("errors"),
+                universe=result.get("universe"),
+                watchlist_ok=result.get("watchlist_ok"),
+                watchlist_errors=result.get("watchlist_errors"),
+            ),
             "ok",
         )
     except Exception as exc:
-        flash(f"全部股池 / Watchlist 刷新失败：{exc}", "warning")
+        flash(ngettext_format("All pools / Watchlist refresh failed: {exc}", exc=exc), "warning")
     return redirect(nxt)
 
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
     weekdays = [
-        ("mon", "周一"),
-        ("tue", "周二"),
-        ("wed", "周三"),
-        ("thu", "周四"),
-        ("fri", "周五"),
-        ("sat", "周六"),
-        ("sun", "周日"),
+        ("mon", gettext("Mon")),
+        ("tue", gettext("Tue")),
+        ("wed", gettext("Wed")),
+        ("thu", gettext("Thu")),
+        ("fri", gettext("Fri")),
+        ("sat", gettext("Sat")),
+        ("sun", gettext("Sun")),
     ]
     if request.method == "POST":
         try:
             sma_period = int(request.form.get("sma_period", 25))
             rebound_lookback = int(request.form.get("rebound_lookback", sma_period))
             if sma_period < 5 or sma_period > 250:
-                raise ValueError("平均周期需在 5–250 之间")
+                raise ValueError(gettext("SMA period must be between 5 and 250"))
             if rebound_lookback < 5 or rebound_lookback > 250:
-                raise ValueError("反弹回看天数需在 5–250 之间")
+                raise ValueError(gettext("Rebound lookback must be between 5 and 250"))
             set_setting("sma_period", sma_period)
             set_setting("rebound_lookback", rebound_lookback)
             set_setting("data_source", "yahoo")
 
             weekday = (request.form.get("schedule_universe_weekday") or "sun").lower()
             if weekday not in {w[0] for w in weekdays}:
-                raise ValueError("公司名更新星期无效")
+                raise ValueError(gettext("Invalid universe weekday"))
             u_hour = int(request.form.get("schedule_universe_hour", 10))
             u_min = int(request.form.get("schedule_universe_minute", 0))
             p_hour = int(request.form.get("schedule_price_hour", 13))
             p_min = int(request.form.get("schedule_price_minute", 15))
             for label, h, m in (
-                ("公司名更新时间", u_hour, u_min),
-                ("收盘行情时间", p_hour, p_min),
+                (gettext("Universe update time"), u_hour, u_min),
+                (gettext("Price update time"), p_hour, p_min),
             ):
                 if not (0 <= h <= 23 and 0 <= m <= 59):
-                    raise ValueError(f"{label}无效")
+                    raise ValueError(ngettext_format("Invalid {label}", label=label))
             set_setting("schedule_universe_weekday", weekday)
             set_setting("schedule_universe_hour", u_hour)
             set_setting("schedule_universe_minute", u_min)
             set_setting("schedule_price_hour", p_hour)
             set_setting("schedule_price_minute", p_min)
 
+            stop_pct = float(request.form.get("paper_stop_loss_pct", 5))
+            take_pct = float(request.form.get("paper_take_profit_pct", 10))
+            if not (0.5 <= stop_pct <= 50):
+                raise ValueError(gettext("Stop Loss % must be between 0.5 and 50"))
+            if not (0.5 <= take_pct <= 100):
+                raise ValueError(gettext("Take Profit % must be between 0.5 and 100"))
+            set_setting("paper_stop_loss_pct", stop_pct)
+            set_setting("paper_take_profit_pct", take_pct)
+            try:
+                from paper_trading import sync_portfolio_limits_from_settings
+
+                sync_portfolio_limits_from_settings()
+            except Exception:
+                pass
+
             flash(
-                f"已保存：SMA={sma_period}，反弹回看={rebound_lookback}。"
-                f"自动更新：公司名每周{dict(weekdays)[weekday]} "
-                f"{u_hour:02d}:{u_min:02d}（太平洋时间）；"
-                f"列表行情工作日 {p_hour:02d}:{p_min:02d}（太平洋时间，美股收盘后）。"
-                "重启应用后日程生效；Windows 计划任务也会按安装时的时间运行。",
+                ngettext_format(
+                    "Saved: SMA={sma}, rebound lookback={rebound}. Auto: universe weekly "
+                    "{weekday} {uh:02d}:{um:02d} PT; prices weekdays {ph:02d}:{pm:02d} PT "
+                    "after US close. Paper SL −{stop}% / TP +{take}%. Restart app for in-app "
+                    "schedule; Windows tasks use install-time values.",
+                    sma=sma_period,
+                    rebound=rebound_lookback,
+                    weekday=dict(weekdays)[weekday],
+                    uh=u_hour,
+                    um=u_min,
+                    ph=p_hour,
+                    pm=p_min,
+                    stop=stop_pct,
+                    take=take_pct,
+                ),
                 "ok",
             )
             return redirect(url_for("settings"))
         except Exception as exc:
-            flash(f"保存失败：{exc}", "warning")
+            flash(ngettext_format("Save failed: {exc}", exc=exc), "warning")
 
     settings_data = get_all_settings()
     try:
@@ -807,15 +962,24 @@ def settings():
         schedule_universe_minute=int(settings_data.get("schedule_universe_minute", 0)),
         schedule_price_hour=int(settings_data.get("schedule_price_hour", 13)),
         schedule_price_minute=int(settings_data.get("schedule_price_minute", 15)),
+        paper_stop_loss_pct=float(settings_data.get("paper_stop_loss_pct", 5.0)),
+        paper_take_profit_pct=float(settings_data.get("paper_take_profit_pct", 10.0)),
         scheduler=sched,
     )
 
 
 # Group ③ — long-term saved names (see watchlist_config; shared with update_jobs).
-from watchlist_config import MY_WATCHLIST, collect_watchlist_tickers
+from watchlist_config import (
+    MY_WATCHLIST,
+    add_my_watchlist_ticker,
+    collect_watchlist_tickers,
+    get_my_watchlist,
+    remove_my_watchlist_ticker,
+    validate_ticker_token,
+)
 
 MAX_TEMP_TICKERS = 20
-MAX_AUTO_ROWS = 30  # cap auto setup rows we enrich live (bounds page latency)
+MAX_AUTO_ROWS = 30  # live Yahoo enrich cap for Oversold; all matches still listed
 # Progressive fill per page load; full Watchlist is warmed by batch_watchlist_valuations.py
 # using the same ensure_valuations / ensure_clvs engines (single source of truth).
 VALUATION_MAX_NEW_PER_REQUEST = 8
@@ -905,6 +1069,49 @@ def _rows_for_tickers(tickers: list[str]) -> list[dict]:
     return out
 
 
+@app.route("/login", methods=["GET", "POST"])
+def owner_login():
+    _bootstrap_owner_password_from_env()
+    need_setup = not owner_password_configured()
+    nxt = (request.values.get("next") or "").strip()
+    if not nxt.startswith("/") or nxt.startswith("//"):
+        nxt = url_for("watchlist", tab="mine")
+
+    if request.method == "POST":
+        pw = request.form.get("password") or ""
+        if need_setup:
+            pw2 = request.form.get("password2") or ""
+            if len(pw) < 6:
+                flash(gettext("Password must be at least 6 characters"), "warning")
+            elif pw != pw2:
+                flash(gettext("Passwords do not match"), "warning")
+            else:
+                set_setting("owner_password_hash", generate_password_hash(pw))
+                session[SESSION_OWNER_KEY] = True
+                flash(gettext("Password saved — you are signed in"), "ok")
+                return redirect(nxt)
+        else:
+            stored = get_setting("owner_password_hash", "")
+            if isinstance(stored, str) and check_password_hash(stored, pw):
+                session[SESSION_OWNER_KEY] = True
+                flash(gettext("Signed in"), "ok")
+                return redirect(nxt)
+            flash(gettext("Wrong password"), "warning")
+
+    return render_template(
+        "login.html",
+        need_setup=need_setup,
+        next=nxt,
+    )
+
+
+@app.route("/logout", methods=["POST", "GET"])
+def owner_logout():
+    session.pop(SESSION_OWNER_KEY, None)
+    flash(gettext("Signed out"), "ok")
+    return redirect(url_for("watchlist"))
+
+
 @app.route("/watchlist", methods=["GET", "POST"])
 def watchlist():
     if request.method == "POST":
@@ -918,17 +1125,35 @@ def watchlist():
             session["temp_watchlist"] = temp[:MAX_TEMP_TICKERS]
         elif action == "clear_temp":
             session.pop("temp_watchlist", None)
-        return redirect(url_for("watchlist"))
+        elif action in ("add_mine", "remove_mine"):
+            if not is_owner():
+                flash(gettext("Please sign in to edit My Watchlist"), "warning")
+                return redirect(url_for("owner_login", next=url_for("watchlist", tab="mine")))
+            try:
+                if action == "add_mine":
+                    for t in parse_ticker_input(request.form.get("mine_tickers", "")):
+                        if validate_ticker_token(t):
+                            add_my_watchlist_ticker(t)
+                    flash(gettext("My Watchlist updated"), "ok")
+                else:
+                    remove_my_watchlist_ticker(request.form.get("ticker", ""))
+                    flash(gettext("Removed from My Watchlist"), "ok")
+            except ValueError as exc:
+                flash(str(exc), "warning")
+            return redirect(url_for("watchlist", tab="mine"))
+        return redirect(url_for("watchlist", tab=request.args.get("tab") or "temp"))
 
     settings_data = get_all_settings()
     sma_period = int(settings_data.get("sma_period", 25))
     temp_tickers = session.get("temp_watchlist", [])
+    mine_list = get_my_watchlist()
+    show_valuation = is_owner()
 
     tab = request.args.get("tab", "setup")
     # Legacy bookmarks: oversold / pullback → merged setup tab
     if tab in ("oversold", "pullback"):
         tab = "setup"
-    if tab not in ("setup", "low_target", "mine", "temp"):
+    if tab not in ("setup", "low_target", "low_63d", "mine", "temp"):
         tab = "setup"
 
     # Cheap cache-only lists (no live fetch) — used for data and tab counts.
@@ -938,20 +1163,30 @@ def watchlist():
     low_target = [_enrich(r) for r in list_low_target_ratio(0.8)]
     for r in low_target:
         r.setdefault("price_source", "dashboard_cache")
+    low_63d = [_enrich(r) for r in list_low_63d_pos(25.0)]
+    for r in low_63d:
+        r.setdefault("price_source", "dashboard_cache")
 
     # Live-fetch groups only build rows for the active tab (they hit Yahoo).
     rows = []
     skip_heavy = False  # 新闻 / DCF / CLV / AI（及 live 财报抓取）
     fund_cache_only = False
     if tab == "setup":
-        rows = setup[:MAX_AUTO_ROWS]
+        # Show every match so tab count == table rows. Live Yahoo enrich is
+        # still capped (MAX_AUTO_ROWS); overflow uses shared fund/news cache.
+        rows = setup
     elif tab == "low_target":
         # Lightweight: all ratio hits; 财报 from existing cache only (no refetch).
         rows = low_target
         skip_heavy = True
         fund_cache_only = True
+    elif tab == "low_63d":
+        # 63D Position < 25%; fund from shared cache; news only if pass rate >= 60%.
+        rows = low_63d
+        skip_heavy = True
+        fund_cache_only = True
     elif tab == "mine":
-        rows = _rows_for_tickers(MY_WATCHLIST)
+        rows = _rows_for_tickers(mine_list)
     elif tab == "temp":
         rows = _rows_for_tickers(temp_tickers)
 
@@ -967,14 +1202,15 @@ def watchlist():
         t0 = _time.perf_counter()
         tickers = [r["ticker"] for r in rows if r.get("ticker")]
         fund_map = get_fund_cached_only(tickers)
-        news_map = get_news_cached_only(tickers)
+        news_tickers = [t for t in tickers if fund_qualifies_for_news(fund_map.get(t))]
+        news_map = get_news_cached_only(news_tickers) if news_tickers else {}
         for r in rows:
             f = fund_map.get((r.get("ticker") or "").upper())
             r["fund"] = f
             if f and f.get("health") != "unknown":
                 fund_cache_hits += 1
-            # News only for Financial green (health=good); yellow/red stay empty.
-            if f and f.get("health") == "good":
+            # News only when Financial Pass Rate >= 60% (ok / total_known).
+            if fund_qualifies_for_news(f):
                 r["news"] = news_map.get((r.get("ticker") or "").upper())
             else:
                 r["news"] = None
@@ -990,28 +1226,44 @@ def watchlist():
             r["ai"] = None
         low_target_ms = int((_time.perf_counter() - t0) * 1000)
     elif not skip_heavy:
-        # Enrich only the rows we actually show with fundamentals (财报) + news (新闻).
-        signals = get_signals([r["ticker"] for r in rows if r.get("ticker")])
-        # Valuation Engine V1 (DCF-FCFF) — cached; MOS% follows current price.
-        tickers_shown = [r["ticker"] for r in rows if r.get("ticker") and not r.get("not_found")]
-        try:
-            from valuation_engine import ensure_valuations
+        # Live enrich a bounded prefix (keeps Oversold page latency in check).
+        live_rows = rows[:MAX_AUTO_ROWS] if tab == "setup" else rows
+        overflow_rows = rows[MAX_AUTO_ROWS:] if tab == "setup" else []
 
-            # Same production engines as batch_watchlist_valuations.py (DCF v1.3 / CLV).
-            # Slow cache; max_new only bounds cold-fill latency — not a separate formula.
-            iv_results = ensure_valuations(
-                tickers_shown, force=False, max_new=VALUATION_MAX_NEW_PER_REQUEST
-            )
-        except Exception:
-            iv_results = {}
-        try:
-            from clv_engine import ensure_clvs
+        signals = get_signals([r["ticker"] for r in live_rows if r.get("ticker")])
+        tickers_shown = [r["ticker"] for r in live_rows if r.get("ticker") and not r.get("not_found")]
+        # Est / MOS / CLV only for logged-in owner (methods still under development).
+        if show_valuation:
+            try:
+                from valuation_engine import ensure_valuations
 
-            clv_results = ensure_clvs(
-                tickers_shown, force=False, max_new=CLV_MAX_NEW_PER_REQUEST
-            )
-        except Exception:
-            clv_results = {}
+                iv_results = ensure_valuations(
+                    tickers_shown, force=False, max_new=VALUATION_MAX_NEW_PER_REQUEST
+                )
+            except Exception:
+                iv_results = {}
+            try:
+                from clv_engine import ensure_clvs
+
+                clv_results = ensure_clvs(
+                    tickers_shown, force=False, max_new=CLV_MAX_NEW_PER_REQUEST
+                )
+            except Exception:
+                clv_results = {}
+
+        # Overflow matches: fund/news from shared cache so AI / Financial still populate.
+        if overflow_rows:
+            otickers = [r["ticker"] for r in overflow_rows if r.get("ticker")]
+            fund_map = get_fund_cached_only(otickers)
+            news_tickers = [t for t in otickers if fund_qualifies_for_news(fund_map.get(t))]
+            news_map = get_news_cached_only(news_tickers) if news_tickers else {}
+            for r in overflow_rows:
+                f = fund_map.get((r.get("ticker") or "").upper())
+                r["fund"] = f
+                if fund_qualifies_for_news(f):
+                    r["news"] = news_map.get((r.get("ticker") or "").upper())
+                else:
+                    r["news"] = None
 
     for r in rows:
         if skip_heavy:
@@ -1080,8 +1332,21 @@ def watchlist():
             elif cr.failure_reason:
                 r["clv_tooltip"] = cr.tooltip()
 
+        # Public MOS T before AI so Score V1 can use target-based factor only.
         if not r.get("not_found"):
+            r.update(compute_target_proxy_mos(r.get("price"), r.get("target_1y")))
             r["ai"] = compute_ai_score(r)
+
+        if not show_valuation:
+            r["est_value"] = None
+            r["bear_value"] = None
+            r["bull_value"] = None
+            r["mos_pct"] = None
+            r["est_tooltip"] = "登录后可见（估值方法开发中）"
+            r["clv"] = None
+            r["clv_pct_price"] = None
+            r["clv_tooltip"] = "登录后可见（估值方法开发中）"
+            r["dcf_below_clv"] = False
 
     # Attach manual Alert Prices (independent of valuation / AI).
     alert_map = get_alert_prices([r.get("ticker") for r in rows if r.get("ticker")])
@@ -1090,13 +1355,32 @@ def watchlist():
         ap = alert_map.get(t)
         r["alert_price"] = ap
         r["alert"] = alert_status(r.get("price"), ap)
+        # Ensure MOS T on cache-only tabs (AI skipped there) and any rows missed above.
+        if r.get("mos_t") is None and not r.get("not_found"):
+            r.update(compute_target_proxy_mos(r.get("price"), r.get("target_1y")))
 
     tabs = [
-        {"key": "setup", "label": "🔻 超卖 / 强势回调", "count": len(setup)},
-        {"key": "low_target", "label": "🎯 Target Ratio < 80%", "count": len(low_target)},
-        {"key": "mine", "label": "⭐ 我的自选", "count": len(MY_WATCHLIST)},
-        {"key": "temp", "label": "🕒 临时", "count": len(temp_tickers)},
+        {"key": "setup", "label": "🔻 " + gettext("Oversold pullback"), "count": len(setup)},
+        {"key": "low_target", "label": "🎯 " + gettext("Target Ratio < 80%"), "count": len(low_target)},
+        {"key": "low_63d", "label": "📉 " + gettext("63D Position < 25%"), "count": len(low_63d)},
+        {"key": "mine", "label": "⭐ " + gettext("My Watchlist"), "count": len(mine_list)},
+        {"key": "temp", "label": "🕒 " + gettext("Temp"), "count": len(temp_tickers)},
     ]
+
+    desc = tab_description(
+        tab,
+        mine_list_label="、".join(mine_list) if get_lang() == "zh" else ", ".join(mine_list),
+        can_edit_mine=is_owner(),
+    )
+
+    # Newest price timestamp across visible rows (for compact status line).
+    wl_updated_at = None
+    for r in rows:
+        ts = r.get("updated_at") or r.get("price_as_of")
+        if ts and (wl_updated_at is None or str(ts) > str(wl_updated_at)):
+            wl_updated_at = ts
+
+    group_label = next((t["label"] for t in tabs if t["key"] == tab), tab)
 
     return render_template(
         "watchlist.html",
@@ -1106,17 +1390,26 @@ def watchlist():
         rows=rows,
         temp_tickers=temp_tickers,
         max_temp=MAX_TEMP_TICKERS,
-        mine_list_label="、".join(MY_WATCHLIST),
+        mine_list=mine_list,
+        mine_list_label="、".join(mine_list) if get_lang() == "zh" else ", ".join(mine_list),
         fund_cache_hits=fund_cache_hits,
         fund_cache_total=fund_cache_total,
+        fund_cache_only=fund_cache_only,
         low_target_ms=low_target_ms,
         show_alert=(tab == "mine"),
+        show_valuation=show_valuation,
+        can_edit_mine=is_owner(),
+        tab_desc=desc,
+        wl_updated_at=wl_updated_at,
+        group_label=group_label,
     )
 
 
 @app.route("/watchlist/alert-price", methods=["POST"])
 def watchlist_alert_price():
-    """Inline save/clear for manual Alert Price (我的自选). JSON only."""
+    """Inline save/clear for manual Alert Price (我的自选). Owner only."""
+    if not is_owner():
+        return jsonify({"ok": False, "error": "login required"}), 401
     data = request.get_json(silent=True) or {}
     ticker = (data.get("ticker") or request.form.get("ticker") or "").strip().upper()
     raw = data.get("alert_price", request.form.get("alert_price", ""))
@@ -1147,6 +1440,139 @@ def watchlist_alert_price():
             "alert_price": stored,
             "alert": st,
         }
+    )
+
+
+@app.route("/ai-trading", methods=["GET", "POST"])
+def ai_trading():
+    """
+    Public AI Paper Trading (simulation only).
+    Never connects to IBKR / never places real brokerage orders.
+    Admin-only actions: create orders, priority, daily update, manual exit.
+    """
+    from paper_trading import (
+        build_candidates,
+        clear_priority,
+        create_paper_orders_from_candidates,
+        ensure_portfolio,
+        history_report,
+        list_candidates,
+        list_closed_trades,
+        list_open_trades,
+        list_priority_tickers,
+        manual_close_trade,
+        portfolio_summary,
+        run_daily_update,
+        set_priority,
+        trading_day_pt,
+    )
+
+    ensure_portfolio()
+    tab = (request.args.get("tab") or request.form.get("tab") or "today").strip().lower()
+    if tab not in ("today", "open", "history"):
+        tab = "today"
+
+    if request.method == "POST":
+        action = (request.form.get("action") or "").strip()
+        if not is_owner():
+            flash(gettext("Please sign in to manage Paper Trading"), "warning")
+            return redirect(url_for("owner_login", next=url_for("ai_trading", tab=tab)))
+        try:
+            if action == "refresh_candidates":
+                rows = build_candidates(persist=True)
+                flash(
+                    ngettext_format(
+                        "AI Candidates refreshed: {n} names for {day}",
+                        n=len(rows),
+                        day=trading_day_pt(),
+                    ),
+                    "ok",
+                )
+            elif action == "create_orders":
+                result = create_paper_orders_from_candidates()
+                flash(
+                    ngettext_format(
+                        "Paper orders created: {n} · skipped {s}",
+                        n=len(result.get("created") or []),
+                        s=len(result.get("skipped") or []),
+                    ),
+                    "ok",
+                )
+            elif action == "daily_update":
+                result = run_daily_update(refresh_candidates=True)
+                flash(
+                    ngettext_format(
+                        "Daily paper update done: closed {c}, marked {m}, candidates {n}",
+                        c=len(result.get("closed") or []),
+                        m=result.get("marked"),
+                        n=result.get("candidates"),
+                    ),
+                    "ok",
+                )
+            elif action == "add_priority":
+                raw = request.form.get("priority_tickers") or ""
+                added = []
+                for part in raw.replace(";", ",").split(","):
+                    t = part.strip().upper()
+                    if t and validate_ticker_format(t):
+                        set_priority(t)
+                        added.append(t)
+                if not added:
+                    raise ValueError(gettext("Enter valid tickers"))
+                flash(
+                    ngettext_format("Priority marked: {tickers}", tickers=", ".join(added)),
+                    "ok",
+                )
+            elif action == "clear_priority":
+                t = (request.form.get("ticker") or "").strip().upper()
+                clear_priority(t)
+                flash(ngettext_format("Priority cleared: {ticker}", ticker=t), "ok")
+            elif action == "manual_exit":
+                tid = int(request.form.get("trade_id") or 0)
+                result = manual_close_trade(tid)
+                flash(
+                    ngettext_format(
+                        "Manual exit: {ticker} · P&L {pnl}",
+                        ticker=result.get("ticker"),
+                        pnl=result.get("realized_pnl"),
+                    ),
+                    "ok",
+                )
+            else:
+                flash(gettext("Unknown action"), "warning")
+        except Exception as exc:
+            flash(ngettext_format("Paper Trading action failed: {exc}", exc=exc), "warning")
+        return redirect(url_for("ai_trading", tab=tab))
+
+    candidates = list_candidates()
+    if not candidates:
+        try:
+            candidates = build_candidates(persist=True)
+        except Exception:
+            candidates = []
+
+    summary = portfolio_summary()
+    opens = list_open_trades()
+    history = list_closed_trades(limit=300)
+    priority = list_priority_tickers()
+    range_key = (request.args.get("range") or "ALL").strip().upper()
+    hist_report = None
+    if tab == "history":
+        hist_report = history_report(range_key=range_key)
+
+    return render_template(
+        "ai_trading.html",
+        tab=tab,
+        summary=summary,
+        candidates=candidates,
+        opens=opens,
+        history=history,
+        hist_report=hist_report,
+        range_key=range_key if tab == "history" else "ALL",
+        priority=priority,
+        can_manage=is_owner(),
+        stop_pct=float(get_all_settings().get("paper_stop_loss_pct", 5.0)),
+        take_pct=float(get_all_settings().get("paper_take_profit_pct", 10.0)),
     )
 
 

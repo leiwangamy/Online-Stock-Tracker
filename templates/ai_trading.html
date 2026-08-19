@@ -1,0 +1,455 @@
+{% extends "base.html" %}
+{% block title %}{{ _('AI Trading') }} — LeiBot{% endblock %}
+{% block head %}
+<style>
+  .paper-banner {
+    background: #fff7ed; border: 1px solid #fdba74; color: #9a3412;
+    border-radius: 8px; padding: 10px 14px; margin: 0 0 14px; font-size: 0.92rem; line-height: 1.5;
+  }
+  .summary-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px 12px; margin: 0 0 14px; font-size: 0.88rem;
+  }
+  .summary-grid .cell {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  }
+  .summary-grid .k { color: var(--muted); font-size: 0.78rem; display: block; }
+  .summary-grid .v { font-weight: 700; color: #0f172a; }
+  .summary-grid .v.up { color: var(--up); }
+  .summary-grid .v.down { color: var(--down); }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+  .tab {
+    display: inline-block; padding: 8px 16px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--panel); color: var(--muted);
+    text-decoration: none; font-weight: 600; font-size: 0.9rem;
+  }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .ops-bar {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 8px 16px; margin: 0 0 10px; font-size: 0.9rem; color: var(--muted);
+  }
+  .actions { margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .panel { overflow-x: auto; }
+  table.data { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  table.data th, table.data td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+  table.data th { background: #f8fafc; font-size: 0.78rem; color: #475569; white-space: nowrap; }
+  table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .pri { color: #b45309; font-weight: 700; }
+  .hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 10px; }
+  .temp-form { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+  .temp-form input[type=text] { flex: 1 1 220px; min-width: 160px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; }
+  h2.section { font-size: 1.05rem; margin: 18px 0 8px; }
+  .range-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+  .range-bar a {
+    padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+    text-decoration: none; color: var(--muted); font-size: 0.85rem; font-weight: 600;
+    background: var(--panel);
+  }
+  .range-bar a.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .equity-chart {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 10px 8px; margin: 0 0 14px;
+  }
+  .equity-chart svg { width: 100%; height: 220px; display: block; }
+  .equity-chart .chart-empty { color: var(--muted); font-size: 0.9rem; padding: 24px 8px; text-align: center; }
+</style>
+{% endblock %}
+
+{% macro money(v) -%}
+  {%- if v is none -%}—{%- else -%}${{ '%.2f'|format(v) }}{%- endif -%}
+{%- endmacro %}
+
+{% macro pct(v, signed=true) -%}
+  {%- if v is none -%}—
+  {%- elif signed -%}{{ '%+.1f'|format(v) }}%
+  {%- else -%}{{ '%.1f'|format(v) }}%
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro open_table(opens, can_manage) %}
+<div class="panel">
+  <table class="data">
+    <thead>
+      <tr>
+        <th>{{ _('Symbol') }}</th>
+        <th>{{ _('Entry Date') }}</th>
+        <th class="num">{{ _('Entry Price') }}</th>
+        <th class="num">{{ _('Current Price') }}</th>
+        <th class="num">{{ _('Shares') }}</th>
+        <th class="num">{{ _('Cost') }}</th>
+        <th class="num">{{ _('Market Value') }}</th>
+        <th class="num">{{ _('Stop') }}</th>
+        <th class="num">{{ _('Take Profit') }}</th>
+        <th class="num">{{ _('Unrealized P&L') }}</th>
+        <th class="num">{{ _('Unrealized P&L %') }}</th>
+        <th class="num">{{ _('AI Score at Entry') }}</th>
+        <th class="num">{{ _('Current AI Score') }}</th>
+        <th>{{ _('Position Status') }}</th>
+        {% if can_manage %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in opens %}
+      <tr>
+        <td><strong>{{ t.ticker }}</strong>{% if t.is_priority %} <span class="pri">⭐</span>{% endif %}</td>
+        <td>{{ t.entry_date }}</td>
+        <td class="num">{{ money(t.entry_price) }}</td>
+        <td class="num">{{ money(t.current_price) }}</td>
+        <td class="num">{{ t.shares }}</td>
+        <td class="num">{{ money(t.cost) }}</td>
+        <td class="num">{{ money(t.market_value) }}</td>
+        <td class="num">{{ money(t.stop_price) }}</td>
+        <td class="num">{{ money(t.take_profit_price) }}</td>
+        <td class="num {% if t.unrealized_pnl > 0 %}up{% elif t.unrealized_pnl < 0 %}down{% endif %}">{{ money(t.unrealized_pnl) }}</td>
+        <td class="num {% if t.unrealized_pnl_pct > 0 %}up{% elif t.unrealized_pnl_pct < 0 %}down{% endif %}">{{ pct(t.unrealized_pnl_pct) }}</td>
+        <td class="num">{% if t.ai_score_entry is not none %}{{ '%.0f'|format(t.ai_score_entry) }}{% else %}—{% endif %}</td>
+        <td class="num">{% if t.ai_score_current is not none %}{{ '%.0f'|format(t.ai_score_current) }}{% else %}—{% endif %}</td>
+        <td>{{ _('Open') }}</td>
+        {% if can_manage %}
+        <td>
+          <form method="post" action="{{ url_for('ai_trading', tab='open') }}" style="display:inline"
+                onsubmit="return confirm({{ _('Manually exit this paper position?')|tojson }});">
+            <input type="hidden" name="action" value="manual_exit">
+            <input type="hidden" name="trade_id" value="{{ t.id }}">
+            <button class="btn" type="submit" style="padding:2px 8px;font-size:0.8rem">{{ _('Manual Exit') }}</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+{% block content %}
+  <h1>{{ _('AI Trading') }}</h1>
+  <p class="meta" style="margin-top:0">{{ _('AI Paper Trading') }} · {{ _('Simulation only — no real brokerage orders') }}</p>
+
+  <div class="paper-banner" role="note">
+    <strong>{{ _('Paper Trading notice') }}:</strong>
+    {{ _('All trades on this page are simulated. Results do not represent guaranteed real-world execution, fill quality, or slippage. This project is for educational and research purposes and does not constitute investment advice.') }}
+  </div>
+
+  <div class="summary-grid">
+    <div class="cell"><span class="k">{{ _('Starting Capital') }}</span><span class="v">{{ money(summary.starting_capital) }}</span></div>
+    <div class="cell"><span class="k">{{ _('Current Equity') }}</span><span class="v">{{ money(summary.current_equity) }}</span></div>
+    <div class="cell"><span class="k">{{ _('Trading Limit') }}</span><span class="v">{{ money(summary.trading_limit) }}</span></div>
+    <div class="cell"><span class="k">{{ _('Invested') }}</span><span class="v">{{ money(summary.invested) }}</span></div>
+    <div class="cell"><span class="k">{{ _('Cash') }}</span><span class="v">{{ money(summary.cash) }}</span></div>
+    <div class="cell"><span class="k">{{ _("Today's P&L") }}</span><span class="v {% if summary.today_pnl > 0 %}up{% elif summary.today_pnl < 0 %}down{% endif %}">{{ money(summary.today_pnl) }}</span></div>
+    <div class="cell"><span class="k">{{ _('Total Realized P&L') }}</span><span class="v {% if summary.total_realized_pnl > 0 %}up{% elif summary.total_realized_pnl < 0 %}down{% endif %}">{{ money(summary.total_realized_pnl) }}</span></div>
+    <div class="cell"><span class="k">{{ _('Total Unrealized P&L') }}</span><span class="v {% if summary.total_unrealized_pnl > 0 %}up{% elif summary.total_unrealized_pnl < 0 %}down{% endif %}">{{ money(summary.total_unrealized_pnl) }}</span></div>
+    <div class="cell"><span class="k">{{ _('Total Return') }}</span><span class="v {% if summary.total_return_pct > 0 %}up{% elif summary.total_return_pct < 0 %}down{% endif %}">{{ pct(summary.total_return_pct) }}</span></div>
+    <div class="cell"><span class="k">{{ _('Win Rate') }}</span><span class="v">{% if summary.win_rate is not none %}{{ pct(summary.win_rate, signed=false) }}{% else %}—{% endif %}</span></div>
+    <div class="cell"><span class="k">{{ _('Closed Trades') }}</span><span class="v">{{ summary.closed_trades }}</span></div>
+    <div class="cell"><span class="k">{{ _('Open Positions') }}</span><span class="v">{{ summary.open_trades }}</span></div>
+  </div>
+
+  <div class="ops-bar">
+    <div>
+      {{ _('Stop Loss') }} −{{ stop_pct }}% · {{ _('Take Profit') }} +{{ take_pct }}%
+      {% if summary.last_daily_update or summary.updated_at %}
+        · {{ _('Updated:') }} {{ (summary.last_daily_update or summary.updated_at)|format_ui_datetime }}
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="tabs">
+    <a class="tab {% if tab == 'today' %}active{% endif %}" href="{{ url_for('ai_trading', tab='today') }}">{{ _('Today') }}</a>
+    <a class="tab {% if tab == 'open' %}active{% endif %}" href="{{ url_for('ai_trading', tab='open') }}">{{ _('Open Positions') }} ({{ opens|length }})</a>
+    <a class="tab {% if tab == 'history' %}active{% endif %}" href="{{ url_for('ai_trading', tab='history') }}">{{ _('History') }} ({{ history|length }})</a>
+  </div>
+
+  {% if can_manage %}
+  <div class="actions">
+    <form method="post" action="{{ url_for('ai_trading', tab=tab) }}" style="display:inline">
+      <input type="hidden" name="action" value="refresh_candidates">
+      <button class="btn" type="submit">{{ _('Refresh AI Candidates') }}</button>
+    </form>
+    <form method="post" action="{{ url_for('ai_trading', tab=tab) }}" style="display:inline"
+          onsubmit="return confirm({{ _('Create paper orders from suggested allocations? This is simulated only.')|tojson }});">
+      <input type="hidden" name="action" value="create_orders">
+      <button class="btn primary" type="submit">{{ _('Create Paper Orders') }}</button>
+    </form>
+    <form method="post" action="{{ url_for('ai_trading', tab=tab) }}" style="display:inline">
+      <input type="hidden" name="action" value="daily_update">
+      <button class="btn" type="submit">{{ _('Run daily paper update') }}</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="hint">{{ _('Public view — sign in to create paper orders, mark Priority, or run updates.') }}
+    <a href="{{ url_for('owner_login', next=url_for('ai_trading', tab=tab)) }}">{{ _('Sign in') }}</a>
+  </p>
+  {% endif %}
+
+  {% if tab == 'today' %}
+    <h2 class="section">{{ _('AI Candidates — Top 10') }}</h2>
+    <p class="hint">{{ _('Highest AI Score from combined system screening: Oversold + Target Ratio < 80% + 63D Position < 25%, deduplicated. Priority ⭐ is a separate human flag and does not change AI Score. Candidates do not become positions until Create Paper Orders. My Watchlist and Temp are not included automatically.') }}</p>
+
+    {% if can_manage %}
+    <form class="temp-form" method="post" action="{{ url_for('ai_trading', tab='today') }}">
+      <input type="hidden" name="action" value="add_priority">
+      <input type="text" name="priority_tickers" placeholder="{{ _('Add Priority tickers, e.g. AMD, SHOP.TO') }}" required>
+      <button class="btn" type="submit">{{ _('Mark Priority ⭐') }}</button>
+    </form>
+    {% if priority %}
+    <p class="hint" style="margin-top:0">{{ _('Priority list:') }}
+      {% for t in priority %}
+        <form method="post" action="{{ url_for('ai_trading', tab='today') }}" style="display:inline;margin:0 6px 4px 0">
+          <input type="hidden" name="action" value="clear_priority">
+          <input type="hidden" name="ticker" value="{{ t }}">
+          <button class="btn" type="submit" style="padding:2px 8px;font-size:0.85rem" title="{{ _('Clear Priority') }}">⭐ {{ t }} ×</button>
+        </form>
+      {% endfor %}
+    </p>
+    {% endif %}
+    {% endif %}
+
+    <div class="panel">
+      {% if not candidates %}
+        <p class="hint">{{ _('No candidates yet. Refresh AI Candidates after prices are available.') }}</p>
+      {% else %}
+      <table class="data">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>{{ _('Symbol') }}</th>
+            <th>{{ _('Company') }}</th>
+            <th class="num">{{ _('AI Score') }}</th>
+            <th class="num">{{ _('MOS T') }}</th>
+            <th>{{ _('Financial') }}</th>
+            <th>{{ _('News') }}</th>
+            <th class="num">{{ _('Price') }}</th>
+            <th>{{ _('Source') }}</th>
+            <th>{{ _('Priority') }}</th>
+            <th class="num">{{ _('Suggested Allocation') }}</th>
+            <th class="num">{{ _('Shares') }}</th>
+            <th class="num">{{ _('Stop Loss') }}</th>
+            <th class="num">{{ _('Take Profit') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in candidates %}
+          <tr>
+            <td>{{ c.rank }}</td>
+            <td><strong>{{ c.ticker }}</strong></td>
+            <td>{{ c.name or '—' }}</td>
+            <td class="num">{% if c.ai_score is not none %}{{ '%.0f'|format(c.ai_score) }}{% else %}—{% endif %}</td>
+            <td class="num">{% if c.mos_t is not none %}{{ '%+.1f'|format(c.mos_t) }}%{% else %}—{% endif %}</td>
+            <td>{{ c.financial_label or '—' }}</td>
+            <td>{{ c.news_label or '—' }}</td>
+            <td class="num">{{ money(c.price) }}</td>
+            <td style="white-space:nowrap;font-size:0.82rem">{{ c.source_label or '—' }}</td>
+            <td>{% if c.is_priority %}<span class="pri">⭐</span>{% else %}—{% endif %}</td>
+            <td class="num">{{ money(c.suggested_alloc) }}</td>
+            <td class="num">{% if c.suggested_shares %}{{ c.suggested_shares }}{% if c.shares_mode == 'fractional' %} <span class="hint">(frac)</span>{% endif %}{% else %}—{% endif %}</td>
+            <td class="num">{{ money(c.stop_price) }}</td>
+            <td class="num">{{ money(c.take_profit_price) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+    <h2 class="section">{{ _('Open Positions') }}</h2>
+    {% if not opens %}
+      <p class="hint">{{ _('No open paper positions.') }}</p>
+    {% else %}
+      {{ open_table(opens, can_manage) }}
+    {% endif %}
+  {% endif %}
+
+  {% if tab == 'open' %}
+    <h2 class="section">{{ _('Open Positions') }}</h2>
+    {% if not opens %}
+      <p class="hint">{{ _('No open paper positions.') }}</p>
+    {% else %}
+      {{ open_table(opens, can_manage) }}
+    {% endif %}
+  {% endif %}
+
+  {% if tab == 'history' %}
+    {% set hr = hist_report or {} %}
+    {% set perf = hr.perf or {} %}
+    {% set chart = hr.chart or {"dates": [], "equity": []} %}
+    <div class="range-bar">
+      {% for rk in ['7D','30D','3M','6M','1Y','ALL'] %}
+        <a class="{% if range_key == rk %}active{% endif %}"
+           href="{{ url_for('ai_trading', tab='history', range=rk) }}">{{ rk }}</a>
+      {% endfor %}
+    </div>
+
+    <h2 class="section">{{ _('Performance Summary') }}</h2>
+    <div class="summary-grid">
+      <div class="cell"><span class="k">{{ _('Starting Capital') }}</span><span class="v">{% if perf.starting_capital is not none %}{{ money(perf.starting_capital) }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Ending Equity') }}</span><span class="v">{% if perf.ending_equity is not none %}{{ money(perf.ending_equity) }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Total Return') }}</span><span class="v {% if perf.total_return_pct and perf.total_return_pct > 0 %}up{% elif perf.total_return_pct and perf.total_return_pct < 0 %}down{% endif %}">{% if perf.total_return_pct is not none %}{{ pct(perf.total_return_pct) }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Total Realized P&L') }}</span><span class="v">{% if perf.total_realized_pnl is not none %}{{ money(perf.total_realized_pnl) }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Closed Trades') }}</span><span class="v">{% if perf.closed_trades is not none %}{{ perf.closed_trades }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Winning Trades') }}</span><span class="v">{% if perf.winning_trades is not none %}{{ perf.winning_trades }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Losing Trades') }}</span><span class="v">{% if perf.losing_trades is not none %}{{ perf.losing_trades }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Win Rate') }}</span><span class="v">{% if perf.win_rate is not none %}{{ pct(perf.win_rate, signed=false) }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Average Gain %') }}</span><span class="v">{% if perf.avg_gain_pct is not none %}{{ pct(perf.avg_gain_pct) }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Average Loss %') }}</span><span class="v">{% if perf.avg_loss_pct is not none %}{{ pct(perf.avg_loss_pct) }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Profit Factor') }}</span><span class="v">{% if perf.profit_factor_inf %}∞{% elif perf.profit_factor is not none %}{{ '%.2f'|format(perf.profit_factor) }}{% else %}—{% endif %}</span></div>
+      <div class="cell"><span class="k">{{ _('Max Drawdown %') }}</span><span class="v">{% if perf.max_drawdown_pct is not none %}{{ pct(perf.max_drawdown_pct) }}{% else %}—{% endif %}</span></div>
+    </div>
+
+    <h2 class="section">{{ _('Portfolio Equity Curve') }}</h2>
+    <div class="equity-chart">
+      {% if chart.equity and chart.n >= 1 %}
+        <svg viewBox="0 0 640 200" role="img" aria-label="{{ _('Portfolio Equity') }}">
+          <line x1="48" y1="12" x2="48" y2="172" stroke="#cbd5e1" />
+          <line x1="48" y1="172" x2="628" y2="172" stroke="#cbd5e1" />
+          <text x="4" y="16" font-size="10" fill="#64748b">${{ '%.0f'|format(chart.y1) }}</text>
+          <text x="4" y="172" font-size="10" fill="#64748b">${{ '%.0f'|format(chart.y0) }}</text>
+          <polyline fill="none" stroke="#2563eb" stroke-width="2.5" points="{{ chart.svg_points }}" />
+          {% if chart.n == 1 %}
+            {% set p0 = chart.svg_points.split(',') %}
+            <circle cx="{{ p0[0] }}" cy="{{ p0[1] }}" r="3.5" fill="#2563eb" />
+          {% endif %}
+          <text x="48" y="192" font-size="10" fill="#64748b">{{ chart.dates[0] }}</text>
+          {% if chart.n > 1 %}
+            <text x="628" y="192" font-size="10" fill="#64748b" text-anchor="end">{{ chart.dates[-1] }}</text>
+          {% endif %}
+        </svg>
+      {% else %}
+        <div class="chart-empty">{{ _('No equity snapshots yet. Snapshots are saved on each daily paper update.') }}</div>
+      {% endif %}
+    </div>
+
+    <h2 class="section">{{ _('Daily Performance') }}</h2>
+    {% if not hr.daily %}
+      <p class="hint">{{ _('No daily equity rows yet.') }}</p>
+    {% else %}
+    <div class="panel">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>{{ _('Date') }}</th>
+            <th class="num">{{ _('Trades Closed') }}</th>
+            <th class="num">{{ _('Wins') }}</th>
+            <th class="num">{{ _('Losses') }}</th>
+            <th class="num">{{ _('Realized P&L') }}</th>
+            <th class="num">{{ _('Daily Return %') }}</th>
+            <th class="num">{{ _('Cash') }}</th>
+            <th class="num">{{ _('Open Position Value') }}</th>
+            <th class="num">{{ _('Total Equity') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in hr.daily %}
+          <tr>
+            <td>{{ d.as_of_date }}</td>
+            <td class="num">{{ d.trades_closed }}</td>
+            <td class="num">{{ d.wins }}</td>
+            <td class="num">{{ d.losses }}</td>
+            <td class="num {% if d.realized_pnl_day > 0 %}up{% elif d.realized_pnl_day < 0 %}down{% endif %}">{{ money(d.realized_pnl_day) }}</td>
+            <td class="num">{% if d.daily_return_pct is not none %}{{ pct(d.daily_return_pct) }}{% else %}—{% endif %}</td>
+            <td class="num">{{ money(d.cash) }}</td>
+            <td class="num">{{ money(d.open_market_value) }}</td>
+            <td class="num">{{ money(d.total_equity) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <h2 class="section">{{ _('Exit Analysis') }}</h2>
+    {% if not hr.exit_analysis %}
+      <p class="hint">{{ _('No closed trades in this range yet.') }}</p>
+    {% else %}
+    <div class="panel">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>{{ _('Exit Reason') }}</th>
+            <th class="num">{{ _('Trades') }}</th>
+            <th class="num">{{ _('Total P&L') }}</th>
+            <th class="num">{{ _('Avg Return') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in hr.exit_analysis %}
+          <tr>
+            <td>
+              {% if e.exit_reason == 'TAKE_PROFIT' %}{{ _('Take Profit') }}
+              {% elif e.exit_reason == 'STOP_LOSS' %}{{ _('Stop Loss') }}
+              {% elif e.exit_reason == 'MANUAL_EXIT' %}{{ _('Manual Exit') }}
+              {% else %}{{ e.exit_reason }}{% endif %}
+            </td>
+            <td class="num">{{ e.trades }}</td>
+            <td class="num {% if e.total_pnl > 0 %}up{% elif e.total_pnl < 0 %}down{% endif %}">{{ money(e.total_pnl) }}</td>
+            <td class="num">{{ pct(e.avg_return_pct) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <h2 class="section">{{ _('Individual Trade History') }}</h2>
+    <p class="hint">{{ _('Holding Days = calendar days (Exit Date − Entry Date). Entry research fields are frozen at open and never overwritten.') }}</p>
+    {% if not hr.trades %}
+      <p class="hint">{{ _('No closed paper trades yet.') }}</p>
+    {% else %}
+    <div class="panel">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>{{ _('Entry Date') }}</th>
+            <th>{{ _('Exit Date') }}</th>
+            <th>{{ _('Symbol') }}</th>
+            <th class="num">{{ _('Entry Price') }}</th>
+            <th class="num">{{ _('Exit Price') }}</th>
+            <th class="num">{{ _('Shares') }}</th>
+            <th class="num">{{ _('Invested Amount') }}</th>
+            <th class="num">{{ _('Realized P&L') }}</th>
+            <th class="num">{{ _('Return %') }}</th>
+            <th class="num">{{ _('Holding Days') }}</th>
+            <th>{{ _('Exit Reason') }}</th>
+            <th class="num">{{ _('AI Score at Entry') }}</th>
+            <th class="num">{{ _('MOS T at Entry') }}</th>
+            <th class="num">{{ _('63D Position at Entry') }}</th>
+            <th>{{ _('Financial Score at Entry') }}</th>
+            <th>{{ _('News at Entry') }}</th>
+            <th>{{ _('Source at Entry') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in hr.trades %}
+          <tr>
+            <td>{{ t.entry_date }}</td>
+            <td>{{ t.exit_date or '—' }}</td>
+            <td><strong>{{ t.ticker }}</strong>{% if t.is_priority %} <span class="pri">⭐</span>{% endif %}</td>
+            <td class="num">{{ money(t.entry_price) }}</td>
+            <td class="num">{{ money(t.exit_price) }}</td>
+            <td class="num">{{ t.shares }}</td>
+            <td class="num">{{ money(t.cost) }}</td>
+            <td class="num {% if t.realized_pnl > 0 %}up{% elif t.realized_pnl < 0 %}down{% endif %}">{{ money(t.realized_pnl) }}</td>
+            <td class="num {% if t.return_pct > 0 %}up{% elif t.return_pct < 0 %}down{% endif %}">{{ pct(t.return_pct) }}</td>
+            <td class="num">{% if t.holding_days is not none %}{{ t.holding_days }}{% else %}—{% endif %}</td>
+            <td title="{{ t.exit_note or '' }}">
+              {% set er = t.exit_reason_norm or t.exit_reason %}
+              {% if er in ['TAKE_PROFIT','take_profit'] %}{{ _('Take Profit') }}
+              {% elif er in ['STOP_LOSS','stop_loss'] %}{{ _('Stop Loss') }}
+              {% elif er in ['MANUAL_EXIT','manual'] %}{{ _('Manual Exit') }}
+              {% else %}{{ _('Other') }}{% endif %}
+            </td>
+            <td class="num">{% if t.ai_score_entry is not none %}{{ '%.0f'|format(t.ai_score_entry) }}{% else %}—{% endif %}</td>
+            <td class="num">{% if t.mos_t_entry is not none %}{{ '%+.1f'|format(t.mos_t_entry) }}%{% else %}—{% endif %}</td>
+            <td class="num">{% if t.range_63d_pos_entry is not none %}{{ '%.1f'|format(t.range_63d_pos_entry) }}%{% else %}—{% endif %}</td>
+            <td>{% if t.financial_score_entry %}{{ t.financial_score_entry }}{% else %}—{% endif %}</td>
+            <td>{% if t.news_grade_entry %}{{ t.news_grade_entry }}{% else %}—{% endif %}</td>
+            <td style="white-space:nowrap;font-size:0.82rem">{% if t.source_label_entry and t.source_label_entry != '—' %}{{ t.source_label_entry }}{% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  {% endif %}
+{% endblock %}

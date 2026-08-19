@@ -168,6 +168,54 @@ def mos_pct(est_value: float | None, price: float | None) -> float | None:
     return round((ev - px) / ev * 100, 2)
 
 
+def compute_target_proxy_mos(
+    price: float | None,
+    target_1y: float | None,
+) -> dict[str, Any]:
+    """
+    Temporary Target-Based Valuation (separate from DCF Est.Value / MOS).
+
+    Bear T = 1Y Target × 0.60
+    Base T = 1Y Target × 0.80  (main reference)
+    Bull T = 1Y Target × 1.00
+    MOS T = (Base T − Price) / Base T × 100
+
+    valuation_method = "analyst_target_proxy"
+    Missing/invalid price or target → MOS T is None (UI shows —).
+    """
+    out: dict[str, Any] = {
+        "valuation_method_target": "analyst_target_proxy",
+        "bear_t": None,
+        "base_t": None,
+        "bull_t": None,
+        "mos_t": None,
+    }
+    if price is None or target_1y is None:
+        return out
+    try:
+        px = float(price)
+        tgt = float(target_1y)
+    except (TypeError, ValueError):
+        return out
+    if px != px or tgt != tgt or px <= 0 or tgt <= 0:
+        return out
+    bear_t = round(tgt * 0.60, 2)
+    base_t = round(tgt * 0.80, 2)
+    bull_t = round(tgt * 1.00, 2)
+    if base_t <= 0:
+        return out
+    mos_t = round((base_t - px) / base_t * 100, 2)
+    out.update(
+        {
+            "bear_t": bear_t,
+            "base_t": base_t,
+            "bull_t": bull_t,
+            "mos_t": mos_t,
+        }
+    )
+    return out
+
+
 def _parse_ts(value: Any) -> datetime | None:
     if value is None or value == "":
         return None
@@ -516,6 +564,8 @@ _NEWS_DISK_PATH = Path(__file__).resolve().parent / "data" / "logs" / "news_cach
 _NEWS_DISK_TTL = 6 * 3600  # 6h — shared news cache; missing/expired → refetch
 _fund_disk_cache: dict[str, Any] | None = None
 _news_disk_cache: dict[str, Any] | None = None
+_fund_disk_mtime: float | None = None
+_news_disk_mtime: float | None = None
 _fund_disk_lock = threading.Lock()
 _news_disk_lock = threading.Lock()
 
@@ -531,6 +581,32 @@ def news_cache_path() -> Path:
 def _fund_payload_valid(fund: Any) -> bool:
     """True when Financial Score payload is usable for display (existing rules)."""
     return isinstance(fund, dict) and fund.get("health") not in (None, "unknown")
+
+
+def fund_pass_rate(fund: dict[str, Any] | None) -> float | None:
+    """
+    Financial Pass Rate = Passed / Available indicators.
+    Denominator is total_known (missing indicators excluded), not a fixed 6.
+    """
+    if not isinstance(fund, dict):
+        return None
+    total = fund.get("total_known")
+    ok = fund.get("ok")
+    if not isinstance(total, int) or total <= 0:
+        return None
+    if not isinstance(ok, (int, float)):
+        return None
+    return float(ok) / float(total)
+
+
+def fund_qualifies_for_news(
+    fund: dict[str, Any] | None,
+    *,
+    min_pass_rate: float = 0.60,
+) -> bool:
+    """True when Financial Pass Rate >= min_pass_rate (default 60%)."""
+    rate = fund_pass_rate(fund)
+    return rate is not None and rate >= min_pass_rate
 
 
 def _fund_period_meta(info: dict[str, Any] | None) -> dict[str, Any]:
@@ -568,8 +644,17 @@ def _fund_entry_stale_vs_info(entry: dict[str, Any], info: dict[str, Any] | None
 
 
 def _load_fund_disk() -> dict[str, Any]:
-    global _fund_disk_cache
-    if _fund_disk_cache is not None:
+    """Load fund_cache.json; reload when another process updates the file."""
+    global _fund_disk_cache, _fund_disk_mtime
+    mtime = None
+    try:
+        if _FUND_DISK_PATH.exists():
+            mtime = _FUND_DISK_PATH.stat().st_mtime
+    except Exception:
+        mtime = None
+    if _fund_disk_cache is not None and mtime is not None and mtime == _fund_disk_mtime:
+        return _fund_disk_cache
+    if _fund_disk_cache is not None and mtime is None and _fund_disk_mtime is None:
         return _fund_disk_cache
     cache: dict[str, Any] = {}
     if _FUND_DISK_PATH.exists():
@@ -580,6 +665,7 @@ def _load_fund_disk() -> dict[str, Any]:
         except Exception:
             cache = {}
     _fund_disk_cache = cache
+    _fund_disk_mtime = mtime
     return cache
 
 
@@ -591,6 +677,7 @@ def _persist_fund_disk(
     meta: dict[str, Any] | None = None,
 ) -> None:
     """Write/update one ticker's fund snapshot immediately (shared persistent cache)."""
+    global _fund_disk_mtime
     if not fund:
         return
     t = (ticker or "").strip().upper()
@@ -600,9 +687,7 @@ def _persist_fund_disk(
     entry = {
         "ts": time.time(),
         "fund": fund,
-        "mostRecentQuarter": period.get("mostRecentQuarter"),
-        "lastFiscalYearEnd": period.get("lastFiscalYearEnd"),
-        "earningsTimestamp": period.get("earningsTimestamp"),
+        **{k: period.get(k) for k in ("mostRecentQuarter", "lastFiscalYearEnd", "earningsTimestamp") if period.get(k) is not None},
     }
     with _fund_disk_lock:
         cache = _load_fund_disk()
@@ -613,6 +698,7 @@ def _persist_fund_disk(
                 json.dumps(cache, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
+            _fund_disk_mtime = _FUND_DISK_PATH.stat().st_mtime
         except Exception:
             pass
 
@@ -746,8 +832,17 @@ def ensure_fund_cache(
 
 
 def _load_news_disk() -> dict[str, Any]:
-    global _news_disk_cache
-    if _news_disk_cache is not None:
+    """Load news_cache.json; reload when another process updates the file."""
+    global _news_disk_cache, _news_disk_mtime
+    mtime = None
+    try:
+        if _NEWS_DISK_PATH.exists():
+            mtime = _NEWS_DISK_PATH.stat().st_mtime
+    except Exception:
+        mtime = None
+    if _news_disk_cache is not None and mtime is not None and mtime == _news_disk_mtime:
+        return _news_disk_cache
+    if _news_disk_cache is not None and mtime is None and _news_disk_mtime is None:
         return _news_disk_cache
     cache: dict[str, Any] = {}
     if _NEWS_DISK_PATH.exists():
@@ -758,6 +853,7 @@ def _load_news_disk() -> dict[str, Any]:
         except Exception:
             cache = {}
     _news_disk_cache = cache
+    _news_disk_mtime = mtime
     return cache
 
 
@@ -777,6 +873,7 @@ def _news_entry_valid(entry: Any, *, now: float | None = None, ttl: float = _NEW
 
 def _persist_news_disk(ticker: str, news: dict[str, Any] | None) -> None:
     """Write/update one ticker's news snapshot immediately (shared persistent cache)."""
+    global _news_disk_mtime
     if not _news_payload_valid(news):
         return
     t = (ticker or "").strip().upper()
@@ -792,6 +889,7 @@ def _persist_news_disk(ticker: str, news: dict[str, Any] | None) -> None:
                 json.dumps(cache, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
+            _news_disk_mtime = _NEWS_DISK_PATH.stat().st_mtime
         except Exception:
             pass
 
@@ -1139,6 +1237,10 @@ def _fetch_signals_one(ticker: str) -> dict[str, Any]:
         if _fund_payload_valid(fund):
             _persist_fund_disk(ticker, fund, info=info)
 
+    # News gate: Financial Pass Rate >= 60% before any news API / analysis.
+    if not fund_qualifies_for_news(fund):
+        return {"fund": fund, "news": None}
+
     news_entry = _load_news_disk().get(ticker)
     if _news_entry_valid(news_entry):
         news = news_entry.get("news")
@@ -1286,14 +1388,42 @@ def get_signals(tickers: list[str], *, max_workers: int = 8) -> dict[str, dict[s
                 except Exception:
                     _signal_cache[t] = (now, {"fund": None, "news": None})
 
-    return {t: _signal_cache[t][1] for t in uniq if t in _signal_cache}
+    # Hydrate news from shared disk when fund qualifies but memory still has None
+    # (e.g. warm script wrote news after this process cached signals).
+    out: dict[str, dict[str, Any]] = {}
+    for t in uniq:
+        if t not in _signal_cache:
+            continue
+        payload = _gate_news_in_signals(_signal_cache[t][1])
+        fund = payload.get("fund")
+        if fund_qualifies_for_news(fund) and not _news_payload_valid(payload.get("news")):
+            entry = _load_news_disk().get(t)
+            if _news_entry_valid(entry, now=now):
+                news = entry.get("news")
+                payload = {"fund": fund, "news": news}
+                prev_ts = _signal_cache[t][0]
+                _signal_cache[t] = (prev_ts, payload)
+        out[t] = payload
+    return out
+
+
+def _gate_news_in_signals(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Strip news when Financial Pass Rate < 60% (incl. stale in-process cache)."""
+    if not isinstance(payload, dict):
+        return {"fund": None, "news": None}
+    fund = payload.get("fund")
+    if fund_qualifies_for_news(fund):
+        return {"fund": fund, "news": payload.get("news")}
+    return {"fund": fund, "news": None}
 
 
 # ---------------------------------------------------------------------------
 # AI Score V1
 #
-# Opportunity (base, 0–100) = pullback 30 + trend 20 + rebound 15 + volume 10
-#                             + financial 15 + news 10.
+# Opportunity (base, 0–100) = pullback 25 + trend 20 + rebound 15 + volume 10
+#                             + financial 15 + news 10 + MOS T 5.
+# MOS T uses public analyst-target proxy only (never Admin Est.Value / real MOS).
+# 63D Position is excluded (overlaps pullback).
 # Risk penalty (0–55) subtracted afterwards, so every point is explainable:
 #   severe financials 0–15, major negative news 0–15, volume crash 0–5,
 #   volatility/liquidity 0–5, upcoming earnings 0–15.
@@ -1301,19 +1431,20 @@ def get_signals(tickers: list[str], *, max_workers: int = 8) -> dict[str, dict[s
 # ---------------------------------------------------------------------------
 
 def _score_pullback(dist: float | None) -> int:
+    """Pullback depth — max 25 (was 30 before MOS T was added)."""
     if dist is None or dist > -3:
         return 0
     if dist > -5:
-        return 5
+        return 4
     if dist > -10:
-        return 10
+        return 8
     if dist > -15:
-        return 15
+        return 12
     if dist > -20:
-        return 20
+        return 17
     if dist > -30:
-        return 25
-    return 30
+        return 21
+    return 25
 
 
 def _score_trend(trend: str | None) -> int:
@@ -1396,6 +1527,32 @@ def _score_news(news: dict[str, Any] | None) -> int:
     return 5  # neutral / none
 
 
+def _score_mos_t(mos_t: float | None) -> int:
+    """
+    MOS T opportunity points (max 5). Uses public target-based MOS T only.
+    Missing/invalid MOS T → 0 (does not invent valuation data).
+    """
+    if mos_t is None:
+        return 0
+    try:
+        m = float(mos_t)
+    except (TypeError, ValueError):
+        return 0
+    if m != m:  # NaN
+        return 0
+    if m >= 25:
+        return 5
+    if m >= 15:
+        return 4
+    if m >= 5:
+        return 3
+    if m >= 0:
+        return 2
+    if m >= -10:
+        return 1
+    return 0
+
+
 def _pen_financial(fund: dict[str, Any] | None) -> int:
     if not fund:
         return 0
@@ -1460,17 +1617,26 @@ def _pen_earnings(days: int | None) -> int:
 
 def compute_ai_score(row: dict[str, Any]) -> dict[str, Any]:
     """AI Score V1 for a watchlist row (needs dist_pct/trend/rebound_pct/change_pct/
-    rvol/avg_vol_20d/avg_move_pct/earnings_date plus enriched fund + news)."""
+    rvol/avg_vol_20d/avg_move_pct/earnings_date plus enriched fund + news + MOS T).
+
+    Uses public MOS T (analyst_target_proxy) only — never Admin Est.Value / real MOS.
+    """
     fund = row.get("fund")
     news = row.get("news")
 
+    # Prefer precomputed mos_t on the row; otherwise derive from price / 1Y target.
+    mos_t = row.get("mos_t")
+    if mos_t is None and (row.get("price") is not None or row.get("target_1y") is not None):
+        mos_t = compute_target_proxy_mos(row.get("price"), row.get("target_1y")).get("mos_t")
+
     parts = {
-        "pullback": (_score_pullback(row.get("dist_pct")), 30),
+        "pullback": (_score_pullback(row.get("dist_pct")), 25),
         "trend": (_score_trend(row.get("trend")), 20),
         "rebound": (_score_rebound(row.get("rebound_pct"), row.get("change_pct")), 15),
         "volume": (_score_volume(row.get("rvol"), row.get("change_pct")), 10),
         "financial": (_score_financial(fund), 15),
         "news": (_score_news(news), 10),
+        "mos_t": (_score_mos_t(mos_t), 5),
     }
     base = sum(v for v, _m in parts.values())
 
@@ -1489,6 +1655,7 @@ def compute_ai_score(row: dict[str, Any]) -> dict[str, Any]:
     labels = {
         "pullback": "回调", "trend": "趋势", "rebound": "反弹",
         "volume": "成交量", "financial": "财务", "news": "新闻",
+        "mos_t": "MOS T",
     }
     detail_lines = [f"{labels[k]} {v}/{m}" for k, (v, m) in parts.items()]
     detail_lines.append(f"基础分 {base}/100")
