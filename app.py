@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import (
-    alert_status,
+    build_watchlist_alert,
     dashboard_meta,
     get_alert_prices,
     get_all_settings,
@@ -30,6 +30,8 @@ from db import (
     universe_count,
     upsert_alert_price,
 )
+from rising_now import list_rising_now, rising_count_label, rising_rule_summary
+from multi_signal import build_multi_signal
 from market_data import (
     compute_ai_score,
     compute_row_mos,
@@ -39,6 +41,7 @@ from market_data import (
     get_fund_cached_only,
     get_news_cached_only,
     get_signals,
+    make_news_skipped,
     refresh_dashboard_cache,
 )
 from i18n import (
@@ -75,10 +78,12 @@ except Exception:
 # Owner auth (single operator). Public site hides Est / MOS / CLV.
 # ---------------------------------------------------------------------------
 SESSION_OWNER_KEY = "owner_auth"
+SESSION_PENDING_MINE_KEY = "pending_mine_tickers"
 
 
 def is_owner() -> bool:
     return bool(session.get(SESSION_OWNER_KEY))
+
 
 
 def owner_password_configured() -> bool:
@@ -972,9 +977,12 @@ def settings():
 from watchlist_config import (
     MY_WATCHLIST,
     add_my_watchlist_ticker,
+    add_trade_candidate,
     collect_watchlist_tickers,
     get_my_watchlist,
+    get_trade_candidates,
     remove_my_watchlist_ticker,
+    remove_trade_candidate,
     validate_ticker_token,
 )
 
@@ -984,6 +992,59 @@ MAX_AUTO_ROWS = 30  # live Yahoo enrich cap for Oversold; all matches still list
 # using the same ensure_valuations / ensure_clvs engines (single source of truth).
 VALUATION_MAX_NEW_PER_REQUEST = 8
 CLV_MAX_NEW_PER_REQUEST = 8
+
+
+def _queue_pending_mine_tickers(tickers: list[str]) -> list[str]:
+    """Remember tickers across the login redirect. Returns cleaned list."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for t in tickers:
+        u = (t or "").strip().upper()
+        if u and u not in seen and validate_ticker_token(u):
+            seen.add(u)
+            cleaned.append(u)
+    session[SESSION_PENDING_MINE_KEY] = cleaned
+    return cleaned
+
+
+def _consume_pending_mine_tickers() -> tuple[list[str], list[str]]:
+    """Apply queued My Watchlist adds after sign-in. Returns (added, already_present)."""
+    if not is_owner():
+        return [], []
+    pending = session.pop(SESSION_PENDING_MINE_KEY, None) or []
+    if not isinstance(pending, list) or not pending:
+        return [], []
+    added: list[str] = []
+    existed: list[str] = []
+    for t in pending:
+        u = (str(t) if t is not None else "").strip().upper()
+        if not validate_ticker_token(u):
+            continue
+        cur = get_my_watchlist()
+        if u in cur:
+            existed.append(u)
+            continue
+        add_my_watchlist_ticker(u)
+        added.append(u)
+    return added, existed
+
+
+def _flash_mine_add_result(added: list[str], existed: list[str], invalid: list[str]) -> None:
+    parts: list[str] = []
+    if added:
+        parts.append(ngettext_format("Added: {tickers}", tickers=", ".join(added)))
+    if existed:
+        parts.append(
+            ngettext_format("Already on list: {tickers}", tickers=", ".join(existed))
+        )
+    if invalid:
+        parts.append(
+            ngettext_format("Invalid: {tickers}", tickers=", ".join(invalid))
+        )
+    if parts:
+        flash(" · ".join(parts), "ok" if added else "warning")
+    else:
+        flash(gettext("No tickers to add"), "warning")
 
 
 def _pools_label(row: dict) -> str:
@@ -1089,12 +1150,18 @@ def owner_login():
                 set_setting("owner_password_hash", generate_password_hash(pw))
                 session[SESSION_OWNER_KEY] = True
                 flash(gettext("Password saved — you are signed in"), "ok")
+                added, existed = _consume_pending_mine_tickers()
+                if added or existed:
+                    _flash_mine_add_result(added, existed, [])
                 return redirect(nxt)
         else:
             stored = get_setting("owner_password_hash", "")
             if isinstance(stored, str) and check_password_hash(stored, pw):
                 session[SESSION_OWNER_KEY] = True
                 flash(gettext("Signed in"), "ok")
+                added, existed = _consume_pending_mine_tickers()
+                if added or existed:
+                    _flash_mine_add_result(added, existed, [])
                 return redirect(nxt)
             flash(gettext("Wrong password"), "warning")
 
@@ -1127,14 +1194,43 @@ def watchlist():
             session.pop("temp_watchlist", None)
         elif action in ("add_mine", "remove_mine"):
             if not is_owner():
-                flash(gettext("Please sign in to edit My Watchlist"), "warning")
-                return redirect(url_for("owner_login", next=url_for("watchlist", tab="mine")))
+                if action == "add_mine":
+                    queued = _queue_pending_mine_tickers(
+                        parse_ticker_input(request.form.get("mine_tickers", ""))
+                    )
+                    if queued:
+                        flash(
+                            ngettext_format(
+                                "Sign in to save {n} ticker(s) to My Watchlist",
+                                n=len(queued),
+                            ),
+                            "warning",
+                        )
+                    else:
+                        flash(gettext("Please sign in to edit My Watchlist"), "warning")
+                else:
+                    flash(gettext("Please sign in to edit My Watchlist"), "warning")
+                return redirect(
+                    url_for("owner_login", next=url_for("watchlist", tab="mine"))
+                )
             try:
                 if action == "add_mine":
-                    for t in parse_ticker_input(request.form.get("mine_tickers", "")):
-                        if validate_ticker_token(t):
-                            add_my_watchlist_ticker(t)
-                    flash(gettext("My Watchlist updated"), "ok")
+                    raw_parts = parse_ticker_input(request.form.get("mine_tickers", ""))
+                    added: list[str] = []
+                    existed: list[str] = []
+                    invalid: list[str] = []
+                    cur = set(get_my_watchlist())
+                    for t in raw_parts:
+                        if not validate_ticker_token(t):
+                            invalid.append(t)
+                            continue
+                        if t in cur:
+                            existed.append(t)
+                            continue
+                        add_my_watchlist_ticker(t)
+                        cur.add(t)
+                        added.append(t)
+                    _flash_mine_add_result(added, existed, invalid)
                 else:
                     remove_my_watchlist_ticker(request.form.get("ticker", ""))
                     flash(gettext("Removed from My Watchlist"), "ok")
@@ -1146,6 +1242,11 @@ def watchlist():
     settings_data = get_all_settings()
     sma_period = int(settings_data.get("sma_period", 25))
     temp_tickers = session.get("temp_watchlist", [])
+    # Finish any My Watchlist adds queued before sign-in.
+    if is_owner():
+        added, existed = _consume_pending_mine_tickers()
+        if added or existed:
+            _flash_mine_add_result(added, existed, [])
     mine_list = get_my_watchlist()
     show_valuation = is_owner()
 
@@ -1153,6 +1254,9 @@ def watchlist():
     # Legacy bookmarks: oversold / pullback → merged setup tab
     if tab in ("oversold", "pullback"):
         tab = "setup"
+    # Rising Now / Multi-Signal moved into Strong Stock Monitor
+    if tab in ("rising_now", "multi_signal"):
+        return redirect(url_for("strong_stock_monitor", tab=tab))
     if tab not in ("setup", "low_target", "low_63d", "mine", "temp"):
         tab = "setup"
 
@@ -1210,10 +1314,11 @@ def watchlist():
             if f and f.get("health") != "unknown":
                 fund_cache_hits += 1
             # News only when Financial Pass Rate >= 60% (ok / total_known).
+            # Below gate → SKIPPED (no API); not a buy condition.
             if fund_qualifies_for_news(f):
                 r["news"] = news_map.get((r.get("ticker") or "").upper())
             else:
-                r["news"] = None
+                r["news"] = make_news_skipped()
             r["est_value"] = None
             r["bear_value"] = None
             r["bull_value"] = None
@@ -1227,11 +1332,17 @@ def watchlist():
         low_target_ms = int((_time.perf_counter() - t0) * 1000)
     elif not skip_heavy:
         # Live enrich a bounded prefix (keeps Oversold page latency in check).
+        # My Watchlist: always fetch Financial + News for resolvable names (regular holdings).
         live_rows = rows[:MAX_AUTO_ROWS] if tab == "setup" else rows
         overflow_rows = rows[MAX_AUTO_ROWS:] if tab == "setup" else []
 
-        signals = get_signals([r["ticker"] for r in live_rows if r.get("ticker")])
-        tickers_shown = [r["ticker"] for r in live_rows if r.get("ticker") and not r.get("not_found")]
+        live_tickers = [
+            r["ticker"]
+            for r in live_rows
+            if r.get("ticker") and not r.get("not_found")
+        ]
+        signals = get_signals(live_tickers, force_news=(tab == "mine"))
+        tickers_shown = list(live_tickers)
         # Est / MOS / CLV only for logged-in owner (methods still under development).
         if show_valuation:
             try:
@@ -1263,7 +1374,7 @@ def watchlist():
                 if fund_qualifies_for_news(f):
                     r["news"] = news_map.get((r.get("ticker") or "").upper())
                 else:
-                    r["news"] = None
+                    r["news"] = make_news_skipped()
 
     for r in rows:
         if skip_heavy:
@@ -1348,13 +1459,19 @@ def watchlist():
             r["clv_tooltip"] = "登录后可见（估值方法开发中）"
             r["dcf_below_clv"] = False
 
-    # Attach manual Alert Prices (independent of valuation / AI).
+    # My Watchlist SMA alerts (research zones only — never auto-buy).
+    # Manual override from DB; Default/Deep/Active computed from current SMA.
     alert_map = get_alert_prices([r.get("ticker") for r in rows if r.get("ticker")])
     for r in rows:
         t = (r.get("ticker") or "").upper()
-        ap = alert_map.get(t)
-        r["alert_price"] = ap
-        r["alert"] = alert_status(r.get("price"), ap)
+        bundle = build_watchlist_alert(r.get("price"), r.get("sma"), alert_map.get(t))
+        r["manual_alert"] = bundle["manual_alert"]
+        r["default_alert"] = bundle["default_alert"]
+        r["deep_alert"] = bundle["deep_alert"]
+        r["active_alert"] = bundle["active_alert"]
+        r["alert_source"] = bundle["alert_source"]
+        r["alert"] = bundle["alert"]
+        r["alert_price"] = bundle["manual_alert"]  # legacy alias for Manual
         # Ensure MOS T on cache-only tabs (AI skipped there) and any rows missed above.
         if r.get("mos_t") is None and not r.get("not_found"):
             r.update(compute_target_proxy_mos(r.get("price"), r.get("target_1y")))
@@ -1407,16 +1524,17 @@ def watchlist():
 
 @app.route("/watchlist/alert-price", methods=["POST"])
 def watchlist_alert_price():
-    """Inline save/clear for manual Alert Price (我的自选). Owner only."""
+    """Save / clear / reset Manual Alert (我的自选). Owner only. Never places orders."""
     if not is_owner():
         return jsonify({"ok": False, "error": "login required"}), 401
     data = request.get_json(silent=True) or {}
     ticker = (data.get("ticker") or request.form.get("ticker") or "").strip().upper()
+    reset = bool(data.get("reset") or request.form.get("reset"))
     raw = data.get("alert_price", request.form.get("alert_price", ""))
     if isinstance(raw, str):
         raw = raw.strip().replace("$", "").replace(",", "")
     try:
-        if raw is None or raw == "":
+        if reset or raw is None or raw == "":
             price = None
         else:
             price = float(raw)
@@ -1426,21 +1544,34 @@ def watchlist_alert_price():
         stored = upsert_alert_price(ticker, price)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-    # Optional live status if client sent current price
-    cur = data.get("price")
-    try:
-        cur_f = float(cur) if cur is not None and cur != "" else None
-    except (TypeError, ValueError):
-        cur_f = None
-    st = alert_status(cur_f, stored)
+
+    def _f(key: str) -> float | None:
+        v = data.get(key)
+        try:
+            return float(v) if v is not None and v != "" else None
+        except (TypeError, ValueError):
+            return None
+
+    bundle = build_watchlist_alert(_f("price"), _f("sma"), stored)
     return jsonify(
         {
             "ok": True,
             "ticker": ticker,
-            "alert_price": stored,
-            "alert": st,
+            "manual_alert": bundle["manual_alert"],
+            "default_alert": bundle["default_alert"],
+            "deep_alert": bundle["deep_alert"],
+            "active_alert": bundle["active_alert"],
+            "alert_source": bundle["alert_source"],
+            "alert_price": bundle["manual_alert"],
+            "alert": bundle["alert"],
         }
     )
+
+
+@app.route("/candidate-analysis", methods=["GET", "POST"])
+def candidate_analysis():
+    """Backward-compatible URL → Strong Stock Monitor Candidate Analysis tab."""
+    return redirect(url_for("strong_stock_monitor", tab="candidates"))
 
 
 @app.route("/ai-trading", methods=["GET", "POST"])
@@ -1551,6 +1682,11 @@ def ai_trading():
         except Exception:
             candidates = []
 
+    from candidate_analysis import enrich_ai_trading_watchlist_rows
+
+    candidates = enrich_ai_trading_watchlist_rows(candidates)
+    trade_candidates = get_trade_candidates()
+
     summary = portfolio_summary()
     opens = list_open_trades()
     history = list_closed_trades(limit=300)
@@ -1565,6 +1701,7 @@ def ai_trading():
         tab=tab,
         summary=summary,
         candidates=candidates,
+        trade_candidates=trade_candidates,
         opens=opens,
         history=history,
         hist_report=hist_report,
@@ -1716,6 +1853,197 @@ def api_trading_order_status(request_id: int):
         "trading API: status update id=%s -> %s", request_id, updated.get("status")
     )
     return jsonify({"order": updated})
+
+
+@app.route("/strong-monitor", methods=["GET", "POST"])
+def strong_stock_monitor():
+    """
+    Research / 研究中心:
+    Candidate Analysis (default) | Daily Strong | COUNT20 | Strong Watchlist |
+    Rising Now | Multi-Signal.
+    """
+    from strong_stocks import load_strong_monitor_page, run_backfill
+    from watchlist_config import (
+        add_my_watchlist_ticker,
+        add_trade_candidate,
+        remove_my_watchlist_ticker,
+        remove_trade_candidate,
+    )
+    from candidate_analysis import build_candidate_analysis
+    from market_data import ensure_fund_cache, ensure_news_cache
+
+    raw_tab = (
+        request.args.get("tab") or request.form.get("tab") or "candidates"
+    ).strip().lower()
+    # Backward-compatible aliases from earlier UI revisions
+    if raw_tab in ("matrix", "strong"):
+        return redirect(url_for("strong_stock_monitor", tab="daily"))
+    if raw_tab in ("candidate", "candidate_analysis", "analysis"):
+        raw_tab = "candidates"
+    tab = raw_tab
+    if tab not in (
+        "candidates",
+        "daily",
+        "ranking",
+        "watchlist",
+        "rising_now",
+        "multi_signal",
+    ):
+        tab = "candidates"
+
+    if request.method == "POST":
+        action = (request.form.get("action") or "").strip()
+        if not is_owner():
+            flash(gettext("Please sign in to manage Research"), "warning")
+            return redirect(
+                url_for("owner_login", next=url_for("strong_stock_monitor", tab=tab))
+            )
+        ticker = (request.form.get("ticker") or "").strip().upper()
+        try:
+            if action == "backfill":
+                result = run_backfill()
+                flash(
+                    ngettext_format(
+                        "Strong Watchlist rebuilt: {n} active (as of {day})",
+                        n=result.get("active_members", 0),
+                        day=result.get("as_of") or "—",
+                    ),
+                    "ok",
+                )
+            elif action == "add_mine":
+                add_my_watchlist_ticker(ticker)
+                flash(
+                    ngettext_format("Added {ticker} to My Watchlist", ticker=ticker),
+                    "ok",
+                )
+            elif action == "remove_mine":
+                remove_my_watchlist_ticker(ticker)
+                flash(gettext("Removed from My Watchlist"), "ok")
+            elif action == "add_trade":
+                add_trade_candidate(ticker)
+                flash(gettext("Marked as Trade Candidate"), "ok")
+            elif action == "remove_trade":
+                remove_trade_candidate(ticker)
+                flash(gettext("Removed Trade Candidate flag"), "ok")
+            elif action == "ensure_research":
+                data_ca = build_candidate_analysis(fill_ai=False)
+                tickers = [r["ticker"] for r in data_ca["rows"] if r.get("ticker")]
+                batch = tickers[:120]
+                fr = ensure_fund_cache(batch, max_workers=3, force=False)
+                fund_map = get_fund_cached_only(batch)
+                mine = {str(t).strip().upper() for t in (get_my_watchlist() or [])}
+                news_batch = [
+                    t
+                    for t in batch
+                    if t in mine or fund_qualifies_for_news(fund_map.get(t))
+                ]
+                nr = ensure_news_cache(news_batch[:80], max_workers=3, force=False)
+                flash(
+                    ngettext_format(
+                        "Candidate research refreshed: fund ok_new {f} · news ok_new {n} (bounded batch)",
+                        f=(fr or {}).get("ok_new", 0),
+                        n=(nr or {}).get("ok_new", 0),
+                    ),
+                    "ok",
+                )
+            else:
+                flash(gettext("Unknown action"), "warning")
+        except Exception as exc:
+            flash(
+                ngettext_format("Research action failed: {exc}", exc=exc),
+                "warning",
+            )
+        return redirect(url_for("strong_stock_monitor", tab=tab))
+
+    # Rising Now / Multi-Signal badges (skip heavy rebuild when on Candidate Analysis —
+    # that builder already computes the same underlying lists).
+    rising_rows: list = []
+    multi_rows: list = []
+    multi_summary: dict = {}
+    ca_rows: list = []
+    ca_counts: dict = {}
+    badge_candidates = 0
+
+    if tab == "candidates":
+        try:
+            ca = build_candidate_analysis(fill_ai=True)
+            ca_rows = ca.get("rows") or []
+            ca_counts = ca.get("counts") or {}
+            badge_candidates = int(ca_counts.get("total") or 0)
+            sizes = ca.get("source_sizes") or {}
+            # Light badge counts without a second Rising/Multi full build.
+            data_badge_rising = int(sizes.get("rising") or 0)
+            data_badge_multi = int(sizes.get("multi") or 0)
+        except Exception:
+            app.logger.exception("strong-monitor candidates failed")
+            data_badge_rising = 0
+            data_badge_multi = 0
+    else:
+        try:
+            rising_rows = [_enrich(r) for r in list_rising_now()]
+            setup_src = [dict(r) for r in list_setup(-10.0)]
+            target_src = [dict(r) for r in list_low_target_ratio(0.8)]
+            low63_src = [dict(r) for r in list_low_63d_pos(25.0)]
+            multi_rows, multi_summary = build_multi_signal(
+                setup_src, target_src, low63_src, rising_rows
+            )
+            multi_rows = [_enrich(r) for r in multi_rows]
+        except Exception:
+            app.logger.exception("strong-monitor rising/multi failed")
+        data_badge_rising = len(rising_rows)
+        data_badge_multi = len(multi_rows)
+
+        # Attach AI from cache only for the active compact tab (no Financial/News UI).
+        if tab in ("rising_now", "multi_signal"):
+            active = rising_rows if tab == "rising_now" else multi_rows
+            tickers = [r["ticker"] for r in active if r.get("ticker")]
+            fund_map = get_fund_cached_only(tickers)
+            news_map = get_news_cached_only(tickers) if tickers else {}
+            for r in active:
+                t = (r.get("ticker") or "").upper()
+                r["fund"] = fund_map.get(t)
+                r["news"] = news_map.get(t)
+                r.update(compute_target_proxy_mos(r.get("price"), r.get("target_1y")))
+                r["ai"] = compute_ai_score(r)
+                r["fund"] = None
+                r["news"] = None
+
+    strong_tab = tab if tab in ("daily", "ranking", "watchlist") else "daily"
+    try:
+        data = load_strong_monitor_page(tab=strong_tab)
+    except Exception:
+        app.logger.exception("strong-monitor page data failed")
+        flash(gettext("Research failed to load data. Try Rebuild / Backfill."), "warning")
+        data = {
+            "as_of": "",
+            "built_at": "",
+            "rules": "",
+            "daily": {"columns": [], "max_rows": 0},
+            "ranking": {"count": 0, "rows": [], "distribution_line": "", "n_ge_threshold": 0},
+            "watchlist": {"count": 0, "count_qualifying": 0, "count_retention": 0, "rows": []},
+            "badge_daily": 0,
+            "badge_ranking": 0,
+            "badge_watchlist": 0,
+        }
+
+    data["badge_rising"] = data_badge_rising
+    data["badge_multi"] = data_badge_multi
+    data["badge_candidates"] = badge_candidates
+    data["rising_rows"] = rising_rows
+    data["multi_rows"] = multi_rows
+    data["multi_summary"] = multi_summary
+    data["ca_rows"] = ca_rows
+    data["ca_counts"] = ca_counts
+    lang = get_lang()
+    data["rising_headline"] = rising_count_label(data_badge_rising, lang=lang)
+    data["rising_rules"] = rising_rule_summary(lang=lang)
+
+    return render_template(
+        "strong_monitor.html",
+        data=data,
+        tab=tab,
+        can_manage=is_owner(),
+    )
 
 
 if __name__ == "__main__":

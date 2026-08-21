@@ -1,0 +1,267 @@
+{# Candidate Analysis panel — primary Research view (no shortcut buttons). #}
+{% set counts = data.ca_counts or {} %}
+{% set rows = data.ca_rows or [] %}
+{% set ca_post = url_for('strong_stock_monitor', tab='candidates') %}
+
+<p class="hint">{{ _('Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Add to My Watchlist or mark Trade Candidate manually — nothing auto-selects for AI Trading.') }}</p>
+
+<div class="ca-summary">
+  <span><strong>{{ _('All Candidates') }}:</strong> {{ counts.total or 0 }}</span>
+  <span>Oversold: {{ counts.oversold or 0 }}</span>
+  <span>63D Low: {{ counts.low_63d or 0 }}</span>
+  <span>Rising: {{ counts.rising or 0 }}</span>
+  <span>Multi: {{ counts.multi or 0 }}</span>
+  <span>Strong: {{ counts.strong or 0 }}</span>
+  <span>Retention: {{ counts.retention or 0 }}</span>
+  <span>Financial 6/6: {{ counts.fin_6 or 0 }}</span>
+  <span>Financial ≥5/6: {{ counts.fin_ge5 or 0 }}</span>
+  <span>{{ _('My Watchlist') }}: {{ counts.mine or 0 }}</span>
+</div>
+
+{% if can_manage %}
+<div class="actions" style="margin-bottom:10px">
+  <form method="post" action="{{ ca_post }}" style="display:inline"
+        onsubmit="this.querySelector('button').disabled=true;">
+    <input type="hidden" name="action" value="ensure_research">
+    <button class="btn primary" type="submit" title="{{ _('Fill missing Financial/News from cache/fetch for current candidates (bounded)') }}">{{ _('Refresh Candidate Analysis') }}</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="ca-filters" id="ca-filters">
+  <button type="button" class="btn ca-filter active" data-filter="all">{{ _('All Candidates') }}</button>
+  <button type="button" class="btn ca-filter" data-filter="oversold">{{ _('Oversold') }}</button>
+  <button type="button" class="btn ca-filter" data-filter="low63">{{ _('63D Low') }}</button>
+  <button type="button" class="btn ca-filter" data-filter="rising">{{ _('Rising') }}</button>
+  <button type="button" class="btn ca-filter" data-filter="multi">{{ _('Multi-Signal') }}</button>
+  <button type="button" class="btn ca-filter" data-filter="strong">{{ _('Strong') }}</button>
+  <button type="button" class="btn ca-filter" data-filter="retention">{{ _('Retention') }}</button>
+  <button type="button" class="btn ca-filter" data-filter="fin6">{{ _('Financial 6/6') }}</button>
+  <button type="button" class="btn ca-filter" data-filter="fin5">{{ _('Financial ≥5/6') }}</button>
+  <button type="button" class="btn ca-filter" data-filter="mine">{{ _('My Watchlist') }}</button>
+  <span class="hint" id="ca-filter-count"></span>
+</div>
+
+{% if not rows %}
+  <p class="empty">{{ _('No candidates yet. Refresh Market Dashboard / Research first.') }}</p>
+{% else %}
+<div class="panel wl-panel">
+  <table class="data" id="ca-table">
+    <thead>
+      <tr class="col-row">
+        <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _('Stock') }}</th>
+        <th class="sortable" data-col="1" data-type="text">{{ _('Signals') }}</th>
+        <th class="sortable" data-col="2" data-type="text">{{ _('Pool') }}</th>
+        <th class="sortable num" data-col="3" data-type="num">{{ _('Price') }}</th>
+        <th class="sortable num" data-col="4" data-type="num">{{ _('Day %') }}</th>
+        <th class="sortable num" data-col="5" data-type="num">{{ _('63D Position') }}</th>
+        <th class="sortable num" data-col="6" data-type="num">{{ _('Strong COUNT20') }}</th>
+        <th class="sortable" data-col="7" data-type="text">{{ _('Strong Status') }}</th>
+        <th class="sortable num" data-col="8" data-type="num">{{ _('Up Days 5D') }}</th>
+        <th class="sortable num" data-col="9" data-type="num">{{ _('5D Return') }}</th>
+        <th class="sortable num" data-col="10" data-type="num">{{ _('Financial Score') }}</th>
+        <th class="sortable num" data-col="11" data-type="num">{{ _('News') }}</th>
+        <th class="sortable num" data-col="12" data-type="num">{{ _('AI Score') }}</th>
+        <th class="sortable num" data-col="13" data-type="num">{{ _('MOS T') }}</th>
+        <th class="sortable num" data-col="14" data-type="num">{{ _('Target Ratio') }}</th>
+        <th>{{ _('My Watchlist') }}</th>
+        <th>{{ _('Trade Candidate') }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr data-ticker="{{ row.ticker }}"
+          data-oversold="{{ 1 if row.in_oversold else 0 }}"
+          data-low63="{{ 1 if row.in_low_63d else 0 }}"
+          data-rising="{{ 1 if row.in_rising else 0 }}"
+          data-multi="{{ 1 if (row.match_count or 0) >= 2 else 0 }}"
+          data-strong="{{ 1 if row.in_strong else 0 }}"
+          data-retention="{{ 1 if row.strong_status == 'retention' else 0 }}"
+          data-fin6="{{ 1 if row.financial_ok == 6 and row.financial_known == 6 else 0 }}"
+          data-fin5="{{ 1 if row.financial_ok is not none and row.financial_known and (row.financial_ok / row.financial_known) >= (5/6) else 0 }}"
+          data-mine="{{ 1 if row.in_my_watchlist else 0 }}">
+        <td class="col-ticker freeze-col freeze-edge" data-sort="{{ row.ticker }}">
+          <strong>{{ row.ticker }}</strong>
+          {% if row.name %}<div class="name-sub" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
+        </td>
+        <td class="signals" data-sort="{{ row.signals or '' }}">
+          {% if row.signal_tags %}
+            {% for tag in row.signal_tags %}
+              <span class="sig sig-{{ tag.key }}">{{ _(tag.label) }}{% if tag.detail %} {{ tag.detail }}{% endif %}</span>
+            {% endfor %}
+          {% else %}—{% endif %}
+        </td>
+        <td data-sort="{{ row.pools or '' }}">{{ row.pools or '—' }}</td>
+        <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">
+          {% if row.price is not none %}${{ '%.2f'|format(row.price) }}{% else %}—{% endif %}
+        </td>
+        <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
+            data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
+          {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+        </td>
+        <td class="num" data-sort="{{ row.range_63d_pos if row.range_63d_pos is not none else '' }}">
+          {% if row.range_63d_pos is not none %}{{ '%.1f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}
+        </td>
+        <td class="num" data-sort="{{ row.count20 if row.count20 is not none else '' }}">
+          {{ row.count20_label or '—' }}
+        </td>
+        <td data-sort="{{ row.strong_status or '' }}">
+          {% if row.strong_status == 'qualifying' %}{{ _('Qualifying') }}
+          {% elif row.strong_status == 'retention' %}{{ _('Retention') }}
+          {% else %}—{% endif %}
+          {% if row.days_remaining is not none and row.in_strong %}
+            <div class="name-sub">{{ row.days_remaining }}d</div>
+          {% endif %}
+        </td>
+        <td class="num" data-sort="{{ row.up_days_5 if row.up_days_5 is not none else '' }}">
+          {% if row.up_days_5 is not none %}{{ row.up_days_5 }}/5{% else %}—{% endif %}
+        </td>
+        <td class="num {% if row.return_5d_pct is not none and row.return_5d_pct < 0 %}down{% elif row.return_5d_pct is not none and row.return_5d_pct > 0 %}up{% endif %}"
+            data-sort="{{ row.return_5d_pct if row.return_5d_pct is not none else '' }}">
+          {% if row.return_5d_pct is not none %}{{ '%+.2f'|format(row.return_5d_pct) }}%{% else %}—{% endif %}
+        </td>
+        <td class="num" data-sort="{{ row.financial_sort if row.financial_sort is not none else '' }}">
+          {{ row.financial_label or '—' }}
+        </td>
+        <td class="num" data-sort="{{ row.news_score if row.news_score is not none else '' }}"
+            title="{{ row.news_text or '' }}">
+          {% if row.news_status == 'SKIPPED' or row.news_label == 'SKIPPED' %}
+            <span class="news skipped" title="{{ row.news_text or _('News skipped — Financial Score &lt; 60%') }}">{{ _('SKIPPED') }}</span>
+          {% else %}
+            {{ row.news_label or '—' }}
+          {% endif %}
+        </td>
+        <td class="num" data-sort="{{ row.ai_score if row.ai_score is not none else '' }}">
+          {% if row.ai_score is not none %}
+            {% set cls = 'good' if row.ai_score >= 70 else ('mid' if row.ai_score >= 40 else 'bad') %}
+            <span class="ai {{ cls }}">{{ row.ai_score }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="num" data-sort="{{ row.mos_t if row.mos_t is not none else '' }}">
+          {% if row.mos_t is not none %}{{ '%+.1f'|format(row.mos_t) }}%{% else %}—{% endif %}
+        </td>
+        <td class="num" data-sort="{{ row.target_ratio if row.target_ratio is not none else '' }}">
+          {% if row.target_ratio is not none %}{{ '%.2f'|format(row.target_ratio) }}{% else %}—{% endif %}
+        </td>
+        <td>
+          {% if can_manage %}
+            {% if row.in_my_watchlist %}
+              <form method="post" action="{{ ca_post }}" style="display:inline;margin:0">
+                <input type="hidden" name="action" value="remove_mine">
+                <input type="hidden" name="ticker" value="{{ row.ticker }}">
+                <button class="btn" type="submit" style="padding:2px 8px;font-size:0.8rem">★ {{ _('My Watchlist') }}</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ ca_post }}" style="display:inline;margin:0">
+                <input type="hidden" name="action" value="add_mine">
+                <input type="hidden" name="ticker" value="{{ row.ticker }}">
+                <button class="btn" type="submit" style="padding:2px 8px;font-size:0.8rem">☆ {{ _('Add') }}</button>
+              </form>
+            {% endif %}
+          {% else %}
+            {% if row.in_my_watchlist %}★{% else %}—{% endif %}
+          {% endif %}
+        </td>
+        <td>
+          {% if can_manage %}
+            {% if row.is_trade_candidate %}
+              <form method="post" action="{{ ca_post }}" style="display:inline;margin:0">
+                <input type="hidden" name="action" value="remove_trade">
+                <input type="hidden" name="ticker" value="{{ row.ticker }}">
+                <button class="btn" type="submit" style="padding:2px 8px;font-size:0.8rem">★ {{ _('Trade') }}</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ ca_post }}" style="display:inline;margin:0">
+                <input type="hidden" name="action" value="add_trade">
+                <input type="hidden" name="ticker" value="{{ row.ticker }}">
+                <button class="btn" type="submit" style="padding:2px 8px;font-size:0.8rem">☆ {{ _('Trade Candidate') }}</button>
+              </form>
+            {% endif %}
+          {% else %}
+            {% if row.is_trade_candidate %}★{% else %}—{% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<script>
+  (function () {
+    var table = document.getElementById("ca-table");
+    if (!table) return;
+    var tbody = table.tBodies[0];
+    function cellValue(row, idx, type) {
+      var td = row.cells[idx];
+      if (!td) return type === "num" ? NaN : "";
+      var raw = td.dataset.sort !== undefined ? td.dataset.sort : td.textContent.trim();
+      if (type === "num") {
+        var n = parseFloat(String(raw).replace(/[%+,\s×$]/g, ""));
+        return isNaN(n) ? NaN : n;
+      }
+      return String(raw).toLowerCase();
+    }
+    table.querySelectorAll("thead tr.col-row th.sortable").forEach(function (th) {
+      th.addEventListener("click", function () {
+        var idx = parseInt(th.dataset.col, 10);
+        var type = th.dataset.type || "text";
+        var asc = !th.classList.contains("asc");
+        table.querySelectorAll("thead tr.col-row th").forEach(function (h) {
+          h.classList.remove("asc", "desc");
+        });
+        th.classList.add(asc ? "asc" : "desc");
+        var rows = Array.prototype.slice.call(tbody.rows);
+        rows.sort(function (a, b) {
+          var av = cellValue(a, idx, type), bv = cellValue(b, idx, type);
+          if (type === "num") {
+            var an = isNaN(av), bn = isNaN(bv);
+            if (an && bn) return 0;
+            if (an) return 1;
+            if (bn) return -1;
+            return asc ? av - bv : bv - av;
+          }
+          if (av < bv) return asc ? -1 : 1;
+          if (av > bv) return asc ? 1 : -1;
+          return 0;
+        });
+        rows.forEach(function (r) { tbody.appendChild(r); });
+      });
+    });
+
+    var bar = document.getElementById("ca-filters");
+    if (!bar) return;
+    function match(tr, key) {
+      if (key === "all") return true;
+      if (key === "oversold") return tr.dataset.oversold === "1";
+      if (key === "low63") return tr.dataset.low63 === "1";
+      if (key === "rising") return tr.dataset.rising === "1";
+      if (key === "multi") return tr.dataset.multi === "1";
+      if (key === "strong") return tr.dataset.strong === "1";
+      if (key === "retention") return tr.dataset.retention === "1";
+      if (key === "fin6") return tr.dataset.fin6 === "1";
+      if (key === "fin5") return tr.dataset.fin5 === "1";
+      if (key === "mine") return tr.dataset.mine === "1";
+      return true;
+    }
+    function apply(key) {
+      var n = 0;
+      Array.prototype.forEach.call(tbody.rows, function (tr) {
+        var ok = match(tr, key);
+        tr.style.display = ok ? "" : "none";
+        if (ok) n += 1;
+      });
+      var el = document.getElementById("ca-filter-count");
+      if (el) el.textContent = n + " / " + tbody.rows.length;
+    }
+    bar.querySelectorAll(".ca-filter").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        bar.querySelectorAll(".ca-filter").forEach(function (b) { b.classList.remove("active"); });
+        btn.classList.add("active");
+        apply(btn.dataset.filter || "all");
+      });
+    });
+    apply("all");
+  })();
+</script>

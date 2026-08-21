@@ -83,6 +83,62 @@ def remove_my_watchlist_ticker(ticker: str) -> list[str]:
     return set_my_watchlist(cur)
 
 
+# ── Trade Candidates (human flag for AI Trading Watchlist eligibility) ─────
+# Independent of My Watchlist membership and of paper Priority / AI Score.
+
+
+def get_trade_candidates() -> list[str]:
+    """Manual Trade Candidate tickers (settings JSON list). Empty until set."""
+    from db import get_setting
+
+    raw = get_setting("trade_candidates", None)
+    if not isinstance(raw, list) or not raw:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        u = (str(item) if item is not None else "").strip().upper()
+        if u and u not in seen and validate_ticker_token(u):
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def set_trade_candidates(tickers: Iterable[str]) -> list[str]:
+    from db import set_setting
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in tickers:
+        u = (str(item) if item is not None else "").strip().upper()
+        if u and u not in seen and validate_ticker_token(u):
+            seen.add(u)
+            out.append(u)
+    set_setting("trade_candidates", out)
+    return out
+
+
+def add_trade_candidate(ticker: str) -> list[str]:
+    t = (ticker or "").strip().upper()
+    if not validate_ticker_token(t):
+        raise ValueError("invalid ticker")
+    cur = get_trade_candidates()
+    if t not in cur:
+        cur.append(t)
+    return set_trade_candidates(cur)
+
+
+def remove_trade_candidate(ticker: str) -> list[str]:
+    t = (ticker or "").strip().upper()
+    cur = [x for x in get_trade_candidates() if x != t]
+    return set_trade_candidates(cur)
+
+
+def is_trade_candidate(ticker: str) -> bool:
+    t = (ticker or "").strip().upper()
+    return bool(t) and t in set(get_trade_candidates())
+
+
 def collect_watchlist_tickers(temp_tickers: Iterable[str] | None = None) -> list[str]:
     """
     Setup (超卖/强势回调, dist < -10%) ∪ mine ∪ optional temp.

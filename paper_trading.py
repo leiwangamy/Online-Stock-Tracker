@@ -207,6 +207,8 @@ def _fund_label(fund: dict | None) -> str:
 def _news_label(news: dict | None) -> str:
     if not news:
         return "—"
+    if news.get("skipped") or news.get("status") == "SKIPPED" or news.get("tone") == "skipped":
+        return "SKIPPED"
     label = (news.get("label") or "").strip()
     if label:
         return label[:48]
@@ -283,6 +285,7 @@ def _score_universe_rows() -> list[dict[str, Any]]:
         fund_qualifies_for_news,
         get_fund_cached_only,
         get_news_cached_only,
+        make_news_skipped,
     )
 
     # Union of the three system Watchlist groups (reuse db list_* helpers).
@@ -334,7 +337,7 @@ def _score_universe_rows() -> list[dict[str, Any]]:
         if fund_qualifies_for_news(f):
             r["news"] = news_map.get(t)
         else:
-            r["news"] = None
+            r["news"] = make_news_skipped()
         r.update(compute_target_proxy_mos(r.get("price"), r.get("target_1y")))
         ai = compute_ai_score(r)
         r["ai"] = ai

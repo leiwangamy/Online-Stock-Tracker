@@ -320,6 +320,8 @@
     <span class="sep">|</span>
     <a href="{{ url_for('watchlist') }}" class="{% if request.endpoint == 'watchlist' %}active{% endif %}">{{ _('Watchlist') }}</a>
     <span class="sep">|</span>
+    <a href="{{ url_for('strong_stock_monitor') }}" class="{% if request.endpoint == 'strong_stock_monitor' %}active{% endif %}">{{ _('Research') }}</a>
+    <span class="sep">|</span>
     <a href="{{ url_for('ai_trading') }}" class="{% if request.endpoint == 'ai_trading' %}active{% endif %}">{{ _('AI Trading') }}</a>
     <span class="sep">|</span>
     <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">{{ _('Settings') }}</a>

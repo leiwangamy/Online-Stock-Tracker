@@ -1,0 +1,751 @@
+{% extends "base.html" %}
+{% block title %}{{ _('Research') }} — LeiBot{% endblock %}
+{% block head %}
+<style>
+  .ops-bar {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+    gap: 8px 16px; margin: 0 0 10px; font-size: 0.9rem; color: var(--muted);
+  }
+  .ops-bar .ops-main { flex: 1 1 auto; min-width: 200px; color: #334155; }
+  .rules {
+    font-size: 0.85rem; color: #64748b; margin: 0 0 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .ops-details {
+    margin: 0 0 12px; font-size: 0.85rem; color: var(--muted);
+  }
+  .ops-details summary {
+    cursor: pointer; font-weight: 600; color: #475569; list-style: none;
+  }
+  .ops-details summary::-webkit-details-marker { display: none; }
+  .ops-details summary::before { content: "▸ "; }
+  .ops-details[open] summary::before { content: "▾ "; }
+  .ops-details .ops-details-body {
+    margin-top: 8px; padding: 8px 10px;
+    background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;
+    line-height: 1.55;
+  }
+  .tabs {
+    display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px;
+  }
+  .tab {
+    display: inline-block; padding: 7px 14px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--panel);
+    color: var(--muted); text-decoration: none; font-weight: 600; font-size: 0.9rem;
+  }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .tab .count { font-weight: 400; opacity: 0.85; }
+  /* Match Watchlist: vertical scroll in panel; horizontal via base .hscroll-top.
+     Do NOT override sticky z-index / border-collapse — that causes header bleed. */
+  .panel.wl-panel {
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 0;
+    max-height: 72vh;
+  }
+  .panel.wl-panel > table { margin: 0; }
+  table.data {
+    width: 100%;
+    font-size: 0.88rem;
+  }
+  table.data th, table.data td {
+    padding: 6px 8px;
+  }
+  table.data th {
+    font-size: 0.78rem;
+    color: #475569;
+  }
+  table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.data .sym { font-weight: 700; }
+  table.data .name { color: var(--muted); font-size: 0.8rem; font-weight: 400; }
+  table.data th.col-ticker, table.data td.col-ticker { min-width: 160px; }
+  .actions { margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 10px; }
+  .dist-box {
+    font-size: 0.82rem; color: #334155; background: #f8fafc;
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px; margin: 0 0 12px; line-height: 1.55;
+    font-variant-numeric: tabular-nums;
+  }
+  .dist-box strong { color: #0f172a; }
+  .hero-line {
+    font-size: 1.15rem; font-weight: 700; color: #0f172a; margin: 0 0 8px;
+  }
+  .hero-line .n { color: var(--accent); }
+
+  /* Daily Strong Stocks — date columns (Watchlist-style sticky + freeze first Symbol) */
+  table.daily {
+    border-collapse: separate; border-spacing: 0; font-size: 0.82rem;
+    min-width: max-content;
+  }
+  table.daily th, table.daily td {
+    padding: 4px 8px; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0;
+    white-space: nowrap; vertical-align: top;
+  }
+  table.daily thead tr:first-child th {
+    position: sticky; top: 0; z-index: 21;
+    background: #f1f5f9; color: #334155; font-weight: 700; text-align: left;
+    box-shadow: 0 -20px 0 0 #f1f5f9, 0 1px 0 #e2e8f0;
+  }
+  table.daily thead tr:nth-child(2) th {
+    position: sticky; top: 28px; z-index: 20;
+    background: #f8fafc; color: #334155; font-weight: 700; text-align: left;
+    box-shadow: 0 -2px 0 0 #f8fafc, 0 1px 0 #e2e8f0;
+  }
+  table.daily th .n { color: var(--accent); font-weight: 600; }
+  table.daily td.sym { font-weight: 700; }
+  table.daily td.pos {
+    text-align: right; font-variant-numeric: tabular-nums; color: #475569;
+    border-right: 1px solid #cbd5e1;
+  }
+  table.daily colgroup col.pair { min-width: 120px; }
+  table.daily td.freeze-col {
+    position: sticky; left: 0; z-index: 5;
+    background-color: #ffffff !important;
+    box-shadow: 2px 0 6px rgba(15, 23, 42, 0.14);
+  }
+  table.daily thead tr:first-child th.freeze-col {
+    left: 0; z-index: 31;
+    background-color: #f1f5f9 !important;
+    box-shadow:
+      -40px 0 0 0 #f1f5f9,
+      0 -20px 0 0 #f1f5f9,
+      2px 0 6px rgba(15, 23, 42, 0.14),
+      0 1px 0 #e2e8f0;
+  }
+  table.daily thead tr:nth-child(2) th.freeze-col {
+    left: 0; z-index: 30;
+    background-color: #f8fafc !important;
+    box-shadow:
+      -40px 0 0 0 #f8fafc,
+      0 -2px 0 0 #f8fafc,
+      2px 0 6px rgba(15, 23, 42, 0.14),
+      0 1px 0 #e2e8f0;
+  }
+
+  .badge {
+    display: inline-block; font-size: 0.72rem; padding: 1px 6px; border-radius: 4px;
+    font-weight: 600;
+  }
+  .badge.qual { background: #dcfce7; color: #166534; }
+  .badge.ret { background: #fef3c7; color: #92400e; }
+  .badge.on { background: #dbeafe; color: #1d4ed8; }
+  tr.ret-row { background: #fffbeb; }
+  tr.ret-row td.freeze-col { background-color: #fffbeb !important; }
+  table.data td.up { color: #059669; font-weight: 600; }
+  table.data td.down { color: #dc2626; font-weight: 600; }
+  table.data th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  table.data th.sortable:hover { color: var(--accent); }
+  table.data th.sortable::after { content: "\2195"; opacity: 0.35; margin-left: 4px; font-size: 0.8em; }
+  table.data th.sortable.asc::after { content: "\2191"; opacity: 1; }
+  table.data th.sortable.desc::after { content: "\2193"; opacity: 1; }
+  table.data td.up { color: #15803d; }
+  table.data td.down { color: #b91c1c; }
+  .ms-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; align-items: center; }
+  .ms-filters .ms-filter.active {
+    background: var(--accent, #2563eb);
+    color: #fff;
+    border-color: transparent;
+  }
+  .ca-summary { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 0 0 12px; font-size: 0.92rem; }
+  .ca-summary strong { font-weight: 700; }
+  .ca-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; align-items: center; }
+  .ca-filters .ca-filter.active {
+    background: var(--accent, #2563eb);
+    color: #fff;
+    border-color: transparent;
+  }
+  #ca-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+  #ca-table th.sortable::after { content: "\2195"; opacity: 0.35; margin-left: 4px; font-size: 0.8em; }
+  #ca-table th.sortable.asc::after { content: "\2191"; opacity: 1; }
+  #ca-table th.sortable.desc::after { content: "\2193"; opacity: 1; }
+  #ca-table td.signals { white-space: normal; min-width: 220px; max-width: 360px; font-size: 0.82rem; }
+  .sig {
+    display: inline-block; margin: 1px 3px 1px 0; padding: 1px 6px; border-radius: 4px;
+    font-size: 0.75rem; font-weight: 600; line-height: 1.4;
+    border: 1px solid #cbd5e1; background: #f8fafc; color: #334155; white-space: nowrap;
+  }
+  .sig-oversold { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+  .sig-target { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+  .sig-low63 { background: #f5f3ff; border-color: #ddd6fe; color: #5b21b6; }
+  .sig-rising { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+  .sig-multi { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+  .sig-strong { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+  .sig-retention { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+  #ca-table .name-sub { font-size: 0.78rem; color: var(--muted, #64748b); }
+  .ai.good { color: #15803d; font-weight: 700; }
+  .ai.mid { color: #a16207; font-weight: 700; }
+  .ai.bad { color: #b91c1c; font-weight: 700; }
+  #ca-table .news.skipped { color: #94a3b8; font-weight: 600; font-style: italic; }
+  table.data .pools { color: var(--muted); font-size: 0.82rem; }
+</style>
+{% endblock %}
+
+{% macro money(v) -%}
+  {%- if v is none -%}—{%- else -%}${{ '%.2f'|format(v) }}{%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+  <h1>{{ _('Research') }}</h1>
+
+  {% if tab == 'candidates' %}
+    <p class="rules">{{ _('Unified candidate analysis from LeiBot signal groups.') }}</p>
+  {% elif tab in ('daily', 'ranking', 'watchlist') %}
+    <p class="rules">{{ data.rules }}</p>
+  {% elif tab == 'rising_now' %}
+    <p class="rules">{{ data.rising_rules or _('Up Days ≥ 3/5 · 5D Return ≥ +3%. Dynamic daily group; no retention.') }}</p>
+  {% elif tab == 'multi_signal' %}
+    <p class="rules">{{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Strong is a separate indicator.') }}</p>
+  {% endif %}
+
+  {% if tab in ('daily', 'ranking', 'watchlist') %}
+  <div class="ops-bar">
+    <div class="ops-main">
+      {% if data.as_of %}
+        {{ _('As of') }}: {{ data.as_of }}
+        {% if data.built_at %} · {{ _('Updated') }}: {{ data.built_at|format_ui_datetime }}{% endif %}
+      {% else %}
+        {{ _('No Strong Watchlist data yet — run historical backfill.') }}
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <details class="ops-details">
+    <summary>{{ _('Guide') }}</summary>
+    <div class="ops-details-body">
+      <p><strong>{{ _('Candidate Analysis') }}:</strong> {{ _('Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Human My Watchlist and Trade Candidate flags. AI Score unchanged.') }}</p>
+      <p><strong>{{ _('Daily Strong Stocks') }}:</strong> {{ _('Only stocks meeting the Strong Day Position threshold on that date. Column lengths differ by day.') }}</p>
+      <p><strong>{{ _('COUNT20 Ranking') }}:</strong> {{ _('Historical frequency over the latest 20 trading days. Current Position may be below the Strong Day threshold.') }}</p>
+      <p><strong>{{ _('Strong Watchlist') }}:</strong> {{ _('COUNT ≥ threshold qualifies; retain N trading days after last qualify; renew resets retention. Position may be below the Strong Day threshold during retention (pullback watch).') }}</p>
+      <p><strong>{{ _('Rising Now') }}:</strong> {{ _('Up Days ≥ 3/5 · 5D Return ≥ +3%. Dynamic daily group; no retention. Independent of Strong Day / COUNT20.') }}</p>
+      <p><strong>{{ _('Multi-Signal') }}:</strong> {{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Strong is a separate indicator. No retention.') }}</p>
+      <p>{{ _('Workflow: Watchlist → Research → My Watchlist / Trade Candidate → AI Trading. Signal ≠ research decision ≠ trade decision.') }}</p>
+    </div>
+  </details>
+
+  {% if can_manage and tab in ('daily', 'ranking', 'watchlist') %}
+  <div class="actions">
+    <form method="post" action="{{ url_for('strong_stock_monitor', tab=tab) }}"
+          onsubmit="return confirm('{{ _('Rebuild Strong Watchlist from ~1y history? This may take several minutes.') }}');">
+      <input type="hidden" name="action" value="backfill">
+      <button class="btn primary" type="submit">{{ _('Rebuild / Backfill') }}</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="tabs">
+    <a class="tab {% if tab == 'candidates' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='candidates') }}">
+      {{ _('Candidate Analysis') }}
+      {% if data.badge_candidates is defined and data.badge_candidates %}
+        <span class="count">({{ data.badge_candidates }})</span>
+      {% endif %}
+    </a>
+    <a class="tab {% if tab == 'daily' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='daily') }}">
+      {{ _('Daily Strong Stocks') }}
+      <span class="count">({{ data.badge_daily if data.badge_daily is defined else (data.daily.columns[0].count if data.daily.columns else 0) }})</span>
+    </a>
+    <a class="tab {% if tab == 'ranking' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='ranking') }}">
+      {{ _('COUNT20 Ranking') }}
+      <span class="count">({{ data.badge_ranking if data.badge_ranking is defined else data.ranking.count }})</span>
+    </a>
+    <a class="tab {% if tab == 'watchlist' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='watchlist') }}">
+      {{ _('Strong Watchlist') }}
+      <span class="count">({{ data.badge_watchlist if data.badge_watchlist is defined else data.watchlist.count }})</span>
+    </a>
+    <a class="tab {% if tab == 'rising_now' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='rising_now') }}">
+      {{ _('Rising Now') }}
+      <span class="count">({{ data.badge_rising if data.badge_rising is defined else 0 }})</span>
+    </a>
+    <a class="tab {% if tab == 'multi_signal' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='multi_signal') }}">
+      {{ _('Multi-Signal') }}
+      <span class="count">({{ data.badge_multi if data.badge_multi is defined else 0 }})</span>
+    </a>
+  </div>
+
+  {# ── Tab 1: Daily Strong Stocks ── #}
+  {% if tab == 'daily' %}
+    {% set daily = data.daily %}
+    <p class="hint">{{ _('Each date lists only Strong Day stocks (Position ≥ threshold), sorted by Position %. Header shows (n) stocks.') }} ({{ _('Threshold') }}: {{ data.daily.threshold_pos }}%)</p>
+    <div class="panel wl-panel">
+      {% if not daily.columns %}
+        <p class="meta" style="padding:12px">{{ _('No daily strong-stock data yet.') }}</p>
+      {% else %}
+      <table class="daily" id="sm-daily-table">
+        <thead>
+          <tr>
+            {% for col in daily.columns %}
+              <th colspan="2">{{ col.label }} <span class="n">({{ col.count }})</span></th>
+            {% endfor %}
+          </tr>
+          <tr class="col-row">
+            {% for col in daily.columns %}
+              <th{% if loop.first %} class="freeze-col freeze-edge"{% endif %}>{{ _('Symbol') }}</th>
+              <th>{{ _('Position') }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for i in range(daily.max_rows) %}
+          <tr>
+            {% for col in daily.columns %}
+              {% if i < col.stocks|length %}
+                {% set s = col.stocks[i] %}
+                <td class="sym{% if loop.first %} freeze-col freeze-edge{% endif %}">{{ s.symbol }}</td>
+                <td class="pos">{{ '%.1f'|format(s.range_63d_pos) }}%</td>
+              {% else %}
+                <td{% if loop.first %} class="freeze-col freeze-edge"{% endif %}></td><td class="pos"></td>
+              {% endif %}
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+  {# ── Tab 2: COUNT20 Ranking ── #}
+  {% elif tab == 'ranking' %}
+    {% set rk = data.ranking %}
+    <div class="hero-line">
+      {{ _('COUNT20 Ranking') }}: <span class="n">{{ rk.count }}</span>
+      <span style="font-size:0.85rem;font-weight:500;color:#64748b">
+        · COUNT≥{{ rk.threshold }}: {{ rk.n_ge_threshold }}
+      </span>
+    </div>
+    <div class="dist-box">
+      <strong>{{ _('COUNT distribution') }}</strong>
+      ({{ _('20 → 0') }}):<br>
+      {{ rk.distribution_line }}
+    </div>
+    <p class="hint">{{ _('Current Position may be below the Strong Day threshold — COUNT is historical frequency, not today’s Strong-Day list.') }}</p>
+    <div class="panel wl-panel">
+      {% if not rk.rows %}
+        <p class="meta" style="padding:12px">{{ _('No COUNT20 ranking rows yet.') }}</p>
+      {% else %}
+      <table class="data" id="sm-ranking-table">
+        <thead>
+          <tr class="col-row">
+            <th class="num">#</th>
+            <th class="col-ticker freeze-col freeze-edge">{{ _('Symbol') }}</th>
+            <th class="num">COUNT20</th>
+            <th class="num">{{ _('Current 63D Position') }}</th>
+            <th>{{ _('Last Strong Date') }}</th>
+            <th class="num">{{ _('Price') }}</th>
+            <th class="num">{{ _('AI Score') }}</th>
+            <th class="num">{{ _('MOS T') }}</th>
+            <th>{{ _('Financials') }}</th>
+            <th>{{ _('News') }}</th>
+            <th>{{ _('Strong Watchlist') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rk.rows %}
+          <tr>
+            <td class="num">{{ r.rank }}</td>
+            <td class="col-ticker freeze-col freeze-edge">
+              <span class="sym">{{ r.symbol }}</span>
+              {% if r.name %}<div class="name name-sub">{{ r.name }}</div>{% endif %}
+            </td>
+            <td class="num"><strong>{{ r.count20 }}</strong></td>
+            <td class="num">{% if r.range_63d_pos is not none %}{{ '%.1f'|format(r.range_63d_pos) }}%{% else %}—{% endif %}</td>
+            <td>{{ r.last_strong_date or '—' }}</td>
+            <td class="num">{{ money(r.price) }}</td>
+            <td class="num">—</td>
+            <td class="num">{% if r.mos_t is not none %}{{ '%+.1f'|format(r.mos_t) }}%{% else %}—{% endif %}</td>
+            <td>—</td>
+            <td>—</td>
+            <td>
+              {% if r.watchlist_status == 'on_watchlist' %}
+                <span class="badge on">{{ _('On list') }}</span>
+              {% elif r.watchlist_status == 'qualifies' %}
+                <span class="badge qual">{{ _('Qualifies') }}</span>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+  {# ── Tab 3: Strong Watchlist ── #}
+  {% elif tab == 'watchlist' %}
+    {% set wl = data.watchlist %}
+    {% set th = wl.threshold if wl.threshold is defined else 13 %}
+    <div class="hero-line">
+      {{ _('Strong Watchlist') }} {{ _('Total') }}: <span class="n">{{ wl.count }}</span>
+    </div>
+    <p class="count-sub" style="font-size:1rem;margin:0 0 12px;color:#334155">
+      {{ _('Qualifying') }} (COUNT≥{{ th }}): <strong>{{ wl.count_qualifying }}</strong>
+      · {{ _('Retention') }}: <strong>{{ wl.count_retention }}</strong>
+      · {{ _('Total') }}: <strong>{{ wl.count }}</strong>
+    </p>
+    <p class="hint">
+      {{ _('Retention rows may show Position below the Strong Day threshold on purpose.') }}
+    </p>
+    <div class="panel wl-panel">
+      {% if not wl.rows %}
+        <p class="meta" style="padding:12px">{{ _('No active strong stocks under the current rules.') }}</p>
+      {% else %}
+      <table class="data" id="strong-wl-table">
+        <thead>
+          <tr class="col-row">
+            <th class="num" data-col="0">#</th>
+            <th class="sortable col-ticker freeze-col freeze-edge" data-col="1" data-type="text">{{ _('Symbol') }}</th>
+            <th class="sortable" data-col="2" data-type="text" title="{{ _('Index pools: S&P500 / Nasdaq100 / …; MANUAL if not in a pool') }}">{{ _('Pool') }}</th>
+            <th class="sortable" data-col="3" data-type="text">{{ _('Status') }}</th>
+            <th class="sortable num" data-col="4" data-type="num">{{ _('Price') }}</th>
+            <th class="sortable num" data-col="5" data-type="num">{{ _('Day %') }}</th>
+            <th class="sortable num" data-col="6" data-type="num" title="{{ _('Avg absolute daily move over 63 trading days') }}">{{ _('Avg daily move %(63D)') }}</th>
+            <th class="sortable num" data-col="7" data-type="num">{{ _('63D Position') }}</th>
+            <th class="sortable num" data-col="8" data-type="num">COUNT20</th>
+            <th class="sortable" data-col="9" data-type="text">{{ _('First Qualified') }}</th>
+            <th class="sortable" data-col="10" data-type="text">{{ _('Last Qualified') }}</th>
+            <th class="sortable num" data-col="11" data-type="num">{{ _('Days Remaining') }}</th>
+            <th class="sortable num" data-col="12" data-type="num">{{ _('AI Score') }}</th>
+            <th class="sortable num" data-col="13" data-type="num">{{ _('MOS T') }}</th>
+            <th data-col="14">{{ _('Financials') }}</th>
+            <th data-col="15">{{ _('News') }}</th>
+            {% if can_manage %}<th data-col="16"></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in wl.rows %}
+          <tr class="{% if r.status == 'retention' %}ret-row{% endif %}">
+            <td class="num">{{ r.rank }}</td>
+            <td class="col-ticker freeze-col freeze-edge" data-sort="{{ r.symbol }}">
+              <span class="sym">{{ r.symbol }}</span>
+              {% if r.name %}<div class="name name-sub">{{ r.name }}</div>{% endif %}
+            </td>
+            <td class="pools" data-sort="{{ r.pools or '' }}">{{ r.pools or '—' }}</td>
+            <td data-sort="{{ r.status }}">
+              {% if r.status == 'qualifying' %}
+                <span class="badge qual">{{ _('Qualifying') }}</span>
+              {% else %}
+                <span class="badge ret">{{ _('Retention') }}</span>
+              {% endif %}
+            </td>
+            <td class="num" data-sort="{{ r.price if r.price is not none else '' }}">{{ money(r.price) }}</td>
+            <td class="num {% if r.change_pct is not none and r.change_pct < 0 %}down{% elif r.change_pct is not none and r.change_pct > 0 %}up{% endif %}"
+                data-sort="{{ r.change_pct if r.change_pct is not none else '' }}">
+              {% if r.change_pct is not none %}{{ '%+.2f'|format(r.change_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ r.avg_move_pct if r.avg_move_pct is not none else '' }}">
+              {% if r.avg_move_pct is not none %}{{ '%.2f'|format(r.avg_move_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ r.range_63d_pos if r.range_63d_pos is not none else '' }}">
+              {% if r.range_63d_pos is not none %}{{ '%.1f'|format(r.range_63d_pos) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ r.count20 }}"><strong>{{ r.count20 }}</strong></td>
+            <td data-sort="{{ r.first_qualified_date or '' }}">{{ r.first_qualified_date or '—' }}</td>
+            <td data-sort="{{ r.last_qualified_date or '' }}">{{ r.last_qualified_date or '—' }}</td>
+            <td class="num" data-sort="{{ r.days_remaining if r.days_remaining is not none else '' }}">
+              {% if r.days_remaining is not none %}{{ r.days_remaining }}{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="">—</td>
+            <td class="num" data-sort="{{ r.mos_t if r.mos_t is not none else '' }}">
+              {% if r.mos_t is not none %}{{ '%+.1f'|format(r.mos_t) }}%{% else %}—{% endif %}
+            </td>
+            <td>—</td>
+            <td>—</td>
+            {% if can_manage %}
+            <td>
+              <form method="post" action="{{ url_for('strong_stock_monitor', tab='watchlist') }}" style="display:inline">
+                <input type="hidden" name="action" value="add_mine">
+                <input type="hidden" name="ticker" value="{{ r.symbol }}">
+                <button class="btn" type="submit" title="{{ _('Add to My Watchlist') }}">☆</button>
+              </form>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <script>
+        (function () {
+          var table = document.getElementById("strong-wl-table");
+          if (!table) return;
+          var tbody = table.tBodies[0];
+          function cellValue(row, idx, type) {
+            var td = row.cells[idx];
+            if (!td) return type === "num" ? NaN : "";
+            var raw = td.dataset.sort !== undefined ? td.dataset.sort : td.textContent.trim();
+            if (type === "num") {
+              var n = parseFloat(String(raw).replace(/[%+,\s×$/]/g, ""));
+              return isNaN(n) ? NaN : n;
+            }
+            return String(raw).toLowerCase();
+          }
+          function renumber() {
+            Array.prototype.forEach.call(tbody.rows, function (r, i) {
+              if (r.cells[0]) r.cells[0].textContent = i + 1;
+            });
+          }
+          table.querySelectorAll("thead tr.col-row th.sortable").forEach(function (th) {
+            th.addEventListener("click", function () {
+              var idx = th.dataset.col !== undefined
+                ? parseInt(th.dataset.col, 10)
+                : Array.prototype.indexOf.call(th.parentNode.children, th);
+              var type = th.dataset.type || "text";
+              var asc = !th.classList.contains("asc");
+              table.querySelectorAll("thead tr.col-row th").forEach(function (h) {
+                h.classList.remove("asc", "desc");
+              });
+              th.classList.add(asc ? "asc" : "desc");
+              var rows = Array.prototype.slice.call(tbody.rows);
+              rows.sort(function (a, b) {
+                var av = cellValue(a, idx, type);
+                var bv = cellValue(b, idx, type);
+                if (type === "num") {
+                  var an = isNaN(av), bn = isNaN(bv);
+                  if (an && bn) return 0;
+                  if (an) return 1;
+                  if (bn) return -1;
+                  return asc ? av - bv : bv - av;
+                }
+                if (av < bv) return asc ? -1 : 1;
+                if (av > bv) return asc ? 1 : -1;
+                return 0;
+              });
+              rows.forEach(function (r) { tbody.appendChild(r); });
+              renumber();
+            });
+          });
+        })();
+      </script>
+      {% endif %}
+    </div>
+
+  {# ── Tab 4: Rising Now ── #}
+  {% elif tab == 'rising_now' %}
+    <div class="hero-line">{{ data.rising_headline or (_('Rising Now') ~ ': ' ~ (data.rising_rows|length)) }}</div>
+    <p class="hint">{{ data.rising_rules or _('Up Days ≥ 3/5 · 5D Return ≥ +3%') }} · {{ _('Dynamic daily group; no retention. Independent of Strong Day / COUNT20.') }}</p>
+    <div class="panel wl-panel">
+      {% if not data.rising_rows %}
+        <p class="meta" style="padding:12px">{{ _('No Rising Now stocks under the current rules.') }}</p>
+      {% else %}
+      <table class="data" id="sm-rising-table">
+        <thead>
+          <tr class="col-row">
+            <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _('Stock') }}</th>
+            <th class="sortable num" data-col="1" data-type="num">{{ _('Price') }}</th>
+            <th class="sortable num" data-col="2" data-type="num">{{ _('Day %') }}</th>
+            <th class="sortable num" data-col="3" data-type="num">{{ _('Up Days 5D') }}</th>
+            <th class="sortable num" data-col="4" data-type="num">{{ _('5D Return') }}</th>
+            <th class="sortable num" data-col="5" data-type="num">{{ _('63D Position') }}</th>
+            <th class="sortable num" data-col="6" data-type="num">AI</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in data.rising_rows %}
+          <tr>
+            <td class="col-ticker freeze-col freeze-edge" data-sort="{{ row.ticker }}">
+              <span class="sym">{{ row.ticker }}</span>
+              {% if row.name %}<div class="name name-sub">{{ row.name }}</div>{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">{{ money(row.price) }}</td>
+            <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
+              {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.up_days_5 if row.up_days_5 is not none else '' }}">
+              {% if row.up_days_5 is not none %}{{ row.up_days_5 }}/5{% else %}—{% endif %}
+            </td>
+            <td class="num {% if row.return_5d_pct is not none and row.return_5d_pct < 0 %}down{% elif row.return_5d_pct is not none and row.return_5d_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.return_5d_pct if row.return_5d_pct is not none else '' }}">
+              {% if row.return_5d_pct is not none %}{{ '%+.2f'|format(row.return_5d_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.range_63d_pos if row.range_63d_pos is not none else '' }}">
+              {% if row.range_63d_pos is not none %}{{ '%.1f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.ai.final if row.ai else '' }}">
+              {% if row.ai %}{{ row.ai.final }}{% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+  {# ── Tab 5: Multi-Signal ── #}
+  {% elif tab == 'multi_signal' %}
+    {% set ms = data.multi_summary or {} %}
+    <div class="hero-line">{{ _('Multi-Signal') }}: <span class="n">{{ data.multi_rows|length }}</span></div>
+    <p class="hint">
+      Match ≥2: {{ ms.match_ge_2 or 0 }}
+      · Match ≥3: {{ ms.match_ge_3 or 0 }}
+      · Match =4: {{ ms.match_eq_4 or 0 }}
+      · 63D Low + Rising: {{ ms.low_rising or 0 }}
+      · Oversold + Rising: {{ ms.oversold_rising or 0 }}
+      · Target &lt;80 + Rising: {{ ms.target_rising or 0 }}
+      · Strong + Rising: {{ ms.strong_rising or 0 }}
+    </p>
+    <div class="ms-filters" id="ms-filters">
+      <button type="button" class="btn ms-filter active" data-filter="all">{{ _("All ≥2") }}</button>
+      <button type="button" class="btn ms-filter" data-filter="ge3">{{ _("3+ Signals") }}</button>
+      <button type="button" class="btn ms-filter" data-filter="eq4">{{ _("4 Signals") }}</button>
+      <button type="button" class="btn ms-filter" data-filter="low_rising">{{ _("Low + Rising") }}</button>
+      <button type="button" class="btn ms-filter" data-filter="oversold_rising">{{ _("Oversold + Rising") }}</button>
+      <button type="button" class="btn ms-filter" data-filter="target_rising">{{ _("Target + Rising") }}</button>
+      <button type="button" class="btn ms-filter" data-filter="strong_rising">{{ _("Strong + Rising") }}</button>
+      <span class="hint" id="ms-filter-count"></span>
+    </div>
+    <div class="panel wl-panel">
+      {% if not data.multi_rows %}
+        <p class="meta" style="padding:12px">{{ _('No Multi-Signal stocks under the current rules.') }}</p>
+      {% else %}
+      <table class="data" id="sm-multi-table">
+        <thead>
+          <tr class="col-row">
+            <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _('Stock') }}</th>
+            <th class="sortable num" data-col="1" data-type="num">{{ _('Price') }}</th>
+            <th class="sortable num" data-col="2" data-type="num">{{ _('Day %') }}</th>
+            <th class="sortable num" data-col="3" data-type="num">{{ _('Match') }}</th>
+            <th class="sortable" data-col="4" data-type="num">{{ _('Oversold') }}</th>
+            <th class="sortable" data-col="5" data-type="num">{{ _('Target <80') }}</th>
+            <th class="sortable" data-col="6" data-type="num">{{ _('63D <25') }}</th>
+            <th class="sortable" data-col="7" data-type="num">{{ _('Rising Now') }}</th>
+            <th class="sortable" data-col="8" data-type="num">{{ _('Strong') }}</th>
+            <th class="sortable num" data-col="9" data-type="num">{{ _('Up Days 5D') }}</th>
+            <th class="sortable num" data-col="10" data-type="num">{{ _('5D Return') }}</th>
+            <th class="sortable num" data-col="11" data-type="num">{{ _('63D Position') }}</th>
+            <th class="sortable num" data-col="12" data-type="num">AI</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in data.multi_rows %}
+          <tr data-match="{{ row.match_count or 0 }}"
+              data-oversold="{{ 1 if row.in_oversold else 0 }}"
+              data-target="{{ 1 if row.in_target else 0 }}"
+              data-low63="{{ 1 if row.in_low_63d else 0 }}"
+              data-rising="{{ 1 if row.in_rising else 0 }}"
+              data-strong="{{ 1 if row.in_strong else 0 }}">
+            <td class="col-ticker freeze-col freeze-edge" data-sort="{{ row.ticker }}">
+              <span class="sym">{{ row.ticker }}</span>
+              {% if row.name %}<div class="name name-sub">{{ row.name }}</div>{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">{{ money(row.price) }}</td>
+            <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
+              {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.match_count or 0 }}"><strong>{{ row.match_label or ((row.match_count or 0)|string + '/4') }}</strong></td>
+            <td data-sort="{{ 1 if row.in_oversold else 0 }}">{% if row.in_oversold %}✓{% else %}—{% endif %}</td>
+            <td data-sort="{{ 1 if row.in_target else 0 }}">{% if row.in_target %}✓{% else %}—{% endif %}</td>
+            <td data-sort="{{ 1 if row.in_low_63d else 0 }}">{% if row.in_low_63d %}✓{% else %}—{% endif %}</td>
+            <td data-sort="{{ 1 if row.in_rising else 0 }}">{% if row.in_rising %}✓{% else %}—{% endif %}</td>
+            <td data-sort="{{ 1 if row.in_strong else 0 }}">{% if row.in_strong %}✓{% else %}—{% endif %}</td>
+            <td class="num" data-sort="{{ row.up_days_5 if row.up_days_5 is not none else '' }}">
+              {% if row.up_days_5 is not none %}{{ row.up_days_5 }}/5{% else %}—{% endif %}
+            </td>
+            <td class="num {% if row.return_5d_pct is not none and row.return_5d_pct < 0 %}down{% elif row.return_5d_pct is not none and row.return_5d_pct > 0 %}up{% endif %}"
+                data-sort="{{ row.return_5d_pct if row.return_5d_pct is not none else '' }}">
+              {% if row.return_5d_pct is not none %}{{ '%+.2f'|format(row.return_5d_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.range_63d_pos if row.range_63d_pos is not none else '' }}">
+              {% if row.range_63d_pos is not none %}{{ '%.1f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.ai.final if row.ai else '' }}">
+              {% if row.ai %}{{ row.ai.final }}{% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  {% elif tab == 'candidates' %}
+    {% include "_candidate_analysis_panel.html" %}
+  {% endif %}
+
+  <script>
+    (function () {
+      var table = document.getElementById("sm-multi-table") || document.getElementById("sm-rising-table");
+      if (!table) return;
+      var tbody = table.tBodies[0];
+      function cellValue(row, idx, type) {
+        var td = row.cells[idx];
+        if (!td) return type === "num" ? NaN : "";
+        var raw = td.dataset.sort !== undefined ? td.dataset.sort : td.textContent.trim();
+        if (type === "num") {
+          var n = parseFloat(String(raw).replace(/[%+,\s×$/]/g, ""));
+          return isNaN(n) ? NaN : n;
+        }
+        return String(raw).toLowerCase();
+      }
+      table.querySelectorAll("thead tr.col-row th.sortable").forEach(function (th) {
+        th.addEventListener("click", function () {
+          var idx = th.dataset.col !== undefined
+            ? parseInt(th.dataset.col, 10)
+            : Array.prototype.indexOf.call(th.parentNode.children, th);
+          var type = th.dataset.type || "text";
+          var asc = !th.classList.contains("asc");
+          table.querySelectorAll("thead tr.col-row th").forEach(function (h) {
+            h.classList.remove("asc", "desc");
+          });
+          th.classList.add(asc ? "asc" : "desc");
+          var rows = Array.prototype.slice.call(tbody.rows);
+          rows.sort(function (a, b) {
+            var av = cellValue(a, idx, type), bv = cellValue(b, idx, type);
+            if (type === "num") {
+              var an = isNaN(av), bn = isNaN(bv);
+              if (an && bn) return 0;
+              if (an) return 1;
+              if (bn) return -1;
+              return asc ? av - bv : bv - av;
+            }
+            if (av < bv) return asc ? -1 : 1;
+            if (av > bv) return asc ? 1 : -1;
+            return 0;
+          });
+          rows.forEach(function (r) { tbody.appendChild(r); });
+        });
+      });
+      var filterBar = document.getElementById("ms-filters");
+      if (filterBar) {
+        function rowMatches(tr, key) {
+          var m = parseInt(tr.dataset.match || "0", 10);
+          var rising = tr.dataset.rising === "1";
+          if (key === "all") return true;
+          if (key === "ge3") return m >= 3;
+          if (key === "eq4") return m >= 4;
+          if (key === "low_rising") return tr.dataset.low63 === "1" && rising;
+          if (key === "oversold_rising") return tr.dataset.oversold === "1" && rising;
+          if (key === "target_rising") return tr.dataset.target === "1" && rising;
+          if (key === "strong_rising") return tr.dataset.strong === "1" && rising;
+          return true;
+        }
+        function applyFilter(key) {
+          var visible = 0;
+          Array.prototype.forEach.call(tbody.rows, function (tr) {
+            var ok = rowMatches(tr, key);
+            tr.style.display = ok ? "" : "none";
+            if (ok) visible += 1;
+          });
+          var countEl = document.getElementById("ms-filter-count");
+          if (countEl) countEl.textContent = visible + " / " + tbody.rows.length;
+        }
+        filterBar.querySelectorAll(".ms-filter").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            filterBar.querySelectorAll(".ms-filter").forEach(function (b) {
+              b.classList.remove("active");
+            });
+            btn.classList.add("active");
+            applyFilter(btn.dataset.filter || "all");
+          });
+        });
+        applyFilter("all");
+      }
+    })();
+  </script>
+{% endblock %}

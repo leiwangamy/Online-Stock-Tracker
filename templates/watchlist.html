@@ -19,6 +19,7 @@
     .fund.ok { color: #b45309; }
     .news.neutral { color: var(--muted); font-weight: 500; }
     .news.none { color: #94a3b8; font-weight: 500; }
+    .news.skipped { color: #94a3b8; font-weight: 600; font-style: italic; }
     .temp-form { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; align-items: center; }
     .temp-form input[type="text"] {
       flex: 1 1 260px; padding: 8px 10px; border: 1px solid var(--border);
@@ -164,7 +165,8 @@
     #wl-table th.col-ai, #wl-table td.col-ai { min-width: 88px; }
     #wl-table th.col-fund, #wl-table td.col-fund { min-width: 140px; }
     #wl-table th.col-news, #wl-table td.col-news { min-width: 120px; }
-    #wl-table th.col-alert, #wl-table td.col-alert { min-width: 96px; }
+    #wl-table th.col-alert, #wl-table td.col-alert { min-width: 88px; }
+    #wl-table th.col-alert-status, #wl-table td.col-alert-status { min-width: 72px; text-align: center; }
     .alert-dot {
       display: inline-block;
       margin-right: 6px;
@@ -173,7 +175,33 @@
       cursor: help;
       line-height: 1;
     }
-    .alert-dot.ready { filter: none; }
+    .alert-badge {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      padding: 2px 7px;
+      border-radius: 3px;
+      border: 1px solid transparent;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .alert-badge.none { color: var(--muted, #64748b); font-weight: 500; border: none; padding: 0; }
+    .alert-badge.watch {
+      color: #92400e;
+      background: #fef3c7;
+      border-color: #f59e0b;
+    }
+    .alert-badge.alert {
+      color: #9a3412;
+      background: #ffedd5;
+      border-color: #f97316;
+    }
+    .alert-badge.deep {
+      color: #991b1b;
+      background: #fee2e2;
+      border-color: #ef4444;
+    }
     .alert-edit {
       width: 5.5rem;
       padding: 3px 6px;
@@ -192,6 +220,26 @@
     .alert-edit.saving { opacity: 0.55; }
     .alert-edit.saved { border-color: var(--up, #16a34a); }
     .alert-edit.err { border-color: var(--down, #dc2626); }
+    .alert-manual-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .alert-reset {
+      font-size: 0.68rem;
+      padding: 1px 5px;
+      line-height: 1.3;
+      cursor: pointer;
+      border: 1px solid var(--border, #ccc);
+      border-radius: 3px;
+      background: transparent;
+      color: var(--muted, #64748b);
+    }
+    .alert-reset:hover { color: inherit; border-color: #999; }
+    .alert-active-manual { font-weight: 600; }
+    .alert-hint-line { margin: 0 0 10px; font-size: 0.85rem; color: var(--muted, #64748b); }
     .clv-val { font-weight: 600; font-variant-numeric: tabular-nums; }
     .clv-sub { font-size: 0.68rem; color: #94a3b8; line-height: 1.1; }
     .clv-flag { font-size: 0.65rem; color: #b45309; font-weight: 600; }
@@ -225,6 +273,11 @@
     table.data th.sortable::after { content: "\2195"; opacity: 0.35; margin-left: 4px; font-size: 0.8em; }
     table.data th.sortable.asc::after { content: "\2191"; opacity: 1; }
     table.data th.sortable.desc::after { content: "\2193"; opacity: 1; }
+    .ms-filters .ms-filter.active {
+      background: var(--accent, #2563eb);
+      color: #fff;
+      border-color: transparent;
+    }
   </style>
 {% endblock %}
 
@@ -269,7 +322,7 @@
           <th colspan="{{ 5 if show_valuation else 2 }}">{{ _("Investment value") }}</th>
           <th colspan="3">{{ _("Value reference") }}</th>
           <th colspan="1">{{ _("Risk / events") }}</th>
-          {% if show_alert %}<th colspan="1">{{ _("Manual alert") }}</th>{% endif %}
+          {% if show_alert %}<th colspan="4">{{ _("SMA alerts") }}</th>{% endif %}
         </tr>
         <tr class="col-row">
           <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _("Stock") }}</th>
@@ -281,7 +334,7 @@
 
           <th class="sortable" data-col="5" data-type="num" title="{{ _('Long-term trend: SMA63 vs SMA252 + SMA252 slope') }}">{{ _("Trend") }}</th>
           <th class="sortable num" data-col="6" data-type="num">{{ _("Price") }}</th>
-          <th class="sortable num" data-col="7" data-type="num">SMA{{ sma_period }}</th>
+          <th class="sortable num" data-col="7" data-type="num" title="{{ _('Short-term SMA used for Default / Deep alerts') }}">SMA{{ sma_period }}</th>
           <th class="sortable num" data-col="8" data-type="num" title="{{ _('Distance from short-term SMA') }}">{{ _("Dist. from mean %") }}</th>
           <th class="sortable num" data-col="9" data-type="num">{{ _("Day %") }}</th>
 
@@ -305,7 +358,13 @@
           <th class="sortable" data-col="25" data-type="text">{{ _("Earnings date") }}</th>
           {% if show_alert %}
           <th class="sortable num col-alert" data-col="26" data-type="num"
-              title="{{ _('Alert Price — saved manually; not auto-updated with price/SMA/target. Click cell to edit.') }}">Alert Price</th>
+              title="{{ _('Default Alert = SMA × 0.95. Updates whenever SMA refreshes. Not a buy signal.') }}">{{ _("Default Alert") }}</th>
+          <th class="sortable num col-alert" data-col="27" data-type="num"
+              title="{{ _('Manual Alert — your override. Stays fixed until you edit or Reset to Default.') }}">{{ _("Manual Alert") }}</th>
+          <th class="sortable num col-alert" data-col="28" data-type="num"
+              title="{{ _('Active Alert = Manual if set, else Default. Used for ALERT status.') }}">{{ _("Active Alert") }}</th>
+          <th class="sortable col-alert-status" data-col="29" data-type="text"
+              title="{{ _('WATCH ≤ Active×1.05 · ALERT ≤ Active · DEEP ≤ SMA×0.90. Research zones only — never auto-buy.') }}">{{ _("Alert Status") }}</th>
           {% endif %}
           {% else %}
           <th class="sortable col-fund" data-col="17" data-type="num" title="{{ _('Fundamentals health: 7 red-flag checks') }}">{{ _("Financial") }}</th>
@@ -316,7 +375,13 @@
           <th class="sortable" data-col="22" data-type="text">{{ _("Earnings date") }}</th>
           {% if show_alert %}
           <th class="sortable num col-alert" data-col="23" data-type="num"
-              title="{{ _('Alert Price (read-only). Sign in to edit.') }}">Alert Price</th>
+              title="{{ _('Default Alert = SMA × 0.95. Updates whenever SMA refreshes. Not a buy signal.') }}">{{ _("Default Alert") }}</th>
+          <th class="sortable num col-alert" data-col="24" data-type="num"
+              title="{{ _('Manual Alert — your override. Stays fixed until you edit or Reset to Default.') }}">{{ _("Manual Alert") }}</th>
+          <th class="sortable num col-alert" data-col="25" data-type="num"
+              title="{{ _('Active Alert = Manual if set, else Default. Used for ALERT status.') }}">{{ _("Active Alert") }}</th>
+          <th class="sortable col-alert-status" data-col="26" data-type="text"
+              title="{{ _('WATCH ≤ Active×1.05 · ALERT ≤ Active · DEEP ≤ SMA×0.90. Research zones only — never auto-buy.') }}">{{ _("Alert Status") }}</th>
           {% endif %}
           {% endif %}
         </tr>
@@ -324,18 +389,19 @@
       <tbody>
         {% for row in rows %}
         <tr data-ticker="{{ row.ticker }}"
-            data-price="{% if row.price is not none %}{{ row.price }}{% endif %}">
+            data-price="{% if row.price is not none %}{{ row.price }}{% endif %}"
+            data-sma="{% if row.sma is not none %}{{ row.sma }}{% endif %}">
           <td class="col-ticker freeze-col freeze-edge" data-sort="{{ row.ticker }}">
-            {% if show_alert and row.alert and row.alert.state == 'ready' %}
-              <span class="alert-dot ready" title="{{ _('READY — price entered alert zone (review fundamentals/news; not an auto BUY)') }}&#10;Current: ${{ '%.2f'|format(row.alert.price) }}&#10;Alert: ${{ '%.2f'|format(row.alert.alert_price) }}&#10;Distance: {{ '%+.2f'|format(row.alert.dist_pct) }}%">🟢</span>
-            {% elif show_alert and row.alert and row.alert.state == 'near' %}
-              <span class="alert-dot near" title="{{ _('NEAR — within 5% of alert') }}&#10;Current: ${{ '%.2f'|format(row.alert.price) }}&#10;Alert: ${{ '%.2f'|format(row.alert.alert_price) }}&#10;Distance: {{ '%+.2f'|format(row.alert.dist_pct) }}%">🟡</span>
+            {% if show_alert and row.alert and row.alert.state in ('alert', 'deep') %}
+              <span class="alert-dot ready" title="{% if row.alert.state == 'deep' %}{{ _('DEEP — Price ≤ SMA × 0.90. Research zone only; not an auto BUY.') }}{% else %}{{ _('ALERT — Price ≤ Active Alert. Research zone only; not an auto BUY.') }}{% endif %}&#10;{{ _('Price') }}: {% if row.price is not none %}${{ '%.2f'|format(row.price) }}{% else %}—{% endif %}&#10;{{ _('Active Alert') }}: {% if row.active_alert is not none %}${{ '%.2f'|format(row.active_alert) }}{% else %}—{% endif %}">🟢</span>
+            {% elif show_alert and row.alert and row.alert.state == 'watch' %}
+              <span class="alert-dot near" title="{{ _('WATCH — within 5% above Active Alert (≤ Active×1.05). Research zone only; not an auto BUY.') }}&#10;{{ _('Price') }}: {% if row.price is not none %}${{ '%.2f'|format(row.price) }}{% else %}—{% endif %}&#10;{{ _('Active Alert') }}: {% if row.active_alert is not none %}${{ '%.2f'|format(row.active_alert) }}{% else %}—{% endif %}{% if row.alert and row.alert.dist_pct is not none %}&#10;{{ _('Distance') }}: {{ '%+.2f'|format(row.alert.dist_pct) }}%{% endif %}">🟡</span>
             {% endif %}
             <strong>{{ row.ticker }}</strong>
             {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
           </td>
           {% if row.not_found %}
-            <td colspan="{% if show_valuation %}{% if show_alert %}26{% else %}25{% endif %}{% else %}{% if show_alert %}23{% else %}22{% endif %}{% endif %}" class="empty">{{ _("Ticker not found (bad symbol or delisted).") }}</td>
+            <td colspan="{% if show_valuation %}{% if show_alert %}29{% else %}25{% endif %}{% else %}{% if show_alert %}26{% else %}22{% endif %}{% endif %}" class="empty">{{ _("Ticker not found (bad symbol or delisted).") }}</td>
           {% else %}
             <td class="pools col-pools" data-sort="{{ row.pools }}">{{ row.pools }}</td>
             <td data-sort="{{ (row.industry or '')|lower }}">{% if row.industry %}{{ row.industry }}{% else %}—{% endif %}</td>
@@ -449,12 +515,14 @@ Age: {{ '%.1f'|format(row.get('mos_price_age_hours')) }}h{% endif %}{% else %}{{
               {% else %}—{% endif %}
             </td>
             {% set nw = row.news %}
-            <td class="col-news" data-sort="{{ nw.sort if nw else 0 }}"
+            <td class="col-news" data-sort="{{ nw.sort if nw else '' }}"
                 {% if nw and nw.detail %}title="{{ nw.detail }}"{% endif %}>
-              {% if nw and nw.has_news %}
+              {% if nw and (nw.skipped or nw.status == 'SKIPPED' or nw.tone == 'skipped') %}
+                <span class="news skipped" title="{{ nw.detail or _('News skipped — Financial Score &lt; 60%. Gate only; not a buy filter. SKIPPED ≠ NEUTRAL.') }}">{{ _('SKIPPED') }}</span>
+              {% elif nw and nw.has_news %}
                 <span class="news {{ nw.tone }}">{{ nw.label }}</span>
               {% elif nw %}
-                <span class="news none">NO NEWS</span>
+                <span class="news none" title="{{ _('Analyzed: no material news in 30d (NEUTRAL, score 0). Different from SKIPPED.') }}">{{ nw.label or _('NO NEWS') }}</span>
               {% else %}—{% endif %}
             </td>
 
@@ -480,20 +548,177 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
 
             <td data-sort="{{ row.earnings_date or '' }}">{{ row.earnings_date or "—" }}</td>
             {% if show_alert %}
-            <td class="num col-alert"
-                data-sort="{{ row.alert_price if row.alert_price is not none else '' }}">
+            <td class="num col-alert js-default-alert"
+                data-sort="{{ row.default_alert if row.default_alert is not none else '' }}"
+                title="{% if row.deep_alert is not none %}{{ _('Deep Alert (info)') }}: ${{ '%.2f'|format(row.deep_alert) }} (= SMA × 0.90){% endif %}">
+              {% if row.default_alert is not none %}${{ '%.2f'|format(row.default_alert) }}{% else %}—{% endif %}
+            </td>
+            <td class="num col-alert js-manual-alert"
+                data-sort="{{ row.manual_alert if row.manual_alert is not none else '' }}">
               {% if can_edit_alert %}
-              <input class="alert-edit" type="text" inputmode="decimal"
-                     data-ticker="{{ row.ticker }}"
-                     placeholder="—"
-                     value="{% if row.alert_price is not none %}{{ '%.2f'|format(row.alert_price) }}{% endif %}"
-                     title="{{ _('Alert Price. Enter/blur to save; clear then save to delete. Does not trigger trades.') }}">
+              <div class="alert-manual-wrap">
+                <input class="alert-edit" type="text" inputmode="decimal"
+                       data-ticker="{{ row.ticker }}"
+                       placeholder="—"
+                       value="{% if row.manual_alert is not none %}{{ '%.2f'|format(row.manual_alert) }}{% endif %}"
+                       title="{{ _('Manual Alert. Enter/blur to save; clear or Reset to use Default (SMA×0.95). Does not trigger trades.') }}">
+                <button type="button" class="alert-reset" data-ticker="{{ row.ticker }}"
+                        title="{{ _('Reset to Default — clear Manual; Active = current SMA × 0.95') }}"
+                        {% if row.manual_alert is none %}hidden{% endif %}>{{ _("Reset") }}</button>
+              </div>
               {% else %}
-                {% if row.alert_price is not none %}${{ '%.2f'|format(row.alert_price) }}{% else %}—{% endif %}
+                {% if row.manual_alert is not none %}${{ '%.2f'|format(row.manual_alert) }}{% else %}—{% endif %}
+              {% endif %}
+            </td>
+            <td class="num col-alert js-active-alert {% if row.alert_source == 'manual' %}alert-active-manual{% endif %}"
+                data-sort="{{ row.active_alert if row.active_alert is not none else '' }}"
+                title="{% if row.alert_source == 'manual' %}{{ _('Active = Manual Alert') }}{% elif row.alert_source == 'default' %}{{ _('Active = Default Alert (SMA × 0.95)') }}{% endif %}">
+              {% if row.active_alert is not none %}${{ '%.2f'|format(row.active_alert) }}{% else %}—{% endif %}
+            </td>
+            <td class="col-alert-status js-alert-status"
+                data-sort="{{ row.alert.state if row.alert and row.alert.state else '' }}">
+              {% if row.alert and row.alert.state == 'deep' %}
+                <span class="alert-badge deep" title="{{ _('DEEP — Price ≤ SMA × 0.90. Research zone only; not an auto BUY.') }}">DEEP</span>
+              {% elif row.alert and row.alert.state == 'alert' %}
+                <span class="alert-badge alert" title="{{ _('ALERT — Price ≤ Active Alert. Research zone only; not an auto BUY.') }}">ALERT</span>
+              {% elif row.alert and row.alert.state == 'watch' %}
+                <span class="alert-badge watch" title="{{ _('WATCH — within 5% above Active Alert (≤ Active×1.05). Research zone only; not an auto BUY.') }}">WATCH</span>
+              {% else %}
+                <span class="alert-badge none" title="{{ _('Above SMA — no alert zone') }}">—</span>
               {% endif %}
             </td>
             {% endif %}
           {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro rising_table(rows) %}
+  {% if not rows %}
+    <p class="empty">{{ _("No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)") }}</p>
+  {% else %}
+  <div class="panel wl-panel">
+    <table class="data" id="wl-table">
+      <thead>
+        <tr class="col-row">
+          <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _("Stock") }}</th>
+          <th class="sortable num" data-col="1" data-type="num">{{ _("Price") }}</th>
+          <th class="sortable num" data-col="2" data-type="num">{{ _("Day %") }}</th>
+          <th class="sortable num" data-col="3" data-type="num" title="{{ _('Up days in the latest 5 trading days (Close > prior close)') }}">{{ _("Up Days 5D") }}</th>
+          <th class="sortable num" data-col="4" data-type="num" title="{{ _('(Current close / close 5 trading days ago − 1) × 100') }}">{{ _("5D Return") }}</th>
+          <th class="sortable num" data-col="5" data-type="num" title="{{ _('(Price−Low)/(High−Low)×100; observational only') }}">{{ _("63D Position") }}</th>
+          <th class="sortable col-ai" data-col="6" data-type="num" title="{{ _('AI Score V1 = opportunity − risk. Uses public MOS T; excludes Admin Est.Value / real MOS and 63D Position.') }}">AI</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr data-ticker="{{ row.ticker }}">
+          <td class="col-ticker freeze-col freeze-edge" data-sort="{{ row.ticker }}">
+            <strong>{{ row.ticker }}</strong>
+            {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
+          </td>
+          <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">
+            {% if row.price is not none %}${{ '%.2f'|format(row.price) }}{% else %}—{% endif %}
+          </td>
+          <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
+              data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
+            {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+          </td>
+          <td class="num" data-sort="{{ row.up_days_5 if row.up_days_5 is not none else '' }}">
+            {% if row.up_days_5 is not none %}{{ row.up_days_5 }}/5{% else %}—{% endif %}
+          </td>
+          <td class="num {% if row.return_5d_pct is not none and row.return_5d_pct < 0 %}down{% elif row.return_5d_pct is not none and row.return_5d_pct > 0 %}up{% endif %}"
+              data-sort="{{ row.return_5d_pct if row.return_5d_pct is not none else '' }}">
+            {% if row.return_5d_pct is not none %}{{ '%+.2f'|format(row.return_5d_pct) }}%{% else %}—{% endif %}
+          </td>
+          <td class="num" data-sort="{{ row.range_63d_pos if row.range_63d_pos is not none else '' }}">
+            {% if row.range_63d_pos is not none %}{{ '%.1f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}
+          </td>
+          {% set a = row.ai %}
+          <td class="col-ai" data-sort="{{ a.final if a else '' }}" {% if a %}title="{{ a.detail }}"{% endif %}>
+            {% if a %}
+              {% set cls = 'good' if a.final >= 70 else ('mid' if a.final >= 40 else 'bad') %}
+              <span class="ai {{ cls }}">{{ a.final }}</span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro multi_signal_table(rows) %}
+  {% if not rows %}
+    <p class="empty">{{ _("No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)") }}</p>
+  {% else %}
+  <div class="panel wl-panel">
+    <table class="data" id="wl-table">
+      <thead>
+        <tr class="col-row">
+          <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _("Stock") }}</th>
+          <th class="sortable num" data-col="1" data-type="num">{{ _("Price") }}</th>
+          <th class="sortable num" data-col="2" data-type="num">{{ _("Day %") }}</th>
+          <th class="sortable num" data-col="3" data-type="num" title="{{ _('Match Count across Oversold / Target / 63D Low / Rising Now') }}">{{ _("Match") }}</th>
+          <th class="sortable" data-col="4" data-type="num" title="{{ _('Oversold pullback') }}">{{ _("Oversold") }}</th>
+          <th class="sortable" data-col="5" data-type="num" title="{{ _('Target Ratio < 80%') }}">{{ _("Target <80") }}</th>
+          <th class="sortable" data-col="6" data-type="num" title="{{ _('63D Position < 25%') }}">{{ _("63D <25") }}</th>
+          <th class="sortable" data-col="7" data-type="num" title="{{ _('Rising Now') }}">{{ _("Rising Now") }}</th>
+          <th class="sortable" data-col="8" data-type="num" title="{{ _('Currently on Strong Watchlist (not in Match Count)') }}">{{ _("Strong") }}</th>
+          <th class="sortable num" data-col="9" data-type="num" title="{{ _('Up days in the latest 5 trading days (Close > prior close)') }}">{{ _("Up Days 5D") }}</th>
+          <th class="sortable num" data-col="10" data-type="num" title="{{ _('(Current close / close 5 trading days ago − 1) × 100') }}">{{ _("5D Return") }}</th>
+          <th class="sortable num" data-col="11" data-type="num" title="{{ _('(Price−Low)/(High−Low)×100; observational only') }}">{{ _("63D Position") }}</th>
+          <th class="sortable col-ai" data-col="12" data-type="num" title="{{ _('AI Score V1 = opportunity − risk. Uses public MOS T; excludes Admin Est.Value / real MOS and 63D Position.') }}">AI</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr data-ticker="{{ row.ticker }}"
+            data-match="{{ row.match_count or 0 }}"
+            data-oversold="{{ 1 if row.in_oversold else 0 }}"
+            data-target="{{ 1 if row.in_target else 0 }}"
+            data-low63="{{ 1 if row.in_low_63d else 0 }}"
+            data-rising="{{ 1 if row.in_rising else 0 }}"
+            data-strong="{{ 1 if row.in_strong else 0 }}">
+          <td class="col-ticker freeze-col freeze-edge" data-sort="{{ row.ticker }}">
+            <strong>{{ row.ticker }}</strong>
+            {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
+          </td>
+          <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">
+            {% if row.price is not none %}${{ '%.2f'|format(row.price) }}{% else %}—{% endif %}
+          </td>
+          <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
+              data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
+            {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+          </td>
+          <td class="num" data-sort="{{ row.match_count or 0 }}"><strong>{{ row.match_label or ((row.match_count or 0)|string + '/4') }}</strong></td>
+          <td data-sort="{{ 1 if row.in_oversold else 0 }}">{% if row.in_oversold %}✓{% else %}—{% endif %}</td>
+          <td data-sort="{{ 1 if row.in_target else 0 }}">{% if row.in_target %}✓{% else %}—{% endif %}</td>
+          <td data-sort="{{ 1 if row.in_low_63d else 0 }}">{% if row.in_low_63d %}✓{% else %}—{% endif %}</td>
+          <td data-sort="{{ 1 if row.in_rising else 0 }}">{% if row.in_rising %}✓{% else %}—{% endif %}</td>
+          <td data-sort="{{ 1 if row.in_strong else 0 }}">{% if row.in_strong %}✓{% else %}—{% endif %}</td>
+          <td class="num" data-sort="{{ row.up_days_5 if row.up_days_5 is not none else '' }}">
+            {% if row.up_days_5 is not none %}{{ row.up_days_5 }}/5{% else %}—{% endif %}
+          </td>
+          <td class="num {% if row.return_5d_pct is not none and row.return_5d_pct < 0 %}down{% elif row.return_5d_pct is not none and row.return_5d_pct > 0 %}up{% endif %}"
+              data-sort="{{ row.return_5d_pct if row.return_5d_pct is not none else '' }}">
+            {% if row.return_5d_pct is not none %}{{ '%+.2f'|format(row.return_5d_pct) }}%{% else %}—{% endif %}
+          </td>
+          <td class="num" data-sort="{{ row.range_63d_pos if row.range_63d_pos is not none else '' }}">
+            {% if row.range_63d_pos is not none %}{{ '%.1f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}
+          </td>
+          {% set a = row.ai %}
+          <td class="col-ai" data-sort="{{ a.final if a else '' }}" {% if a %}title="{{ a.detail }}"{% endif %}>
+            {% if a %}
+              {% set cls = 'good' if a.final >= 70 else ('mid' if a.final >= 40 else 'bad') %}
+              <span class="ai {{ cls }}">{{ a.final }}</span>
+            {% else %}—{% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -552,7 +777,7 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         <p>
           {{ _("Fund cache coverage:") }} <strong>{{ fund_cache_hits }} / {{ fund_cache_total }}</strong>
           {% if low_target_ms is not none %}· {{ _("assembled") }} {{ low_target_ms }} ms{% endif %}
-          · {{ _("News shown only when Financial Pass Rate ≥ 60% (ok/known); below threshold news is — · Est / MOS / CLV / AI blank on this tab.") }}
+          · {{ _("News: Financial ≥60% → analyze (cache if fresh). Below → SKIPPED (score 0, no API). SKIPPED ≠ NEUTRAL. News Score ±5 in AI only — not a buy filter.") }}
         </p>
         {% endif %}
         {% if show_valuation|default(false) %}
@@ -579,10 +804,15 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
           <li>{{ _("Rebound confirm") }} <code>15</code></li>
           <li>{{ _("Volume") }} <code>10</code> (RVOL × day direction)</li>
           <li>{{ _("Financial quality") }} <code>15</code> (🟢15 / 🟡8–12 / 🔴0–7)</li>
-          <li>{{ _("News") }} <code>10</code> (pos 10 / neu 5 / neg 0)</li>
+          <li>{{ _("News Score") }} <code>±5</code> (POSITIVE +5 / NEUTRAL 0 / NEGATIVE −5 / SKIPPED 0)</li>
           <li>{{ _("MOS T") }} <code>5</code> — {{ _("MOS T — Margin of Safety based on 80% of the 1-Year Analyst Target Price.") }}</li>
         </ul>
-        <p class="hint" style="text-align:left;margin:0">{{ _("Risk penalties: severe financial −0~15, major negative news −0~15, volume dump −0~5, high vol/low liquidity −0~5, near earnings −0~15. Hover AI for breakdown. Green≥70 / yellow 40–69 / red <40. 63D Position and Admin-only Intrinsic Value / real MOS are excluded from AI Score V1.") }}</p>
+        <p class="hint" style="text-align:left;margin:8px 0 0">
+          <strong>{{ _("News gate (Watchlist primary groups)") }}:</strong>
+          {{ _("Signal → Financial Score → if Financial Pass Rate ≥ 60% (ok/known), fetch/analyze News (reuse fresh cache); else SKIPPED, News Score = 0, no News API. Financial ≥ 60% is only the News-analysis gate — not a buy condition. SKIPPED ≠ NEUTRAL (both score 0).") }}
+          {{ _("Exception — My Watchlist: always load Financial and News when the ticker resolves (regular holdings).") }}
+        </p>
+        <p class="hint" style="text-align:left;margin:6px 0 0">{{ _("Risk penalties: severe financial −0~15, volume dump −0~5, high vol/low liquidity −0~5, near earnings −0~15. News is not double-counted in risk (only ±5 News Score). Hover AI for breakdown. Green≥70 / yellow 40–69 / red <40. 63D Position and Admin-only Intrinsic Value / real MOS are excluded from AI Score V1.") }}</p>
       </div>
       <div class="legend-col">
         {% if show_valuation|default(false) %}
@@ -653,13 +883,14 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
           <li><code>E</code> {{ _('Financial / legal risk') }} ★★★★★</li>
           <li><code>O</code> {{ _('Other') }}</li>
         </ul>
-        <p class="hint" style="text-align:left;margin:0">{{ _("NO NEWS = none material in 30d; NEUTRAL = news but muted impact. Major negatives red, positives green. Hover for titles.") }}</p>
+        <p class="hint" style="text-align:left;margin:0">{{ _("Pipeline: Financial first; News only if Financial ≥60%. SKIPPED = never analyzed (score 0). NEUTRAL / NO NEWS = analyzed, no material signal (score 0). POSITIVE +5 / NEGATIVE −5. Cache reused when fresh. Hover for titles.") }}</p>
       </div>
       </div>
     </div>
   </dialog>
 
   {% if tab == 'mine' %}
+    <p class="alert-hint-line">{{ _("SMA alerts: Default = SMA×0.95 (auto). Manual overrides Active until Reset. WATCH / ALERT / DEEP are research zones only — never auto-buy.") }}</p>
     {% if can_edit_mine|default(false) %}
     <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='mine') }}" style="margin-bottom:8px">
       <input type="hidden" name="action" value="add_mine">
@@ -772,54 +1003,191 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         });
       });
 
-      function refreshAlertDot(tr, alert) {
+      // Multi-Signal display filters (do not change underlying membership).
+      var filterBar = document.getElementById("ms-filters");
+      if (filterBar) {
+        function rowMatches(tr, key) {
+          var m = parseInt(tr.dataset.match || "0", 10);
+          var rising = tr.dataset.rising === "1";
+          if (key === "all") return true;
+          if (key === "ge3") return m >= 3;
+          if (key === "eq4") return m >= 4;
+          if (key === "low_rising") return tr.dataset.low63 === "1" && rising;
+          if (key === "oversold_rising") return tr.dataset.oversold === "1" && rising;
+          if (key === "target_rising") return tr.dataset.target === "1" && rising;
+          if (key === "strong_rising") return tr.dataset.strong === "1" && rising;
+          return true;
+        }
+        function applyFilter(key) {
+          var visible = 0;
+          Array.prototype.forEach.call(tbody.rows, function (tr) {
+            var ok = rowMatches(tr, key);
+            tr.style.display = ok ? "" : "none";
+            if (ok) visible += 1;
+          });
+          var countEl = document.getElementById("ms-filter-count");
+          if (countEl) countEl.textContent = visible + " / " + tbody.rows.length;
+        }
+        filterBar.querySelectorAll(".ms-filter").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            filterBar.querySelectorAll(".ms-filter").forEach(function (b) {
+              b.classList.remove("active");
+            });
+            btn.classList.add("active");
+            applyFilter(btn.dataset.filter || "all");
+          });
+        });
+        applyFilter("all");
+      }
+
+      function fmtMoney(v) {
+        if (v == null || v === "") return "—";
+        return "$" + Number(v).toFixed(2);
+      }
+
+      function alertBadgeHtml(state) {
+        if (state === "deep") {
+          return '<span class="alert-badge deep" title="DEEP — Price ≤ SMA × 0.90. Research zone only; not an auto BUY.">DEEP</span>';
+        }
+        if (state === "alert") {
+          return '<span class="alert-badge alert" title="ALERT — Price ≤ Active Alert. Research zone only; not an auto BUY.">ALERT</span>';
+        }
+        if (state === "watch") {
+          return '<span class="alert-badge watch" title="WATCH — within 5% above Active Alert (≤ Active×1.05). Research zone only; not an auto BUY.">WATCH</span>';
+        }
+        return '<span class="alert-badge none" title="Above SMA — no alert zone">—</span>';
+      }
+
+      function refreshAlertDot(tr, alert, price, sma, activeAlert) {
         var td = tr.querySelector("td.col-ticker");
         if (!td) return;
         var old = td.querySelector(".alert-dot");
         if (old) old.remove();
-        if (!alert || !alert.state) return;
+        var state = alert && alert.state;
+        if (!state) return;
         var span = document.createElement("span");
-        span.className = "alert-dot " + alert.state;
-        var label = alert.state === "ready" ? "READY" : "NEAR";
-        var tip = label + "\nCurrent: $" + Number(alert.price).toFixed(2)
-          + "\nAlert: $" + Number(alert.alert_price).toFixed(2)
-          + "\nDistance: " + (alert.dist_pct >= 0 ? "+" : "") + Number(alert.dist_pct).toFixed(2) + "%";
-        span.title = tip;
-        span.textContent = alert.state === "ready" ? "🟢" : "🟡";
+        var px = (price != null && price !== "") ? Number(price) : null;
+        var sm = (sma != null && sma !== "") ? Number(sma) : null;
+        var ap = (activeAlert != null && activeAlert !== "") ? Number(activeAlert) : null;
+        if (state === "alert" || state === "deep") {
+          span.className = "alert-dot ready";
+          span.textContent = "🟢";
+          span.title = (state === "deep"
+            ? "DEEP — Price ≤ SMA × 0.90. Research zone only; not an auto BUY."
+            : "ALERT — Price ≤ Active Alert. Research zone only; not an auto BUY.")
+            + "\nPrice: " + (px != null && !isNaN(px) ? "$" + px.toFixed(2) : "—")
+            + "\nActive Alert: " + (ap != null && !isNaN(ap) ? "$" + ap.toFixed(2) : "—");
+        } else if (state === "watch") {
+          span.className = "alert-dot near";
+          span.textContent = "🟡";
+          span.title = "WATCH — within 5% above Active Alert (≤ Active×1.05). Research zone only; not an auto BUY."
+            + "\nPrice: " + (px != null && !isNaN(px) ? "$" + px.toFixed(2) : "—")
+            + "\nActive Alert: " + (ap != null && !isNaN(ap) ? "$" + ap.toFixed(2) : "—");
+        } else {
+          return;
+        }
         td.insertBefore(span, td.firstChild);
+      }
+
+      function applyAlertResponse(tr, j) {
+        if (!tr || !j) return;
+        var defTd = tr.querySelector(".js-default-alert");
+        if (defTd) {
+          defTd.setAttribute("data-sort", j.default_alert == null ? "" : String(j.default_alert));
+          defTd.textContent = fmtMoney(j.default_alert);
+          if (j.deep_alert != null) {
+            defTd.title = "Deep Alert (info): $" + Number(j.deep_alert).toFixed(2) + " (= SMA × 0.90)";
+          }
+        }
+        var manTd = tr.querySelector(".js-manual-alert");
+        if (manTd) {
+          manTd.setAttribute("data-sort", j.manual_alert == null ? "" : String(j.manual_alert));
+          var input = manTd.querySelector("input.alert-edit");
+          if (input) {
+            input.value = j.manual_alert == null ? "" : Number(j.manual_alert).toFixed(2);
+          }
+          var resetBtn = manTd.querySelector(".alert-reset");
+          if (resetBtn) {
+            if (j.manual_alert == null) resetBtn.setAttribute("hidden", "hidden");
+            else resetBtn.removeAttribute("hidden");
+          }
+        }
+        var actTd = tr.querySelector(".js-active-alert");
+        if (actTd) {
+          actTd.setAttribute("data-sort", j.active_alert == null ? "" : String(j.active_alert));
+          actTd.textContent = fmtMoney(j.active_alert);
+          actTd.classList.toggle("alert-active-manual", j.alert_source === "manual");
+          actTd.title = j.alert_source === "manual"
+            ? "Active = Manual Alert"
+            : (j.alert_source === "default" ? "Active = Default Alert (SMA × 0.95)" : "");
+        }
+        var stTd = tr.querySelector(".js-alert-status");
+        var state = (j.alert && j.alert.state) || "";
+        if (stTd) {
+          stTd.setAttribute("data-sort", state);
+          stTd.innerHTML = alertBadgeHtml(state);
+        }
+        refreshAlertDot(
+          tr,
+          j.alert,
+          tr.getAttribute("data-price"),
+          tr.getAttribute("data-sma"),
+          j.active_alert
+        );
+      }
+
+      function postAlert(body) {
+        return fetch("{{ url_for('watchlist_alert_price') }}", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Accept": "application/json" },
+          body: JSON.stringify(body)
+        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); });
       }
 
       function saveAlert(input) {
         var ticker = input.getAttribute("data-ticker");
         var tr = input.closest("tr");
         var price = tr ? tr.getAttribute("data-price") : "";
+        var sma = tr ? tr.getAttribute("data-sma") : "";
         var raw = (input.value || "").trim().replace(/[$,]/g, "");
-        var body = { ticker: ticker, alert_price: raw === "" ? "" : raw, price: price };
+        var body = {
+          ticker: ticker,
+          alert_price: raw === "" ? "" : raw,
+          price: price,
+          sma: sma
+        };
         input.classList.remove("saved", "err");
         input.classList.add("saving");
-        fetch("{{ url_for('watchlist_alert_price') }}", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Accept": "application/json" },
-          body: JSON.stringify(body)
-        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        postAlert(body)
           .then(function (res) {
             input.classList.remove("saving");
             if (!res.ok || !res.j.ok) {
               input.classList.add("err");
               return;
             }
-            var ap = res.j.alert_price;
-            var td = input.closest("td");
-            if (td) td.setAttribute("data-sort", ap == null ? "" : String(ap));
-            input.value = ap == null ? "" : Number(ap).toFixed(2);
+            applyAlertResponse(tr, res.j);
             input.classList.add("saved");
-            if (tr) refreshAlertDot(tr, res.j.alert);
             setTimeout(function () { input.classList.remove("saved"); }, 800);
           })
           .catch(function () {
             input.classList.remove("saving");
             input.classList.add("err");
           });
+      }
+
+      function resetAlert(btn) {
+        var ticker = btn.getAttribute("data-ticker");
+        var tr = btn.closest("tr");
+        var price = tr ? tr.getAttribute("data-price") : "";
+        var sma = tr ? tr.getAttribute("data-sma") : "";
+        btn.disabled = true;
+        postAlert({ ticker: ticker, reset: true, price: price, sma: sma })
+          .then(function (res) {
+            btn.disabled = false;
+            if (!res.ok || !res.j.ok) return;
+            applyAlertResponse(tr, res.j);
+          })
+          .catch(function () { btn.disabled = false; });
       }
 
       table.querySelectorAll("input.alert-edit").forEach(function (input) {
@@ -832,6 +1200,13 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         input.addEventListener("blur", function () { saveAlert(input); });
         // Prevent column sort when clicking the editor
         input.addEventListener("click", function (e) { e.stopPropagation(); });
+      });
+      table.querySelectorAll("button.alert-reset").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          resetAlert(btn);
+        });
       });
     })();
   </script>

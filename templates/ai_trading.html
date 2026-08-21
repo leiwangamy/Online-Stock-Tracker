@@ -184,8 +184,23 @@
   {% endif %}
 
   {% if tab == 'today' %}
-    <h2 class="section">{{ _('AI Candidates — Top 10') }}</h2>
-    <p class="hint">{{ _('Highest AI Score from combined system screening: Oversold + Target Ratio < 80% + 63D Position < 25%, deduplicated. Priority ⭐ is a separate human flag and does not change AI Score. Candidates do not become positions until Create Paper Orders. My Watchlist and Temp are not included automatically.') }}</p>
+    <h2 class="section">{{ _('AI Trading Watchlist — Top 10') }}</h2>
+    <p class="hint">{{ _('Strict paper-trading list: Oversold + Target Ratio < 80% + 63D Position < 25% (low position / quality screens), ranked by existing AI Score. Rising Now / 5D metrics are timing references only and do not change AI Score. Priority ⭐ and Trade Candidate ★ are human flags. Orders are not created until you click Create Paper Orders. Research more names on Candidate Analysis → My Watchlist → Trade Candidate.') }}</p>
+
+    {% if trade_candidates %}
+    <p class="hint" style="margin-top:0"><strong>{{ _('Trade Candidates') }}:</strong>
+      {% for t in trade_candidates %}
+        <span style="margin-right:8px">★ {{ t }}</span>
+      {% else %}
+        —
+      {% endfor %}
+      · <a href="{{ url_for('strong_stock_monitor', tab='candidates') }}">{{ _('Candidate Analysis') }}</a>
+    </p>
+    {% else %}
+    <p class="hint" style="margin-top:0">{{ _('No Trade Candidates yet. Mark them on Candidate Analysis (separate from My Watchlist).') }}
+      <a href="{{ url_for('strong_stock_monitor', tab='candidates') }}">{{ _('Candidate Analysis') }}</a>
+    </p>
+    {% endif %}
 
     {% if can_manage %}
     <form class="temp-form" method="post" action="{{ url_for('ai_trading', tab='today') }}">
@@ -216,13 +231,21 @@
             <th>#</th>
             <th>{{ _('Symbol') }}</th>
             <th>{{ _('Company') }}</th>
-            <th class="num">{{ _('AI Score') }}</th>
-            <th class="num">{{ _('MOS T') }}</th>
-            <th>{{ _('Financial') }}</th>
-            <th>{{ _('News') }}</th>
             <th class="num">{{ _('Price') }}</th>
+            <th class="num">{{ _('Day %') }}</th>
+            <th class="num">{{ _('AI Score') }}</th>
+            <th>{{ _('Financial') }}</th>
+            <th class="num">{{ _('63D Position') }}</th>
+            <th class="num">{{ _('Target Ratio') }}</th>
+            <th class="num">{{ _('MOS T') }}</th>
+            <th class="num">{{ _('Strong COUNT20') }}</th>
+            <th>{{ _('Rising Now') }}</th>
+            <th class="num">{{ _('Up Days 5D') }}</th>
+            <th class="num">{{ _('5D Return') }}</th>
+            <th>{{ _('News') }}</th>
             <th>{{ _('Source') }}</th>
             <th>{{ _('Priority') }}</th>
+            <th>{{ _('Trade Candidate') }}</th>
             <th class="num">{{ _('Suggested Allocation') }}</th>
             <th class="num">{{ _('Shares') }}</th>
             <th class="num">{{ _('Stop Loss') }}</th>
@@ -235,13 +258,29 @@
             <td>{{ c.rank }}</td>
             <td><strong>{{ c.ticker }}</strong></td>
             <td>{{ c.name or '—' }}</td>
-            <td class="num">{% if c.ai_score is not none %}{{ '%.0f'|format(c.ai_score) }}{% else %}—{% endif %}</td>
-            <td class="num">{% if c.mos_t is not none %}{{ '%+.1f'|format(c.mos_t) }}%{% else %}—{% endif %}</td>
-            <td>{{ c.financial_label or '—' }}</td>
-            <td>{{ c.news_label or '—' }}</td>
             <td class="num">{{ money(c.price) }}</td>
+            <td class="num {% if c.change_pct is not none and c.change_pct < 0 %}down{% elif c.change_pct is not none and c.change_pct > 0 %}up{% endif %}">
+              {% if c.change_pct is not none %}{{ '%+.2f'|format(c.change_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num">{% if c.ai_score is not none %}{{ '%.0f'|format(c.ai_score) }}{% else %}—{% endif %}</td>
+            <td>{{ c.financial_label or '—' }}</td>
+            <td class="num">{% if c.range_63d_pos is not none %}{{ '%.1f'|format(c.range_63d_pos) }}%{% else %}—{% endif %}</td>
+            <td class="num">
+              {% if c.price is not none and c.target_1y %}
+                {{ '%.2f'|format(c.price / c.target_1y) }}
+              {% else %}—{% endif %}
+            </td>
+            <td class="num">{% if c.mos_t is not none %}{{ '%+.1f'|format(c.mos_t) }}%{% else %}—{% endif %}</td>
+            <td class="num">{{ c.count20_label or '—' }}</td>
+            <td>{% if c.in_rising %}✓{% else %}—{% endif %}</td>
+            <td class="num">{% if c.up_days_5 is not none %}{{ c.up_days_5 }}/5{% else %}—{% endif %}</td>
+            <td class="num {% if c.return_5d_pct is not none and c.return_5d_pct < 0 %}down{% elif c.return_5d_pct is not none and c.return_5d_pct > 0 %}up{% endif %}">
+              {% if c.return_5d_pct is not none %}{{ '%+.2f'|format(c.return_5d_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td>{{ c.news_label or '—' }}</td>
             <td style="white-space:nowrap;font-size:0.82rem">{{ c.source_label or '—' }}</td>
             <td>{% if c.is_priority %}<span class="pri">⭐</span>{% else %}—{% endif %}</td>
+            <td>{% if c.is_trade_candidate %}★{% else %}—{% endif %}</td>
             <td class="num">{{ money(c.suggested_alloc) }}</td>
             <td class="num">{% if c.suggested_shares %}{{ c.suggested_shares }}{% if c.shares_mode == 'fractional' %} <span class="hint">(frac)</span>{% endif %}{% else %}—{% endif %}</td>
             <td class="num">{{ money(c.stop_price) }}</td>

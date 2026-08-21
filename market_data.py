@@ -604,9 +604,73 @@ def fund_qualifies_for_news(
     *,
     min_pass_rate: float = 0.60,
 ) -> bool:
-    """True when Financial Pass Rate >= min_pass_rate (default 60%)."""
+    """True when Financial Pass Rate >= min_pass_rate (default 60%).
+
+    This is only a News-analysis gate — not a buy signal.
+    """
     rate = fund_pass_rate(fund)
     return rate is not None and rate >= min_pass_rate
+
+
+def make_news_skipped(
+    *,
+    reason: str = "Financial Score < 60%",
+) -> dict[str, Any]:
+    """
+    Explicit SKIPPED News payload (never analyzed / no API call).
+
+    Distinct from NEUTRAL: both score 0, but SKIPPED means News was not run.
+    Do not persist this object into news_cache.json.
+    """
+    return {
+        "has_news": False,
+        "label": "SKIPPED",
+        "tone": "skipped",
+        "status": "SKIPPED",
+        "sort": -1,
+        "news_score": 0,
+        "skipped": True,
+        "neg_codes": [],
+        "detail": f"News skipped — {reason} (gate only; not a buy filter)",
+    }
+
+
+def is_news_skipped(news: dict[str, Any] | None) -> bool:
+    if not isinstance(news, dict):
+        return False
+    return bool(
+        news.get("skipped")
+        or news.get("status") == "SKIPPED"
+        or news.get("tone") == "skipped"
+    )
+
+
+def annotate_news_status(news: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Attach status / news_score on analyzed news; pass SKIPPED through."""
+    if not isinstance(news, dict):
+        return None
+    if is_news_skipped(news):
+        news = dict(news)
+        news["status"] = "SKIPPED"
+        news["tone"] = "skipped"
+        news["label"] = news.get("label") or "SKIPPED"
+        news["news_score"] = 0
+        news["skipped"] = True
+        return news
+    out = dict(news)
+    tone = out.get("tone")
+    if tone == "pos":
+        out["status"] = "POSITIVE"
+        out["news_score"] = 5
+    elif tone == "neg":
+        out["status"] = "NEGATIVE"
+        out["news_score"] = -5
+    else:
+        # Analyzed: no material pos/neg (includes NEUTRAL label and NO NEWS).
+        out["status"] = "NEUTRAL"
+        out["news_score"] = 0
+    out["skipped"] = False
+    return out
 
 
 def _fund_period_meta(info: dict[str, Any] | None) -> dict[str, Any]:
@@ -858,7 +922,12 @@ def _load_news_disk() -> dict[str, Any]:
 
 
 def _news_payload_valid(news: Any) -> bool:
-    return isinstance(news, dict) and ("tone" in news or "label" in news)
+    """True for analyzed news payloads. SKIPPED is ephemeral and must not be cached."""
+    if not isinstance(news, dict):
+        return False
+    if news.get("skipped") or news.get("status") == "SKIPPED" or news.get("tone") == "skipped":
+        return False
+    return "tone" in news or "label" in news
 
 
 def _news_entry_valid(entry: Any, *, now: float | None = None, ttl: float = _NEWS_DISK_TTL) -> bool:
@@ -918,7 +987,7 @@ def get_news_cached_only(tickers: list[str]) -> dict[str, dict[str, Any] | None]
             entry = disk.get(t)
             if _news_entry_valid(entry, now=now):
                 news = entry.get("news")
-        out[t] = news if _news_payload_valid(news) else None
+        out[t] = annotate_news_status(news) if _news_payload_valid(news) else None
     return out
 
 
@@ -1219,7 +1288,7 @@ def _news_from_ticker(tk: yf.Ticker, days: int = NEWS_LOOKBACK_DAYS) -> dict[str
     }
 
 
-def _fetch_signals_one(ticker: str) -> dict[str, Any]:
+def _fetch_signals_one(ticker: str, *, force_news: bool = False) -> dict[str, Any]:
     tk = yf.Ticker(ticker)
     disk_entry = _load_fund_disk().get(ticker)
     # Shared fund cache: reuse valid entry (skip Yahoo fund/info).
@@ -1238,14 +1307,16 @@ def _fetch_signals_one(ticker: str) -> dict[str, Any]:
             _persist_fund_disk(ticker, fund, info=info)
 
     # News gate: Financial Pass Rate >= 60% before any news API / analysis.
-    if not fund_qualifies_for_news(fund):
-        return {"fund": fund, "news": None}
+    # Exception: force_news=True (My Watchlist) always analyzes News when possible.
+    # Below threshold without force → explicit SKIPPED (score 0); never call News API.
+    if not force_news and not fund_qualifies_for_news(fund):
+        return {"fund": fund, "news": make_news_skipped()}
 
     news_entry = _load_news_disk().get(ticker)
     if _news_entry_valid(news_entry):
-        news = news_entry.get("news")
+        news = annotate_news_status(news_entry.get("news"))
     else:
-        news = _news_from_ticker(tk)
+        news = annotate_news_status(_news_from_ticker(tk))
         _persist_news_disk(ticker, news)
 
     return {"fund": fund, "news": news}
@@ -1254,7 +1325,8 @@ def _fetch_signals_one(ticker: str) -> dict[str, Any]:
 def _fetch_news_one(ticker: str) -> dict[str, Any]:
     """News-only Yahoo read using existing 30-day classifier (no fund/DCF/CLV)."""
     tk = yf.Ticker(ticker)
-    return _news_from_ticker(tk)
+    raw = _news_from_ticker(tk)
+    return annotate_news_status(raw) or raw
 
 
 def ensure_news_cache(
@@ -1363,11 +1435,19 @@ def ensure_news_cache(
     }
 
 
-def get_signals(tickers: list[str], *, max_workers: int = 8) -> dict[str, dict[str, Any]]:
+def get_signals(
+    tickers: list[str],
+    *,
+    max_workers: int = 8,
+    force_news: bool = False,
+) -> dict[str, dict[str, Any]]:
     """Return {ticker: {fund, news}} using a 15-min in-process cache.
 
     Fund/news prefer shared persistent caches when still valid.
+    force_news=True: always analyze News (My Watchlist); bypass Financial≥60% gate.
     """
+    from functools import partial
+
     now = time.time()
     uniq = []
     seen = set()
@@ -1378,9 +1458,23 @@ def get_signals(tickers: list[str], *, max_workers: int = 8) -> dict[str, dict[s
             uniq.append(t)
 
     todo = [t for t in uniq if t not in _signal_cache or now - _signal_cache[t][0] > _SIGNAL_TTL]
+    if force_news:
+        # Refresh when prior cache only has SKIPPED / missing news.
+        for t in uniq:
+            if t in todo:
+                continue
+            mem = _signal_cache.get(t)
+            if not mem or not isinstance(mem[1], dict):
+                todo.append(t)
+                continue
+            news = mem[1].get("news")
+            if is_news_skipped(news) or not _news_payload_valid(news):
+                todo.append(t)
+
     if todo:
+        worker = partial(_fetch_signals_one, force_news=force_news)
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            futures = {pool.submit(_fetch_signals_one, t): t for t in todo}
+            futures = {pool.submit(worker, t): t for t in todo}
             for fut in as_completed(futures):
                 t = futures[fut]
                 try:
@@ -1388,18 +1482,18 @@ def get_signals(tickers: list[str], *, max_workers: int = 8) -> dict[str, dict[s
                 except Exception:
                     _signal_cache[t] = (now, {"fund": None, "news": None})
 
-    # Hydrate news from shared disk when fund qualifies but memory still has None
-    # (e.g. warm script wrote news after this process cached signals).
+    # Hydrate news from shared disk when memory still has None / SKIPPED.
     out: dict[str, dict[str, Any]] = {}
     for t in uniq:
         if t not in _signal_cache:
             continue
-        payload = _gate_news_in_signals(_signal_cache[t][1])
+        payload = _gate_news_in_signals(_signal_cache[t][1], force_news=force_news)
         fund = payload.get("fund")
-        if fund_qualifies_for_news(fund) and not _news_payload_valid(payload.get("news")):
+        need_news = force_news or fund_qualifies_for_news(fund)
+        if need_news and not _news_payload_valid(payload.get("news")):
             entry = _load_news_disk().get(t)
             if _news_entry_valid(entry, now=now):
-                news = entry.get("news")
+                news = annotate_news_status(entry.get("news"))
                 payload = {"fund": fund, "news": news}
                 prev_ts = _signal_cache[t][0]
                 _signal_cache[t] = (prev_ts, payload)
@@ -1407,27 +1501,37 @@ def get_signals(tickers: list[str], *, max_workers: int = 8) -> dict[str, dict[s
     return out
 
 
-def _gate_news_in_signals(payload: dict[str, Any] | None) -> dict[str, Any]:
-    """Strip news when Financial Pass Rate < 60% (incl. stale in-process cache)."""
+def _gate_news_in_signals(
+    payload: dict[str, Any] | None,
+    *,
+    force_news: bool = False,
+) -> dict[str, Any]:
+    """Apply Financial≥60% News gate unless force_news (My Watchlist)."""
     if not isinstance(payload, dict):
-        return {"fund": None, "news": None}
+        return {
+            "fund": None,
+            "news": None if force_news else make_news_skipped(reason="no financial data"),
+        }
     fund = payload.get("fund")
-    if fund_qualifies_for_news(fund):
-        return {"fund": fund, "news": payload.get("news")}
-    return {"fund": fund, "news": None}
+    if force_news or fund_qualifies_for_news(fund):
+        return {"fund": fund, "news": annotate_news_status(payload.get("news"))}
+    return {"fund": fund, "news": make_news_skipped()}
 
 
 # ---------------------------------------------------------------------------
 # AI Score V1
 #
-# Opportunity (base, 0–100) = pullback 25 + trend 20 + rebound 15 + volume 10
-#                             + financial 15 + news 10 + MOS T 5.
+# Opportunity (base) = pullback 25 + trend 20 + rebound 15 + volume 10
+#                      + financial 15 + news (±5) + MOS T 5.
+# News is an independent signed component (max ±5):
+#   POSITIVE +5 · NEUTRAL 0 · NEGATIVE −5 · SKIPPED 0
+# SKIPPED (Financial Score < 60%, News never analyzed) ≠ NEUTRAL (analyzed).
+# Financial ≥ 60% is only the News-analysis gate — not a buy condition.
 # MOS T uses public analyst-target proxy only (never Admin Est.Value / real MOS).
 # 63D Position is excluded (overlaps pullback).
-# Risk penalty (0–55) subtracted afterwards, so every point is explainable:
-#   severe financials 0–15, major negative news 0–15, volume crash 0–5,
-#   volatility/liquidity 0–5, upcoming earnings 0–15.
-# Final AI = clamp(base − risk, 0, 100).  Goal: transparent, not "perfect".
+# Risk penalty subtracted afterwards (financial / volume / liquidity / earnings).
+# News risk is not double-counted — News Score already carries ±5.
+# Final AI = clamp(base − risk, 0, 100).
 # ---------------------------------------------------------------------------
 
 def _score_pullback(dist: float | None) -> int:
@@ -1517,14 +1621,21 @@ def _score_financial(fund: dict[str, Any] | None) -> int:
 
 
 def _score_news(news: dict[str, Any] | None) -> int:
-    if not news:
-        return 5
-    tone = news.get("tone")
-    if tone == "pos":
-        return 10
-    if tone == "neg":
+    """
+    Independent News Score for AI (max ±5).
+
+    POSITIVE +5 · NEUTRAL 0 · NEGATIVE −5 · SKIPPED 0
+    SKIPPED and NEUTRAL both score 0 but remain different statuses.
+    """
+    if not news or is_news_skipped(news):
         return 0
-    return 5  # neutral / none
+    tone = news.get("tone")
+    status = news.get("status")
+    if tone == "pos" or status == "POSITIVE":
+        return 5
+    if tone == "neg" or status == "NEGATIVE":
+        return -5
+    return 0  # NEUTRAL / NO NEWS after analysis
 
 
 def _score_mos_t(mos_t: float | None) -> int:
@@ -1562,16 +1673,8 @@ def _pen_financial(fund: dict[str, Any] | None) -> int:
 
 
 def _pen_news(news: dict[str, Any] | None) -> int:
-    if not news or news.get("tone") != "neg":
-        return 0
-    neg = set(news.get("neg_codes", []))
-    if neg & {"A", "E"}:
-        return 12  # earnings/guidance or financial/legal — most serious
-    if neg & {"B", "D"}:
-        return 8
-    if "C" in neg:
-        return 4  # analyst downgrade — least severe
-    return 8
+    """News impact is solely via News Score (±5); do not double-count here."""
+    return 0
 
 
 def _pen_vol_crash(change: float | None, rvol: float | None) -> int:
@@ -1635,7 +1738,7 @@ def compute_ai_score(row: dict[str, Any]) -> dict[str, Any]:
         "rebound": (_score_rebound(row.get("rebound_pct"), row.get("change_pct")), 15),
         "volume": (_score_volume(row.get("rvol"), row.get("change_pct")), 10),
         "financial": (_score_financial(fund), 15),
-        "news": (_score_news(news), 10),
+        "news": (_score_news(news), 5),  # signed ±5
         "mos_t": (_score_mos_t(mos_t), 5),
     }
     base = sum(v for v, _m in parts.values())
@@ -1657,10 +1760,18 @@ def compute_ai_score(row: dict[str, Any]) -> dict[str, Any]:
         "volume": "成交量", "financial": "财务", "news": "新闻",
         "mos_t": "MOS T",
     }
-    detail_lines = [f"{labels[k]} {v}/{m}" for k, (v, m) in parts.items()]
-    detail_lines.append(f"基础分 {base}/100")
+    detail_lines = []
+    for k, (v, m) in parts.items():
+        if k == "news":
+            st = ""
+            if isinstance(news, dict):
+                st = f" [{news.get('status') or news.get('tone') or '—'}]"
+            detail_lines.append(f"{labels[k]} {v:+d}/±{m}{st}")
+        else:
+            detail_lines.append(f"{labels[k]} {v}/{m}")
+    detail_lines.append(f"基础分 {base}")
     if pen_fin_news:
-        detail_lines.append(f"财务/新闻/波动风险 −{pen_fin_news}")
+        detail_lines.append(f"财务/波动风险 −{pen_fin_news}")
     if pen_earn:
         detail_lines.append(f"财报 {edays}D −{pen_earn}")
     detail_lines.append(f"最终 {final}")

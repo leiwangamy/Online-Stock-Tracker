@@ -267,6 +267,28 @@ def init_db() -> None:
                 ON trading_order_requests(created_at);
 
             CREATE INDEX IF NOT EXISTS idx_daily_bars_ticker ON daily_bars(ticker);
+
+            -- Strong Stock Monitor: normalized daily strength observations (no wide date columns).
+            CREATE TABLE IF NOT EXISTS strong_daily (
+                as_of_date TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                range_63d_pos REAL,
+                is_strong INTEGER NOT NULL DEFAULT 0,
+                count20 INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (as_of_date, symbol)
+            );
+            CREATE INDEX IF NOT EXISTS idx_strong_daily_symbol
+                ON strong_daily(symbol, as_of_date);
+            CREATE INDEX IF NOT EXISTS idx_strong_daily_count
+                ON strong_daily(as_of_date, count20);
+
+            -- Active / recently tracked Strong Watchlist membership (replayed from history).
+            CREATE TABLE IF NOT EXISTS strong_membership (
+                symbol TEXT PRIMARY KEY,
+                first_qualified_date TEXT NOT NULL,
+                last_qualified_date TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
         )
         # Migrate older databases that predate the S&P400 / S&P600 columns.
@@ -330,46 +352,15 @@ def init_db() -> None:
                     "INSERT INTO settings (key, value) VALUES (?, ?)",
                     (key, json.dumps(value)),
                 )
-        seed_default_alert_prices()
 
 
-# First-edition manual Alert Prices for 我的自选 (observation only; not model params).
-DEFAULT_ALERT_PRICES: dict[str, float] = {
-    "TSLA": 310.0,
-    "AAPL": 285.0,
-    "IBM": 215.0,
-    "DVA": 170.0,
-    "GOOG": 320.0,
-    "INTU": 310.0,
-    "DELL": 430.0,
-    "NVDA": 205.0,
-    "XBI": 145.0,
-    "JEPI": 55.0,
-    "DGRO": 75.0,
-}
-
-
-def seed_default_alert_prices() -> None:
-    """Insert defaults only when ticker has no alert yet — never overwrite user edits.
-    Caller must ensure init_db() / table exists (invoked at end of init_db).
-    """
-    now = datetime.now(timezone.utc).isoformat()
-    with get_conn() as conn:
-        for ticker, price in DEFAULT_ALERT_PRICES.items():
-            existing = conn.execute(
-                "SELECT 1 FROM watchlist_alerts WHERE ticker = ?",
-                (ticker,),
-            ).fetchone()
-            if existing:
-                continue
-            conn.execute(
-                "INSERT INTO watchlist_alerts (ticker, alert_price, updated_at) VALUES (?, ?, ?)",
-                (ticker, float(price), now),
-            )
+# My Watchlist alerts: DB stores MANUAL overrides only.
+# Default Alert = SMA × 0.95 (dynamic); Deep Alert = SMA × 0.90 (info only).
+# Never auto-buy from alert status.
 
 
 def get_alert_prices(tickers: list[str] | None = None) -> dict[str, float]:
-    """Return {TICKER: alert_price}. If tickers given, only those keys (when present)."""
+    """Return {TICKER: manual_alert}. If tickers given, only those keys (when present)."""
     init_db()
     with get_conn() as conn:
         if tickers:
@@ -396,9 +387,9 @@ def get_alert_prices(tickers: list[str] | None = None) -> dict[str, float]:
 
 def upsert_alert_price(ticker: str, alert_price: float | None) -> float | None:
     """
-    Set or clear manual Alert Price for a ticker.
-    alert_price=None deletes the row (display —).
-    Returns stored price or None after clear.
+    Set or clear Manual Alert Price for a ticker.
+    alert_price=None deletes the row → Active Alert falls back to Default (SMA×0.95).
+    Returns stored manual price or None after clear.
     """
     t = (ticker or "").strip().upper()
     if not t:
@@ -416,39 +407,130 @@ def upsert_alert_price(ticker: str, alert_price: float | None) -> float | None:
             "INSERT INTO watchlist_alerts (ticker, alert_price, updated_at) VALUES (?, ?, ?) "
             "ON CONFLICT(ticker) DO UPDATE SET "
             "alert_price = excluded.alert_price, updated_at = excluded.updated_at",
-            (t, px, now),
+            (t, round(px, 2), now),
         )
-    return px
+    return round(px, 2)
 
 
-def alert_status(price: float | None, alert_price: float | None) -> dict[str, Any] | None:
-    """
-    READY: price <= alert
-    NEAR: alert < price <= alert * 1.05
-    else None (normal — no icon)
-    """
-    if price is None or alert_price is None:
+def default_alert_from_sma(sma: float | None) -> float | None:
+    """Default Alert = SMA × 0.95 (rounded to 2 decimals)."""
+    if sma is None:
         return None
     try:
-        px = float(price)
-        ap = float(alert_price)
+        s = float(sma)
     except (TypeError, ValueError):
         return None
-    if ap <= 0:
+    if s <= 0 or s != s:
         return None
-    dist_pct = (px - ap) / ap * 100.0
-    if px <= ap:
-        state = "ready"
-    elif px <= ap * 1.05:
-        state = "near"
+    return round(s * 0.95, 2)
+
+
+def deep_alert_from_sma(sma: float | None) -> float | None:
+    """Deep Alert = SMA × 0.90 (informational)."""
+    if sma is None:
+        return None
+    try:
+        s = float(sma)
+    except (TypeError, ValueError):
+        return None
+    if s <= 0 or s != s:
+        return None
+    return round(s * 0.90, 2)
+
+
+def build_watchlist_alert(
+    price: float | None,
+    sma: float | None,
+    manual_alert: float | None,
+) -> dict[str, Any]:
+    """
+    My Watchlist alert bundle (research zones only — never creates orders).
+
+    Default Alert = SMA × 0.95 (moves with SMA).
+    Manual Alert  = user override (fixed until edit/reset).
+    Active Alert  = Manual if set, else Default.
+    Deep Alert    = SMA × 0.90 (always SMA-based).
+
+    Status priority (most severe wins):
+      DEEP  — price <= SMA × 0.90
+      ALERT — price <= Active Alert          (🟢)
+      WATCH — Active < price <= Active×1.05 (🟡 near band; classic 5%)
+      —     — otherwise
+    """
+    default_alert = default_alert_from_sma(sma)
+    deep_alert = deep_alert_from_sma(sma)
+    manual: float | None = None
+    if manual_alert is not None:
+        try:
+            m = float(manual_alert)
+            if m > 0 and m == m:
+                manual = round(m, 2)
+        except (TypeError, ValueError):
+            manual = None
+
+    if manual is not None:
+        active = manual
+        source = "manual"
     else:
-        return None
+        active = default_alert
+        source = "default" if default_alert is not None else None
+
+    state: str | None = None
+    try:
+        px = float(price) if price is not None else None
+    except (TypeError, ValueError):
+        px = None
+    try:
+        s = float(sma) if sma is not None else None
+    except (TypeError, ValueError):
+        s = None
+
+    if px is not None:
+        if deep_alert is not None and px <= deep_alert:
+            state = "deep"
+        elif active is not None and px <= active:
+            state = "alert"
+        elif active is not None and px <= active * 1.05:
+            state = "watch"
+
+    dist_pct = None
+    if px is not None and active is not None and active > 0:
+        dist_pct = round((px - active) / active * 100.0, 2)
+
     return {
-        "state": state,
-        "price": px,
-        "alert_price": ap,
-        "dist_pct": round(dist_pct, 2),
+        "sma": None if s is None else round(s, 2),
+        "default_alert": default_alert,
+        "deep_alert": deep_alert,
+        "manual_alert": manual,
+        "active_alert": active,
+        "alert_source": source,
+        "alert": {
+            "state": state,
+            "price": px,
+            "sma": None if s is None else round(s, 2),
+            "active_alert": active,
+            "default_alert": default_alert,
+            "deep_alert": deep_alert,
+            "manual_alert": manual,
+            "dist_pct": dist_pct,
+        },
+        # Backward-compatible alias used by older templates/JS
+        "alert_price": manual,
     }
+
+
+def alert_status(
+    price: float | None,
+    alert_price: float | None,
+    *,
+    sma: float | None = None,
+) -> dict[str, Any] | None:
+    """Return alert status dict (or None when no zone). Prefer build_watchlist_alert."""
+    bundle = build_watchlist_alert(price, sma, alert_price)
+    st = bundle.get("alert") or {}
+    if not st.get("state"):
+        return None
+    return st
 
 
 def get_setting(key: str, default: Any = None) -> Any:

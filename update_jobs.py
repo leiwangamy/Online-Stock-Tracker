@@ -171,7 +171,49 @@ def job_refresh_prices(*, max_workers: int = 4) -> dict:
     except Exception:
         log.exception("Paper trading daily update failed (non-fatal)")
         result["paper_error"] = 1
+    # Strong Stock Monitor incremental (COUNT20 / membership) — non-fatal
+    try:
+        strong = job_strong_monitor_update()
+        result["strong_active"] = strong.get("active_members")
+        result["strong_as_of"] = strong.get("as_of")
+    except Exception:
+        log.exception("Strong Stock Monitor update failed (non-fatal)")
+        result["strong_error"] = 1
     return result
+
+
+def job_strong_monitor_update(*, full: bool = False) -> dict:
+    """
+    Strong Stock Monitor: incremental recent history (or full 1y backfill).
+    Reconstructs COUNT20 + membership; no Financials/News filters.
+    """
+    log = _setup_logging()
+    from db import get_setting
+    from strong_stocks import (
+        STRONG_HISTORY_PERIOD,
+        STRONG_META_AS_OF,
+        run_backfill,
+        run_incremental_update,
+    )
+
+    if not full and not (get_setting(STRONG_META_AS_OF, "") or ""):
+        log.info("Strong monitor skipped — run --strong-backfill once first")
+        return {"skipped": 1, "active_members": 0, "as_of": ""}
+
+    log.info("Starting Strong Stock Monitor update (full=%s)…", full)
+    if full:
+        out = run_backfill(period=STRONG_HISTORY_PERIOD)
+    else:
+        out = run_incremental_update(period="3mo")
+    log.info(
+        "Strong done: active=%s as_of=%s ok=%s errors=%s elapsed=%ss",
+        out.get("active_members"),
+        out.get("as_of"),
+        out.get("ok"),
+        out.get("errors"),
+        out.get("elapsed_sec"),
+    )
+    return out
 
 
 def job_paper_trading_daily() -> dict:
@@ -210,10 +252,28 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="AI Paper Trading daily update (candidates + OHLC settle; simulation only)",
     )
+    parser.add_argument(
+        "--strong",
+        action="store_true",
+        help="Strong Stock Monitor incremental update (3mo history → COUNT20 / membership)",
+    )
+    parser.add_argument(
+        "--strong-backfill",
+        action="store_true",
+        help="Strong Stock Monitor full ~1y historical backfill",
+    )
     parser.add_argument("--all", action="store_true", help="Universe then prices (+ Watchlist)")
     args = parser.parse_args(argv)
 
-    if not (args.universe or args.prices or args.watchlist or args.paper or args.all):
+    if not (
+        args.universe
+        or args.prices
+        or args.watchlist
+        or args.paper
+        or args.strong
+        or args.strong_backfill
+        or args.all
+    ):
         parser.print_help()
         return 2
 
@@ -228,6 +288,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.paper and not (args.all or args.prices):
             # --prices already includes paper settle; standalone --paper for manual runs
             job_paper_trading_daily()
+        if args.strong_backfill:
+            job_strong_monitor_update(full=True)
+        elif args.strong and not (args.all or args.prices):
+            # --prices already includes strong incremental; standalone --strong for manual runs
+            job_strong_monitor_update(full=False)
         log.info("Finished OK")
         return 0
     except Exception:

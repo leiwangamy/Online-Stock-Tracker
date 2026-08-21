@@ -17,6 +17,23 @@ ZH: dict[str, str] = {
     "Stock Tracker": "个股分析",
     "Market Dashboard": "市场看板",
     "Watchlist": "观察列表",
+    "News Score":
+        "新闻得分",
+    "News gate (Watchlist primary groups)":
+        "新闻门槛（Watchlist 主信号组）",
+    "Exception — My Watchlist: always load Financial and News when the ticker resolves (regular holdings).":
+        "例外 —「我的自选」：只要代码能解析，就始终加载财报与新闻（常持股）。",
+    "Signal → Financial Score → if Financial Pass Rate ≥ 60% (ok/known), fetch/analyze News (reuse fresh cache); else SKIPPED, News Score = 0, no News API. Financial ≥ 60% is only the News-analysis gate — not a buy condition. SKIPPED ≠ NEUTRAL (both score 0).":
+        "信号 → 财报得分 → 若财报通过率 ≥60%（ok/known）则抓取/分析新闻（新鲜缓存可复用）；否则 SKIPPED，新闻得分=0，不调 News API。财报≥60% 仅为新闻分析门槛，不是买入条件。SKIPPED ≠ NEUTRAL（二者得分都是0）。",
+    "Risk penalties: severe financial −0~15, volume dump −0~5, high vol/low liquidity −0~5, near earnings −0~15. News is not double-counted in risk (only ±5 News Score). Hover AI for breakdown. Green≥70 / yellow 40–69 / red <40. 63D Position and Admin-only Intrinsic Value / real MOS are excluded from AI Score V1.":
+        "风险扣分：严重财务 −0~15、放量下跌 −0~5、高波动/低流动性 −0~5、临近财报 −0~15。新闻不在风险中重复扣分（仅 ±5 新闻得分）。悬停 AI 看明细。绿≥70 / 黄40–69 / 红<40。63日位置与管理员估值/真实 MOS 不计入 AI Score V1。",
+    "Research": "研究中心",
+    "Added: {tickers}": "已添加：{tickers}",
+    "Already on list: {tickers}": "已在列表中：{tickers}",
+    "Invalid: {tickers}": "无效代码：{tickers}",
+    "No tickers to add": "没有可添加的股票代码",
+    "Sign in to save {n} ticker(s) to My Watchlist": "请登录以将 {n} 只股票保存到「我的自选」",
+    "Strong Stock Monitor": "研究中心",  # legacy msgid
     "Settings": "设置",
     "Order Requests": "订单请求",
     "Login": "登录",
@@ -39,8 +56,8 @@ ZH: dict[str, str] = {
     "Set owner password": "设置所有者密码",
     "First-time setup: choose a password only you know. Use it later to edit My Watchlist and view Est.Value / MOS / CLV (in development; hidden on the public site).":
         "首次使用：请设置仅你本人知道的登录密码。之后可用此密码修改「我的自选」，并查看 Est.Value / MOS / CLV（开发中，公开页不显示）。",
-    "After signing in you can edit My Watchlist and Alert Price, and view Est.Value / MOS / CLV. Public visitors do not see those three valuation columns.":
-        "登录后可修改「我的自选」与 Alert Price，并查看 Est.Value / MOS / CLV。公开访客看不到这三列估值。",
+    "After signing in you can edit My Watchlist and Manual Alert, and view Est.Value / MOS / CLV. Public visitors do not see those three valuation columns.":
+        "登录后可修改「我的自选」与人工提醒价，并查看 Est.Value / MOS / CLV。公开访客看不到这三列估值。",
     "Password must be at least 6 characters": "密码至少 6 位",
     "Passwords do not match": "两次密码不一致",
     "Password saved — you are signed in": "密码已设置并登录",
@@ -125,6 +142,42 @@ ZH: dict[str, str] = {
     "Score": "评分",
     "Investment value": "投资价值",
     "Manual alert": "人工关注",
+    "SMA alerts": "SMA 提醒",
+    "Default Alert": "默认提醒价",
+    "Manual Alert": "人工提醒价",
+    "Active Alert": "生效提醒价",
+    "Alert Status": "提醒状态",
+    "Reset": "重置",
+    "Deep Alert (info)": "深度提醒（仅参考）",
+    "SMA alerts: Default = SMA×0.95 (auto). Manual overrides Active until Reset. WATCH / ALERT / DEEP are research zones only — never auto-buy.":
+        "SMA 提醒：默认价 = SMA×0.95（随均线更新）。人工价覆盖生效价直至「重置」。🟡 WATCH = 距生效价 ≤5%；🟢 ALERT/DEEP 进入提醒区。绝不会自动下单。",
+    "Default Alert = SMA × 0.95. Updates whenever SMA refreshes. Not a buy signal.":
+        "默认提醒价 = SMA × 0.95。随 SMA 刷新而更新。不是买入信号。",
+    "Manual Alert — your override. Stays fixed until you edit or Reset to Default.":
+        "人工提醒价 — 你的覆盖值。固定不变，直到你修改或「重置为默认」。",
+    "Active Alert = Manual if set, else Default. Used for ALERT status.":
+        "生效提醒价 = 有人工价用人工价，否则用默认价。用于 ALERT 状态判断。",
+    "WATCH ≤ SMA · ALERT ≤ Active · DEEP ≤ SMA×0.90. Research zones only — never auto-buy.":
+        "WATCH ≤ Active×1.05 · ALERT ≤ 生效价 · DEEP ≤ SMA×0.90。仅为研究区，绝不自动买入。",
+    "WATCH ≤ Active×1.05 · ALERT ≤ Active · DEEP ≤ SMA×0.90. Research zones only — never auto-buy.":
+        "WATCH ≤ Active×1.05 · ALERT ≤ 生效价 · DEEP ≤ SMA×0.90。仅为研究区，绝不自动买入。",
+    "Manual Alert. Enter/blur to save; clear or Reset to use Default (SMA×0.95). Does not trigger trades.":
+        "人工提醒价。回车/失焦保存；清空或点「重置」则改回默认（SMA×0.95）。不触发交易。",
+    "Reset to Default — clear Manual; Active = current SMA × 0.95":
+        "重置为默认 — 清除人工价；生效价 = 当前 SMA × 0.95",
+    "Active = Manual Alert": "生效 = 人工提醒价",
+    "Active = Default Alert (SMA × 0.95)": "生效 = 默认提醒价（SMA × 0.95）",
+    "DEEP — Price ≤ SMA × 0.90. Research zone only; not an auto BUY.":
+        "DEEP — 现价 ≤ SMA × 0.90。仅为研究区，不是自动买入。",
+    "ALERT — Price ≤ Active Alert. Research zone only; not an auto BUY.":
+        "ALERT — 现价 ≤ 生效提醒价。仅为研究区，不是自动买入。",
+    "WATCH — Price ≤ SMA. Research zone only; not an auto BUY.":
+        "WATCH — 现价在生效提醒价上方 5% 内（≤ Active×1.05）。仅为研究区，不是自动买入。",
+    "WATCH — within 5% above Active Alert (≤ Active×1.05). Research zone only; not an auto BUY.":
+        "WATCH — 现价在生效提醒价上方 5% 内（≤ Active×1.05）。仅为研究区，不是自动买入。",
+    "Above SMA — no alert zone": "高于提醒区 — 无黄/绿点",
+    "Distance": "距离",
+    "Short-term SMA used for Default / Deep alerts": "用于默认/深度提醒的短期均线",
     "Pool": "所属股池",
     "No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)":
         "暂无数据。（超卖/强势回调需先到 Market Dashboard 刷新行情；我的自选/临时会实时抓取。）",
@@ -156,6 +209,158 @@ ZH: dict[str, str] = {
         "Auto: 63D Position% < 25%, sorted low→high (near 63D low first). Fund from shared cache; news only when Financial Pass Rate ≥ 60%. No DCF/CLV/MOS/AI on this tab.",
     "desc_low_63d_zh":
         "自动生成：63日位置% < 25%，按位置从低到高（越靠近 63 日低点越靠前）。财报只读共享缓存；新闻仅在财报通过率 ≥ 60% 时读取。本页不跑 DCF/CLV/MOS/AI。",
+    "Up Days ≥ 3/5 · 5D Return ≥ +3%. Dynamic daily group; no retention. Independent of Strong Day / COUNT20.":
+        "近5日上涨 ≥ 3天 · 5日累计涨幅 ≥ +3%。每日动态分组，无留存；独立于 Strong Day / COUNT20。",
+    "Match ≥ 2 across Oversold / Target <80% / 63D Low / Rising Now. Strong is a separate indicator. No retention.":
+        "在超卖 / Target <80% / 63日低位 / 正在上涨中 Match ≥ 2。Strong 为单独指示，不计入 Match。无留存。",
+    "No Rising Now stocks under the current rules.":
+        "当前规则下暂无「正在上涨」股票。",
+    "No Multi-Signal stocks under the current rules.":
+        "当前规则下暂无「多重信号」股票。",
+    "Dynamic daily group; no retention. Independent of Strong Day / COUNT20.":
+        "每日动态分组，无留存；独立于 Strong Day / COUNT20。",
+    "Research aggregation of all signal groups with Financial / News / COUNT20. Human My Watchlist and Trade Candidate flags. AI Score unchanged.":
+        "聚合各信号组并补齐财报 / 新闻 / COUNT20。人工「我的自选」与 Trade Candidate 标记。不改 AI Score。",
+    "Unified candidate analysis from LeiBot signal groups.":
+        "汇总 LeiBot 各信号组的统一候选分析。",
+    "Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Human My Watchlist and Trade Candidate flags. AI Score unchanged.":
+        "去重研究宇宙：汇总估值、仓位、动量、强势与财报信号。人工「我的自选」与 Trade Candidate 标记。不改 AI Score。",
+    "Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Add to My Watchlist or mark Trade Candidate manually — nothing auto-selects for AI Trading.":
+        "去重研究宇宙：汇总估值、仓位、动量、强势与财报信号。手动加入「我的自选」或标记 Trade Candidate——不会自动进入 AI Trading。",
+    "Workflow: Watchlist → Research → My Watchlist / Trade Candidate → AI Trading. Signal ≠ research decision ≠ trade decision.":
+        "流程：观察列表 → 研究中心 → 我的自选 / Trade Candidate → AI Trading。信号 ≠ 研究决策 ≠ 交易决策。",
+    "Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Strong is a separate indicator.":
+        "在超卖 / Target <80% / 63D 低位 / 正在上涨 中匹配 ≥2。Strong 为独立指示。",
+    "Up Days ≥ 3/5 · 5D Return ≥ +3%. Dynamic daily group; no retention.":
+        "上涨天数 ≥ 3/5 · 5日涨幅 ≥ +3%。每日动态分组，无留存。",
+    "Financial Score":
+        "财报得分",
+    "AI Score":
+        "AI 得分",
+    "Strong Retention":
+        "强势留存",
+    "No candidates yet. Refresh Market Dashboard / Research first.":
+        "暂无候选。请先刷新市场看板 / 研究中心。",
+    "Research action failed: {exc}":
+        "研究中心操作失败：{exc}",
+    "Strong Stock Monitor action failed: {exc}":
+        "研究中心操作失败：{exc}",
+    "Rising Now":
+        "正在上涨",
+    "Multi-Signal":
+        "多重信号",
+    "Candidate Analysis":
+        "候选分析",
+    "Research layer above LeiBot signal groups. Deduplicated candidates with Financial / News / Strong COUNT20 completed from cache. Add to My Watchlist manually; Trade Candidate is a separate human flag for the AI Trading Watchlist. AI Score formula is unchanged.":
+        "位于各信号分组之上的研究层：去重候选，并用缓存补齐财报 / 新闻 / Strong COUNT20。手动加入「我的自选」；Trade Candidate 是给 AI Trading Watchlist 的独立人工标记。本任务不改 AI Score 公式。",
+    "All Candidates":
+        "全部候选",
+    "Refresh Candidate Analysis":
+        "刷新候选分析",
+    "Fill missing Financial/News from cache/fetch for current candidates (bounded)":
+        "为当前候选补齐缺失的财报/新闻（优先缓存，有界批量）",
+    "Strong COUNT20":
+        "Strong COUNT20",
+    "Strong Status":
+        "Strong 状态",
+    "Signals":
+        "信号",
+    "Oversold pullback":
+        "超卖回调",
+    "Target Ratio < 80%":
+        "Target Ratio < 80%",
+    "63D Position < 25%":
+        "63日位置 < 25%",
+    "Multi-Signal 2/4":
+        "多重信号 2/4",
+    "Multi-Signal 3/4":
+        "多重信号 3/4",
+    "Multi-Signal 4/4":
+        "多重信号 4/4",
+    "Strong Watchlist":
+        "Strong 观察",
+    "Strong Retention":
+        "Strong 留存",
+    "Trade Candidate":
+        "交易候选",
+    "Trade Candidates":
+        "交易候选",
+    "Trade":
+        "交易",
+    "Add":
+        "添加",
+    "Marked as Trade Candidate":
+        "已标记为交易候选",
+    "Removed Trade Candidate flag":
+        "已取消交易候选标记",
+    "Please sign in to manage Candidate Analysis":
+        "请登录后管理候选分析",
+    "Candidate Analysis action failed: {exc}":
+        "候选分析操作失败：{exc}",
+    "Candidate research refreshed: fund ok_new {f} · news ok_new {n} (bounded batch)":
+        "候选研究已刷新：财报新增 {f} · 新闻新增 {n}（有界批量）",
+    "No candidates yet. Refresh Market Dashboard / Strong Monitor first.":
+        "暂无候选。请先刷新 Market Dashboard / Strong Monitor。",
+    "Financial 6/6":
+        "财报 6/6",
+    "Financial ≥5/6":
+        "财报 ≥5/6",
+    "63D Low":
+        "63日低位",
+    "Rising":
+        "上涨",
+    "AI Trading Watchlist — Top 10":
+        "AI Trading Watchlist — Top 10",
+    "Strict paper-trading list: Oversold + Target Ratio < 80% + 63D Position < 25% (low position / quality screens), ranked by existing AI Score. Rising Now / 5D metrics are timing references only and do not change AI Score. Priority ⭐ and Trade Candidate ★ are human flags. Orders are not created until you click Create Paper Orders. Research more names on Candidate Analysis → My Watchlist → Trade Candidate.":
+        "严格纸上交易列表：超卖 + Target Ratio <80% + 63日位置 <25%（低位/质量筛），按现有 AI Score 排序。正在上涨 / 5日指标仅为时机参考，不改 AI Score。Priority ⭐ 与 Trade Candidate ★ 为人工标记。点击 Create Paper Orders 才会建仓。更多研究请走：候选分析 → 我的自选 → Trade Candidate。",
+    "No Trade Candidates yet. Mark them on Candidate Analysis (separate from My Watchlist).":
+        "尚无交易候选。请在候选分析中标记（与我的自选分开）。",
+    "desc_rising_now":
+        "Independent dynamic group: Up Days ≥ 3 of latest 5 trading days AND 5D Total Return ≥ +3%. No 63D Position filter, no retention. AI from shared cache when available; Financial / News not shown on this V1 tab.",
+    "desc_rising_now_zh":
+        "独立动态分组：近5个交易日上涨天数 ≥ 3 且 5日累计涨幅 ≥ +3%。不按 63日位置筛选，无留存期。AI 仅用已有缓存（有则显示）；本 V1 页不展示财报 / 新闻。",
+    "desc_multi_signal":
+        "Aggregation only: Match Count = how many of Oversold / Target <80% / 63D <25% / Rising Now the stock is in. Shown when Match ≥ 2. Strong is a separate column (not in Match). No retention. Filters are display-only.",
+    "desc_multi_signal_zh":
+        "仅聚合：Match Count = 同时属于「超卖回调 / Target <80% / 63日<25% / 正在上涨」的数量；Match ≥ 2 入选。Strong 单独列（不计入 Match）。无留存。上方筛选仅改显示。",
+    "Match":
+        "匹配",
+    "Oversold":
+        "超卖",
+    "Target <80":
+        "Target <80",
+    "63D <25":
+        "63D <25",
+    "Strong":
+        "Strong",
+    "Match Count across Oversold / Target / 63D Low / Rising Now":
+        "Match Count = 超卖 / Target / 63日低位 / 正在上涨 命中数",
+    "Currently on Strong Watchlist (not in Match Count)":
+        "当前在 Strong Watchlist（不计入 Match）",
+    "All ≥2":
+        "全部 ≥2",
+    "3+ Signals":
+        "3+ 信号",
+    "4 Signals":
+        "4 信号",
+    "Low + Rising":
+        "低位 + 上涨",
+    "Oversold + Rising":
+        "超卖 + 上涨",
+    "Target + Rising":
+        "Target + 上涨",
+    "Strong + Rising":
+        "Strong + 上涨",
+    "Up Days 5D":
+        "近5日上涨",
+    "5D Return":
+        "5日涨幅",
+    "63D Position":
+        "63日位置",
+    "Up days in the latest 5 trading days (Close > prior close)":
+        "近5个交易日中收盘价高于前一交易日的天数",
+    "(Current close / close 5 trading days ago − 1) × 100":
+        "（最新收盘价 ÷ 5个交易日前收盘价 − 1）× 100",
     "63D Position < 25%":
         "63日位置 < 25%",
     "Fundamentals / news / Est / MOS / CLV / AI blank on this tab.":
@@ -163,13 +368,13 @@ ZH: dict[str, str] = {
     "Total":
         "共",
     "desc_mine_owner":
-        "Long-term My Watchlist (current: {list}). Signed in: edit list & Alert Price; Est.Value / MOS / CLV visible.",
+        "Long-term My Watchlist (current: {list}). SMA alerts: Default=SMA×0.95 (auto), optional Manual override. Signed in: edit list & alerts; Est.Value / MOS / CLV visible.",
     "desc_mine_owner_zh":
-        "长期观察 / 我的自选（当前：{list}）。已登录：可增删自选、改 Alert Price，并显示 Est.Value / MOS / CLV。",
+        "长期观察 / 我的自选（当前：{list}）。SMA 提醒：默认=SMA×0.95（自动），可人工覆盖。已登录：可增删自选、改提醒，并显示 Est.Value / MOS / CLV。",
     "desc_mine_public":
-        "Long-term My Watchlist (current: {list}). Public page hides Est.Value / MOS / CLV (in development); sign in to edit the list and view valuations.",
+        "Long-term My Watchlist (current: {list}). SMA Default/Active alerts shown; public page hides Est.Value / MOS / CLV; sign in to edit list & Manual Alert.",
     "desc_mine_public_zh":
-        "长期观察 / 我的自选（当前：{list}）。公开页不显示 Est.Value / MOS / CLV（估值方法开发中）；登录后可修改自选与查看估值。",
+        "长期观察 / 我的自选（当前：{list}）。显示 SMA 默认/生效提醒；公开页不显示 Est.Value / MOS / CLV；登录后可改自选与人工提醒价。",
     "desc_temp":
         "Temporary tickers for this browser session only; cleared when the browser closes.",
     "desc_temp_zh":
@@ -499,6 +704,20 @@ ZH: dict[str, str] = {
         '只股票',
     'Guide':
         '说明',
+    'SKIPPED':
+        '已跳过',
+    'News skipped — Financial Score < 60%':
+        '已跳过新闻 — 财报得分 < 60%',
+    'News skipped — Financial Score &lt; 60%. Gate only; not a buy filter. SKIPPED ≠ NEUTRAL.':
+        '已跳过新闻 — 财报得分 < 60%。仅为新闻分析门槛，不是买入条件。SKIPPED ≠ NEUTRAL。',
+    'Analyzed: no material news in 30d (NEUTRAL, score 0). Different from SKIPPED.':
+        '已分析：近30天无实质新闻（NEUTRAL，得分 0）。与 SKIPPED 不同。',
+    'News: Financial ≥60% → analyze (cache if fresh). Below → SKIPPED (score 0, no API). SKIPPED ≠ NEUTRAL. News Score ±5 in AI only — not a buy filter.':
+        '新闻：财报≥60% 才分析（缓存未过期则复用）；否则 SKIPPED（得分0，不调 API）。SKIPPED ≠ NEUTRAL。新闻仅以 ±5 计入 AI，不是买入条件。',
+    'Pipeline: Financial first; News only if Financial ≥60%. SKIPPED = never analyzed (score 0). NEUTRAL / NO NEWS = analyzed, no material signal (score 0). POSITIVE +5 / NEGATIVE −5. Cache reused when fresh. Hover for titles.':
+        '流水线：先算财报；仅当财报≥60% 才分析新闻。SKIPPED=未分析（0分）。NEUTRAL/NO NEWS=已分析但无实质信号（0分）。POSITIVE +5 / NEGATIVE −5。新鲜缓存可复用。悬停看标题。',
+    'Risk penalties: severe financial −0~15, volume dump −0~5, high vol/low liquidity −0~5, near earnings −0~15. News Score is independent (±5: +5 / 0 / −5 / SKIPPED 0). Hover AI for breakdown. Green≥70 / yellow 40–69 / red <40. 63D Position and Admin-only Intrinsic Value / real MOS are excluded from AI Score V1.':
+        '风险扣分：严重财务 −0~15、放量下跌 −0~5、高波动/低流动性 −0~5、临近财报 −0~15。新闻为独立分量（±5：+5 / 0 / −5 / SKIPPED 0）。悬停 AI 看明细。绿≥70 / 黄40–69 / 红<40。63日位置与管理员估值/真实 MOS 不计入 AI Score V1。',
     'Updated:':
         '更新：',
     'Current group':
@@ -507,6 +726,106 @@ ZH: dict[str, str] = {
         '关闭',
     'Est.Value / MOS% / CLV visible (signed in).':
         '已登录：Est.Value / MOS% / CLV 可见。',
+    # Admin Order Requests / Private Local Agent API
+    'Admin only · Private Local Agent API · No IBKR':
+        '仅管理员 · 私有本地 Agent API · 不含 IBKR',
+    # Research (Strong Stock Monitor)
+    '研究中心':
+        '研究中心',
+    'Research failed to load data. Try Rebuild / Backfill.':
+        '研究中心加载失败。请尝试「重建 / 回填」。',
+    'Strong Stock Monitor failed to load data. Try Rebuild / Backfill.':
+        '研究中心加载失败。请尝试「重建 / 回填」。',
+    'Daily Strong Stocks':
+        '每日强势股',
+    'COUNT20 Ranking':
+        '强势次数排行',
+    'Strong Watchlist':
+        '强势 Watchlist',
+    'Only stocks meeting the Strong Day Position threshold on that date. Column lengths differ by day.':
+        '仅列出当日达到强势日 Position 阈值的股票；各列家数可以不同。',
+    'Historical frequency over the latest 20 trading days. Current Position may be below the Strong Day threshold.':
+        '近 20 个交易日的历史出现频率；当前 Position 可以低于强势日阈值。',
+    'COUNT ≥ threshold qualifies; retain N trading days after last qualify; renew resets retention. Position may be below the Strong Day threshold during retention (pullback watch).':
+        'COUNT 达到阈值即入选；自最近达标日起保留 N 个交易日；再次达标则续期重置。保留期内 Position 可低于强势日阈值（回调观察）。',
+    'COUNT ≥ threshold qualifies; retain 20 trading days; renew on later qualify. Position may be below the Strong Day threshold during retention (pullback watch).':
+        'COUNT 达到阈值即入选；保留交易日数见规则条；再次达标则续期。保留期内 Position 可低于强势日阈值（回调观察）。',
+    'Each date lists only Strong Day stocks (Position ≥ threshold), sorted by Position %. Header shows (n) stocks.':
+        '每个日期只列出强势日股票（Position ≥ 阈值），按 Position% 降序；表头显示（家数）。',
+    'Threshold':
+        '阈值',
+    'Current Position may be below the Strong Day threshold — COUNT is historical frequency, not today’s Strong-Day list.':
+        '当前 Position 可以低于强势日阈值 — COUNT 是历史频率，不是今日强势日名单。',
+    'Retention rows may show Position below the Strong Day threshold on purpose.':
+        '保留中的行故意可能显示 Position 低于强势日阈值。',
+    'Only stocks with 63D Position ≥ 80% on that date. Column lengths differ by day.':
+        '仅列出当日达到强势日 Position 阈值的股票；各列家数可以不同。',
+    'Financials and News stay blank for now. Adjust COUNT threshold after reviewing the distribution.':
+        '财务与新闻暂空。请先查看 COUNT 分布，再调整达标阈值。',
+    'Total':
+        '合计',
+    'No daily strong-stock data yet.':
+        '尚无每日强势股数据。',
+    'Position':
+        'Position',
+    'COUNT distribution':
+        'COUNT 分布',
+    '20 → 0':
+        '20 → 0',
+    'No COUNT20 ranking rows yet.':
+        '尚无 COUNT20 排行数据。',
+    'Current 63D Position':
+        '当前 63D Position',
+    'Last Strong Date':
+        '最近强势日',
+    'On list':
+        '已在名单',
+    'Qualifies':
+        '可达标',
+    'Qualifying':
+        '达标',
+    'Retention':
+        '保留中',
+    'As of':
+        '截至',
+    'Updated':
+        '更新',
+    'No Strong Watchlist data yet — run historical backfill.':
+        '尚无强势股名单 — 请先运行历史回填。',
+    'Rebuild Strong Watchlist from ~1y history? This may take several minutes.':
+        '用约 1 年历史重建强势股名单？可能需要数分钟。',
+    'Rebuild / Backfill':
+        '重建 / 回填',
+    'No active strong stocks under the current rules.':
+        '当前规则下没有活跃强势股。',
+    'First Qualified':
+        '首次达标',
+    'Last Qualified':
+        '最近达标',
+    'Days Remaining':
+        '剩余天数',
+    'Financials':
+        '财务',
+    'News':
+        '新闻',
+    'Add to My Watchlist':
+        '加入我的自选',
+    'Please sign in to manage Research':
+        '请先登录后再使用研究中心',
+    'Please sign in to manage Strong Stock Monitor':
+        '请先登录后再使用研究中心',
+    'Strong Watchlist rebuilt: {n} active (as of {day})':
+        '强势股名单已重建：{n} 只活跃（截至 {day}）',
+    'Strong backfill failed: {exc}':
+        '强势股回填失败：{exc}',
+    'Added {ticker} to My Watchlist':
+        '已将 {ticker} 加入我的自选',
+    '63D Position':
+        '63D Position',
+    'Price':
+        '现价',
+    'Status':
+        '状态',
     # Admin Order Requests / Private Local Agent API
     'Admin only · Private Local Agent API · No IBKR':
         '仅管理员 · 私有本地 Agent API · 不含 IBKR',
@@ -907,6 +1226,10 @@ def tab_description(key: str, *, mine_list_label: str = "", can_edit_mine: bool 
         return ZH["desc_low_target_zh"] if lang == "zh" else ZH["desc_low_target"]
     if key == "low_63d":
         return ZH["desc_low_63d_zh"] if lang == "zh" else ZH["desc_low_63d"]
+    if key == "rising_now":
+        return ZH["desc_rising_now_zh"] if lang == "zh" else ZH["desc_rising_now"]
+    if key == "multi_signal":
+        return ZH["desc_multi_signal_zh"] if lang == "zh" else ZH["desc_multi_signal"]
     if key == "temp":
         return ZH["desc_temp_zh"] if lang == "zh" else ZH["desc_temp"]
     if key == "mine":
