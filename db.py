@@ -43,6 +43,8 @@ DEFAULT_SETTINGS = {
     "paper_reserve_cash": 500.0,
     "paper_stop_loss_pct": 5.0,  # percent; stop = entry × (1 - pct/100)
     "paper_take_profit_pct": 10.0,
+    # AI Discovery pool visibility (unique events). No Top-N by default.
+    "ai_discovery_min_event_score": 70.0,
 }
 
 
@@ -244,6 +246,71 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            -- News-Driven AI Discovery (event → ticker → pool → optional paper order).
+            CREATE TABLE IF NOT EXISTS ai_discovery_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_fingerprint TEXT NOT NULL UNIQUE,
+                ticker TEXT,
+                company_name TEXT,
+                event_category TEXT NOT NULL,
+                event_summary TEXT NOT NULL,
+                source_name TEXT,
+                source_url TEXT,
+                event_score REAL,
+                reliability TEXT,
+                discovered_at TEXT NOT NULL,
+                meta_json TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_discovery_candidates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                company_name TEXT,
+                status TEXT NOT NULL,
+                discovery_date TEXT NOT NULL,
+                event_id INTEGER,
+                event_category TEXT,
+                event_summary TEXT,
+                event_score REAL,
+                source_name TEXT,
+                ai_score REAL,
+                financial_label TEXT,
+                news_label TEXT,
+                knife_score REAL,
+                knife_level TEXT,
+                price REAL,
+                dist_pct REAL,
+                target_ratio REAL,
+                range_63d_pos REAL,
+                trade_eligible INTEGER NOT NULL DEFAULT 0,
+                block_reason TEXT,
+                paper_trade_id INTEGER,
+                analysis_json TEXT,
+                updated_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE (ticker, event_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ai_discovery_events_fp
+                ON ai_discovery_events(event_fingerprint);
+            CREATE INDEX IF NOT EXISTS idx_ai_discovery_cand_status
+                ON ai_discovery_candidates(status);
+            CREATE INDEX IF NOT EXISTS idx_ai_discovery_cand_ticker
+                ON ai_discovery_candidates(ticker);
+
+            CREATE TABLE IF NOT EXISTS ai_discovery_unresolved (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                headline_fingerprint TEXT NOT NULL UNIQUE,
+                headline TEXT NOT NULL,
+                source_name TEXT,
+                source_url TEXT,
+                event_category TEXT,
+                event_score REAL,
+                resolve_notes TEXT,
+                created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status);
             CREATE INDEX IF NOT EXISTS idx_paper_candidates_date ON paper_candidates(as_of_date);
             CREATE INDEX IF NOT EXISTS idx_paper_equity_date ON paper_equity_snapshots(as_of_date);
@@ -352,6 +419,98 @@ def init_db() -> None:
             ):
                 if col not in paper_cols:
                     conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {decl}")
+        # Migrate AI Discovery for underlying-event dedupe + Discovery Alpha snapshots.
+        disc_ev_cols = {
+            r["name"] for r in conn.execute("PRAGMA table_info(ai_discovery_events)")
+        }
+        if disc_ev_cols:
+            for col, decl in (
+                ("event_period", "TEXT"),
+                ("primary_source", "TEXT"),
+                ("supporting_sources_json", "TEXT"),
+                ("supporting_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("earliest_discovered_at", "TEXT"),
+                ("latest_confirmed_at", "TEXT"),
+            ):
+                if col not in disc_ev_cols:
+                    conn.execute(f"ALTER TABLE ai_discovery_events ADD COLUMN {col} {decl}")
+        disc_cand_cols = {
+            r["name"] for r in conn.execute("PRAGMA table_info(ai_discovery_candidates)")
+        }
+        if disc_cand_cols:
+            for col, decl in (
+                ("event_period", "TEXT"),
+                ("primary_source", "TEXT"),
+                ("supporting_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("discovery_price", "REAL"),
+                ("discovery_ai_score", "REAL"),
+                ("discovery_financial_label", "TEXT"),
+                ("discovery_knife_score", "REAL"),
+                ("discovery_status", "TEXT"),
+                ("discovery_block_reason", "TEXT"),
+                ("became_trade_candidate", "INTEGER NOT NULL DEFAULT 0"),
+                ("ret_1d", "REAL"),
+                ("ret_5d", "REAL"),
+                ("ret_20d", "REAL"),
+                ("ret_63d", "REAL"),
+                ("ret_1d_vs_spy", "REAL"),
+                ("ret_5d_vs_spy", "REAL"),
+                ("ret_20d_vs_spy", "REAL"),
+                ("ret_63d_vs_spy", "REAL"),
+                ("returns_updated_at", "TEXT"),
+                ("sentiment", "TEXT"),
+                ("impact_score", "REAL"),
+                ("event_date", "TEXT"),
+                ("source_tags", "TEXT"),
+                ("source_sites", "TEXT"),
+                ("is_recent", "INTEGER NOT NULL DEFAULT 1"),
+            ):
+                if col not in disc_cand_cols:
+                    conn.execute(
+                        f"ALTER TABLE ai_discovery_candidates ADD COLUMN {col} {decl}"
+                    )
+        if disc_ev_cols:
+            for col, decl in (
+                ("sentiment", "TEXT"),
+                ("impact_score", "REAL"),
+                ("event_date", "TEXT"),
+                ("source_tags", "TEXT"),
+                ("source_sites", "TEXT"),
+                ("is_recent", "INTEGER NOT NULL DEFAULT 1"),
+            ):
+                if col not in disc_ev_cols:
+                    conn.execute(f"ALTER TABLE ai_discovery_events ADD COLUMN {col} {decl}")
+        # Unresolved discovery log (ticker confidence insufficient).
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ai_discovery_unresolved (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                headline_fingerprint TEXT NOT NULL UNIQUE,
+                headline TEXT NOT NULL,
+                source_name TEXT,
+                source_url TEXT,
+                event_category TEXT,
+                event_score REAL,
+                resolve_notes TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        unres_cols = {
+            r["name"] for r in conn.execute("PRAGMA table_info(ai_discovery_unresolved)")
+        }
+        if unres_cols:
+            for col, decl in (
+                ("status", "TEXT NOT NULL DEFAULT 'open'"),
+                ("resolved_ticker", "TEXT"),
+                ("resolved_at", "TEXT"),
+                ("resolved_event_id", "INTEGER"),
+                ("last_retry_at", "TEXT"),
+            ):
+                if col not in unres_cols:
+                    conn.execute(
+                        f"ALTER TABLE ai_discovery_unresolved ADD COLUMN {col} {decl}"
+                    )
         for key, value in DEFAULT_SETTINGS.items():
             existing = conn.execute("SELECT 1 FROM settings WHERE key = ?", (key,)).fetchone()
             if not existing:

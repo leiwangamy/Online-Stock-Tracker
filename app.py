@@ -1825,6 +1825,24 @@ def ai_trading_levels():
     )
 
 
+def _normalize_discovery_channel_stats(stats: dict) -> dict:
+    """Fill display gaps for older harvest payloads (pre Broad / admitted_today)."""
+    if not isinstance(stats, dict) or not stats:
+        return {}
+    out = dict(stats)
+    if "admitted_today" not in out and "admitted" in out:
+        out["admitted_today"] = out.get("admitted")
+    cc = dict(out.get("channel_counts") or {})
+    # Official-only runs omitted broad; show 0 so radar is not blank.
+    if cc and "broad" not in cc:
+        cc["broad"] = 0
+    for key in ("usaspending", "dod", "sec", "fda", "gov_transactions"):
+        if key not in cc and cc:
+            cc[key] = 0
+    out["channel_counts"] = cc
+    return out
+
+
 @app.route("/ai-trading", methods=["GET", "POST"])
 def ai_trading():
     """
@@ -1833,6 +1851,7 @@ def ai_trading():
     Admin-only actions: create orders, priority, daily update, manual exit.
     """
     from paper_trading import (
+        _ai_auto_thresholds,
         build_candidates,
         clear_priority,
         create_paper_orders_from_candidates,
@@ -1851,10 +1870,11 @@ def ai_trading():
         set_priority,
         trading_day_pt,
     )
+    from knife_risk import KNIFE_AUTO_BLOCK_THRESHOLD
 
     ensure_portfolio()
     tab = (request.args.get("tab") or request.form.get("tab") or "today").strip().lower()
-    if tab not in ("today", "open", "history"):
+    if tab not in ("today", "open", "history", "discovery"):
         tab = "today"
 
     if request.method == "POST":
@@ -2031,6 +2051,96 @@ def ai_trading():
                     "ok",
                 )
                 return redirect(url_for("ai_trading", tab="open"))
+            elif action == "discovery_set_min_score":
+                from ai_discovery import (
+                    discovery_pool_counts,
+                    discovery_threshold_counts,
+                    set_min_event_score_display,
+                )
+
+                raw = (request.form.get("min_event_score") or "70").strip()
+                try:
+                    score = float(raw)
+                except ValueError:
+                    score = 70.0
+                score = set_min_event_score_display(score)
+                pool = discovery_pool_counts(min_event_score=score)
+                flash(
+                    ngettext_format(
+                        "Min Event Score {score} · Qualifying Events {e} · Unique Stocks {s}",
+                        score=int(score) if score == int(score) else score,
+                        e=pool.get("qualifying_events"),
+                        s=pool.get("unique_stocks"),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="discovery"))
+            elif action == "discovery_run":
+                from ai_discovery import run_discovery_cycle
+
+                create_orders = (request.form.get("create_orders") or "1") == "1"
+                result = run_discovery_cycle(create_orders=create_orders)
+                h = result.get("harvest") or {}
+                o = result.get("orders") or {}
+                cc = h.get("channel_counts") or {}
+                flash(
+                    ngettext_format(
+                        "Discovery: Broad {b} · USA {u} · DoD {d} · SEC {s} · FDA {f} · Gov {g} · raw {r} · today {t} · unresolved {x}",
+                        b=cc.get("broad"),
+                        u=cc.get("usaspending"),
+                        d=cc.get("dod"),
+                        s=cc.get("sec"),
+                        f=cc.get("fda"),
+                        g=cc.get("gov_transactions"),
+                        r=h.get("raw_total"),
+                        t=h.get("admitted_today"),
+                        x=h.get("unresolved"),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="discovery"))
+            elif action == "discovery_add_event":
+                from ai_discovery import add_manual_discovery_event
+
+                ticker = (request.form.get("ticker") or "").strip().upper()
+                summary = (request.form.get("event_summary") or "").strip()
+                result = add_manual_discovery_event(ticker=ticker, summary=summary)
+                flash(
+                    ngettext_format(
+                        "Discovery event added: {ticker} · Event Score {score}",
+                        ticker=ticker,
+                        score=(result.get("event") or {}).get("event_score"),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="discovery"))
+            elif action == "discovery_analyze":
+                from ai_discovery import analyze_discovery_candidate
+
+                cid = int(request.form.get("candidate_id") or 0)
+                row = analyze_discovery_candidate(cid)
+                flash(
+                    ngettext_format(
+                        "Analyzed {ticker}: {status}",
+                        ticker=row.get("ticker"),
+                        status=row.get("status"),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="discovery"))
+            elif action == "discovery_create_orders":
+                from ai_discovery import create_discovery_paper_orders
+
+                result = create_discovery_paper_orders(auto_only=True)
+                flash(
+                    ngettext_format(
+                        "Discovery paper orders: created {n} · skipped {s}",
+                        n=result.get("count"),
+                        s=len(result.get("skipped") or []),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="discovery"))
             else:
                 flash(gettext("Unknown action"), "warning")
         except Exception as exc:
@@ -2070,6 +2180,88 @@ def ai_trading():
             "cutoff_date": "",
         }
     rebuy_candidates = rebuy_pool.get("all") or []
+    discovery_rows = []
+    discovery_broad_rows = []
+    discovery_official_rows = []
+    discovery_perf = None
+    discovery_unresolved = []
+    discovery_unresolved_count = 0
+    discovery_resolved_today = 0
+    discovery_min_score = 70.0
+    discovery_channel_stats = {}
+    discovery_count = 0
+    discovery_layer = (request.args.get("layer") or "official").strip().lower()
+    if discovery_layer not in ("broad", "official"):
+        discovery_layer = "official"
+    # Always load badge count + last radar stats (so Today tab is not stuck at 0).
+    try:
+        from ai_discovery import (
+            discovery_pool_counts,
+            get_min_event_score_display,
+        )
+        from db import get_setting as _gs
+
+        discovery_min_score = get_min_event_score_display()
+        pool0 = discovery_pool_counts(min_event_score=discovery_min_score)
+        discovery_count = int(pool0.get("qualifying_events") or 0)
+        discovery_channel_stats = _gs("ai_discovery_last_channel_stats", {}) or {}
+        if not isinstance(discovery_channel_stats, dict):
+            discovery_channel_stats = {}
+        discovery_channel_stats = _normalize_discovery_channel_stats(
+            discovery_channel_stats
+        )
+    except Exception:
+        app.logger.exception("AI Discovery badge/stats load failed")
+        discovery_count = 0
+        discovery_channel_stats = {}
+
+    if tab == "discovery":
+        try:
+            from ai_discovery import (
+                count_resolved_unresolved_today,
+                count_unresolved_discoveries,
+                discovery_performance,
+                list_discovery_candidates,
+                list_unresolved_discoveries,
+                maybe_retry_unresolved,
+                partition_discovery_by_layer,
+            )
+
+            # Background ticker re-resolution (throttled); never guesses low-confidence matches.
+            try:
+                maybe_retry_unresolved(force=False)
+            except Exception:
+                app.logger.exception("unresolved retry failed")
+
+            # Include NEGATIVE so UI can show 差; trade gates unchanged.
+            discovery_rows = list_discovery_candidates(
+                limit=300, exclude_negative=False
+            )
+            parts = partition_discovery_by_layer(discovery_rows)
+            discovery_broad_rows = parts.get("broad") or []
+            discovery_official_rows = parts.get("official") or []
+            discovery_count = len(discovery_rows)
+            discovery_perf = discovery_performance()
+            discovery_unresolved = list_unresolved_discoveries(limit=80)
+            discovery_unresolved_count = count_unresolved_discoveries()
+            discovery_resolved_today = count_resolved_unresolved_today()
+            from db import get_setting as _gs2
+
+            discovery_channel_stats = _gs2("ai_discovery_last_channel_stats", {}) or {}
+            if not isinstance(discovery_channel_stats, dict):
+                discovery_channel_stats = {}
+            discovery_channel_stats = _normalize_discovery_channel_stats(
+                discovery_channel_stats
+            )
+        except Exception:
+            app.logger.exception("AI Discovery load failed")
+            discovery_rows = []
+            discovery_broad_rows = []
+            discovery_official_rows = []
+            discovery_perf = None
+            discovery_unresolved = []
+            discovery_unresolved_count = 0
+            discovery_resolved_today = 0
     highlight_rebuy_id = None
     try:
         if request.args.get("rebuy"):
@@ -2080,6 +2272,18 @@ def ai_trading():
     hist_report = None
     if tab == "history":
         hist_report = history_report(range_key=range_key)
+
+    try:
+        _auto_thr = _ai_auto_thresholds()
+    except Exception:
+        _auto_thr = {"sma25_dist": -20.0, "target_ratio": 0.70, "pos_63d": 10.0}
+    try:
+        _knife_raw = get_all_settings().get(
+            "knife_auto_block_threshold", KNIFE_AUTO_BLOCK_THRESHOLD
+        )
+        _knife_block = int(_knife_raw if _knife_raw is not None else KNIFE_AUTO_BLOCK_THRESHOLD)
+    except (TypeError, ValueError):
+        _knife_block = int(KNIFE_AUTO_BLOCK_THRESHOLD)
 
     try:
         return render_template(
@@ -2100,6 +2304,21 @@ def ai_trading():
             can_manage=is_owner(),
             stop_pct=float(get_all_settings().get("paper_stop_loss_pct", 5.0)),
             take_pct=float(get_all_settings().get("paper_take_profit_pct", 10.0)),
+            ai_auto_sma25_dist=float(_auto_thr.get("sma25_dist", -20.0)),
+            ai_auto_target_ratio=float(_auto_thr.get("target_ratio", 0.70)),
+            ai_auto_63d_pos=float(_auto_thr.get("pos_63d", 10.0)),
+            ai_auto_knife_block=_knife_block,
+            discovery_rows=discovery_rows,
+            discovery_broad_rows=discovery_broad_rows,
+            discovery_official_rows=discovery_official_rows,
+            discovery_layer=discovery_layer,
+            discovery_perf=discovery_perf,
+            discovery_unresolved=discovery_unresolved,
+            discovery_unresolved_count=discovery_unresolved_count,
+            discovery_resolved_today=discovery_resolved_today,
+            discovery_min_score=discovery_min_score,
+            discovery_channel_stats=discovery_channel_stats,
+            discovery_count=discovery_count,
         )
     except Exception:
         app.logger.exception("ai_trading render failed")

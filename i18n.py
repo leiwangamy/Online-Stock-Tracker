@@ -227,6 +227,32 @@ ZH: dict[str, str] = {
         "Knife Risk — 自动交易池排除 Knife ≥ 门槛的股票",
     "Knife Risk ≥ 45 blocks Auto Trading (configurable). Watchlist / Research still show the name.":
         "Knife Risk ≥ 45 会禁止自动交易（可配置）。Watchlist / 研究中心仍可查看。",
+    "Knife Risk (0–100) — independent of AI Score":
+        "Knife Risk（0–100）— 独立于 AI Score",
+    "Speed":
+        "下跌速度",
+    "5D / 3D decline, consecutive down days, acceleration":
+        "5日/3日跌幅、连续下跌日、加速下行",
+    "Relative weakness":
+        "相对弱势",
+    "5D vs SPY (~20) + sector ETF (~15)":
+        "5日相对 SPY（约20）+ 行业 ETF（约15）",
+    "Trend persistence":
+        "趋势持续性",
+    "10D / 20D log-price slope still falling":
+        "10日/20日对数价格斜率仍在下行",
+    "Volume confirm":
+        "成交量确认",
+    "optional: down day + high RVOL (tiny add-on)":
+        "可选：下跌日 + 高 RVOL（小幅加分）",
+    "Levels:":
+        "等级：",
+    "AUTO BLOCK:":
+        "自动拦截：",
+    "Knife Risk ≥ 45 blocks AI Auto Trading / Create Paper Orders (threshold configurable). Watchlist and Research still show the name. AI Score cannot override.":
+        "Knife Risk ≥ 45 会禁止 AI 自动交易 / 创建纸上订单（门槛可配置）。Watchlist 与研究中心仍显示该股。AI Score 不能覆盖此规则。",
+    "Not an oversold / price-location score. Does not use 63D Position, Dist. from SMA, Financial, or News. Hover Knife for component breakdown.":
+        "不是超卖 / 价格位置分数。不使用 63日位置、距 SMA 距离、财报或新闻。悬停 Knife 可看分项明细。",
     "Pool": "所属股池",
     "No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)":
         "暂无数据。（超卖/强势回调需先到 Market Dashboard 刷新行情；我的自选/临时会实时抓取。）",
@@ -396,6 +422,285 @@ ZH: dict[str, str] = {
         "上涨",
     "AI Trading Watchlist — Top 10":
         "AI Trading Watchlist — Top 10",
+    "AI Discovery":
+        "AI Discovery",
+    "AI Discovery Pool":
+        "AI Discovery 候选池",
+    "Broad Discovery + Official 5×5 Radar":
+        "Broad Discovery + 官方 5×5 雷达",
+    "Existing Broad Discovery is kept. Official channels each add Top 5. Shared dedupe → one Discovery table. Source tags: BROAD / USASPENDING / DOD / SEC / FDA / GOV_DISCLOSURE.":
+        "保留现有 Broad Discovery。官方通道各加 Top 5。共用去重 → 同一 Discovery 表。来源标签：BROAD / USASPENDING / DOD / SEC / FDA / GOV_DISCLOSURE。",
+    "Broad":
+        "Broad",
+    "Discovery Radar":
+        "Discovery 雷达",
+    "Broad Discovery":
+        "Broad Discovery",
+    "Pool":
+        "候选池",
+    "Open AI Discovery":
+        "打开 AI Discovery",
+    "Gov Disclosure":
+        "政府披露",
+    "Today admitted":
+        "今日入池",
+    "Source":
+        "来源",
+    "N":
+        "条数",
+    "Discovery: Broad {b} · USA {u} · DoD {d} · SEC {s} · FDA {f} · Gov {g} · raw {r} · today {t} · unresolved {x}":
+        "Discovery：Broad {b} · USA {u} · DoD {d} · SEC {s} · FDA {f} · 披露 {g} · 原始 {r} · 今日 {t} · 未解析 {x}",
+    "Five independent discovery channels":
+        "五个独立发现通道",
+    "Each channel contributes its own Top 5 (max 25 raw) → cross-source dedupe → ticker resolve → Event Score ≥ threshold → pool. No trading-gate changes.":
+        "每通道各自 Top 5（最多 25 条原始）→ 跨源去重 → 解析代码 → Event Score ≥ 门槛 → 入池。不改交易阀门。",
+    "Gov Transactions":
+        "政府披露交易",
+    "Raw":
+        "原始合计",
+    "Event ≥70":
+        "事件 ≥70",
+    "AI Discovery channels: USA {u} · DoD {d} · SEC {s} · FDA {f} · GovTx {g} · raw {r} · unique {q} · ≥70 {a} · unresolved {x}":
+        "AI Discovery 通道：USA {u} · DoD {d} · SEC {s} · FDA {f} · 披露 {g} · 原始 {r} · 去重后 {q} · ≥70 {a} · 未解析 {x}",
+    "External thematic news scan":
+        "外部主题新闻扫描",
+    "Google News themes discover material positive events across the broader market (not limited to Watchlist / Research).":
+        "通过 Google News 主题扫描更广泛市场的重大利好（不限于自选 / Research）。",
+    "Deduplicate underlying events → resolve ticker → Event Score ≥ threshold → store all qualifiers (no Top-N yet).":
+        "按底层事件去重 → 解析代码 → Event Score ≥ 门槛 → 全部入库展示（暂无 Top-N）。",
+    "Does not add to My Watchlist. Research / trading gates unchanged. High scores prefer primary-like sources when present.":
+        "不会加入「我的自选」。Research / 交易阀门不变。高分优先参考一手/可靠来源（若有）。",
+    "Qualifying Events":
+        "达标事件",
+    "Unique Stocks":
+        "独立股票数",
+    "Minimum Event Score":
+        "最低 Event Score",
+    "Apply":
+        "应用",
+    "Display filter only — does not delete stored events. Try 60 / 70 / 75 / 80 / 85.":
+        "仅显示过滤，不删除已存事件。可试 60 / 70 / 75 / 80 / 85。",
+    "No qualifying Discovery events at the current minimum Event Score. Run external thematic harvest, lower the threshold, or add an event manually.":
+        "当前最低 Event Score 下无达标事件。请运行外部主题采集、降低门槛，或手动添加。",
+    "Unresolved (ticker not confirmed)":
+        "未解析（代码未确认）",
+    "No unresolved headlines. Events without confident ticker resolution stay here — not in the tradable pool.":
+        "暂无未解析标题。代码置信不足的事件留在此处，不进入可交易池。",
+    "Note":
+        "备注",
+    "Min Event Score {score} · Qualifying Events {e} · Unique Stocks {s}":
+        "最低 Event Score {score} · 达标事件 {e} · 独立股票 {s}",
+    "AI Discovery: scanned {sc} · events +{e} · unresolved {u} · analyzed {a} · orders {n}":
+        "AI Discovery：扫描 {sc} · 事件 +{e} · 未解析 {u} · 已分析 {a} · 订单 {n}",
+    "News discovers the stock":
+        "新闻发现股票",
+    "Major positive events → Event Score → analyze with existing Financial / AI Score / Knife / price gates → optional auto Paper Order.":
+        "重大利好事件 → Event Score → 复用现有财报 / AI Score / Knife / 价格阀门分析 → 可选自动纸上订单。",
+    "Does not add to My Watchlist. Research thresholds unchanged. Knife AUTO BLOCK still applies.":
+        "不会加入「我的自选」。Research 门槛不变。Knife 自动拦截仍然生效。",
+    "Discovered":
+        "已发现",
+    "Discovery Alpha":
+        "Discovery Alpha（发现阿尔法）",
+    "Trading Alpha":
+        "Trading Alpha（交易阿尔法）",
+    "News Trading":
+        "News Trading（新闻交易）",
+    "Return":
+        "收益",
+    "Trades":
+        "笔数",
+    "AI_DISCOVERY source only · Total P&L = Realized + Unrealized":
+        "仅 AI_DISCOVERY 来源 · 总盈亏 = 已实现 + 未实现",
+    "Code Guide":
+        "Code Guide（规则说明）",
+    "Official 5×5 Radar":
+        "Official 5×5 Radar（官方雷达）",
+    "Scoring & pool rules":
+        "评分与入池规则",
+    "News labels: 🟢 POSITIVE / 🔴 NEGATIVE / ⚪ NEUTRAL":
+        "新闻标注：🟢 利好 / 🔴 利空 / ⚪ 中性",
+    "POSITIVE":
+        "利好",
+    "NEGATIVE":
+        "利空",
+    "NEUTRAL":
+        "中性",
+    "Event Score = materiality of the underlying event (not summed across headlines). Default display filter ≥ 70.":
+        "Event Score = 底层事件实质影响（不按标题加总）。默认显示门槛 ≥ 70。",
+    "Broad Discovery: thematic external news. Official 5×5: USAspending / DoD / SEC / FDA / Gov Disclosure — Top 5 each, then shared dedupe.":
+        "Broad Discovery：外部主题新闻。Official 5×5：USAspending / DoD / SEC / FDA / 政府披露 — 各 Top 5，再共享去重。",
+    "Unresolved tickers stay out of Priority and Trading until confidently resolved.":
+        "未可靠解析代码前，不进 Priority / 交易。",
+    "News Trading P&L = Realized + Unrealized for source AI_DISCOVERY only.":
+        "News Trading 盈亏 = 已实现 + 未实现（仅来源 AI_DISCOVERY）。",
+    "News Auto Trading method":
+        "新闻自动 Trading 方法",
+    "Discover → resolve ticker confidently → store unique underlying event (ticker + category + period).":
+        "发现 → 高置信解析代码 → 按底层事件入库（代码 + 类别 + 期间，去重）。",
+    "Analyze with existing Financial / AI Score / Knife / price-location gates (same as Paper Auto Trading).":
+        "用现有财报 / AI Score / Knife / 价格位置阀门分析（与纸上 Auto Trading 相同）。",
+    "Auto TRADE_CANDIDATE only if ALL pass: not 🔴 Negative · event is recent · Event Score ≥ 70 · AI Score ≥ 45 · price location OR gate · Knife below AUTO BLOCK (default ≥ 45 blocks).":
+        "全部通过才自动 TRADE_CANDIDATE：非 🔴 Negative · 事件仍新 · Event Score ≥ 70 · AI Score ≥ 45 · 价格位置 OR 门槛 · Knife 低于 AUTO BLOCK（默认 ≥ 45 拦截）。",
+    "Price location OR (any one): Dist from SMA25 ≤ −20% · or Target Ratio ≤ 70% · or 63D Position ≤ 10%.":
+        "价格位置 OR（任一）：距 SMA25 ≤ −20% · 或 Target Ratio ≤ 70% · 或 63D 位置 ≤ 10%。",
+    "Politician-purchase clues are discovery-only — never auto-ordered.":
+        "政客买入线索仅作发现，永不自动下单。",
+    "Paper order source = AI_DISCOVERY. At most one order per underlying event. Cash + trading limit apply. Default Stop −5% / Take +10% (Admin settings).":
+        "纸上订单来源 = AI_DISCOVERY。同一底层事件最多一单。受现金与交易额度限制。默认止损 −5% / 止盈 +10%（管理员设置）。",
+    "🔴 Negative / stale / Knife-blocked / price-fail → WATCH or AUTO_BLOCK — never Priority, never auto trade.":
+        "🔴 Negative / 过期 / Knife 拦截 / 价格未达标 → WATCH 或 AUTO_BLOCK — 不进 Priority，不自动交易。",
+    "Radar":
+        "雷达",
+    "Scores":
+        "分数",
+    "Alpha":
+        "Alpha",
+    "Actions":
+        "操作",
+    "Harvest":
+        "采集",
+    "forward returns, all events":
+        "前瞻收益，全部事件",
+    "Good":
+        "好",
+    "Medium":
+        "中",
+    "Bad":
+        "差",
+    "Knife":
+        "Knife",
+    "BROAD DISCOVER":
+        "BROAD DISCOVER",
+    "OFFICIAL 5×5 RADAR":
+        "OFFICIAL 5×5 RADAR",
+    "News":
+        "新闻",
+    "好":
+        "好",
+    "中":
+        "中",
+    "差":
+        "差",
+    "Official 5×5 is already in the pool — use tabs to view separately. Shared dedupe may list the same ticker in both when tags overlap.":
+        "Official 5×5 已在同一池中 — 用 TAB 分开查看。共享去重后，双标签事件可能两边都出现。",
+    "No Broad Discovery rows yet. Run Harvest + Analyze only (combined Broad + Official). Official rows are under the right tab.":
+        "暂无 Broad Discovery。请运行 Harvest + Analyze only（Broad + Official 合并采集）。Official 在右侧 TAB。",
+    "No Official 5×5 Radar rows at the current minimum Event Score.":
+        "当前最低 Event Score 下无 Official 5×5 Radar 行。",
+    "Unresolved":
+        "未解析",
+    "Resolved Today":
+        "今日已解析",
+    "Not in Priority / Trading until ticker is confidently resolved.":
+        "代码未可靠解析前，不进入 Priority / 交易。",
+    "Forward returns for every unique event (including WATCH / not traded). Separate from Paper Trading P&L.":
+        "对每一个独立事件计算前瞻收益（含 WATCH / 未交易）。与纸上交易盈亏分开统计。",    "Unavailable periods show — until enough trading days have elapsed.":
+        "未满观察期显示 —，不以 0% 填充。",
+    "Closed Paper Trades with source AI_DISCOVERY only.":
+        "仅统计来源为 AI_DISCOVERY 的已平仓纸上交易。",
+    "Unique Events":
+        "独立事件",
+    "Trade Candidates":
+        "交易候选",
+    "Traded":
+        "已下单",
+    "5D Avg Return":
+        "5日平均收益",
+    "20D Avg Return":
+        "20日平均收益",
+    "63D Avg Return":
+        "63日平均收益",
+    "20D Avg vs SPY":
+        "20日相对SPY",
+    "63D Avg vs SPY":
+        "63日相对SPY",
+    "Period":
+        "期间",
+    "Src":
+        "来源数",
+    "Disc. Px":
+        "发现价",
+    "5D":
+        "5日",
+    "20D":
+        "20日",
+    "63D":
+        "63日",
+    "Supporting sources":
+        "支持来源",
+    "Traded (Discovery)":
+        "已交易（Discovery）",
+    "Open Discovery":
+        "Discovery 持仓",
+    "Run AI Discovery + Auto Orders":
+        "运行 AI Discovery + 自动下单",
+    "Harvest + Analyze only":
+        "仅采集 + 分析",
+    "Create Discovery Orders":
+        "创建 Discovery 订单",
+    "Major positive event summary (contract / FDA / guidance…)":
+        "重大利好事件摘要（合同 / FDA / 上调指引…）",
+    "Add Discovery Event":
+        "添加 Discovery 事件",
+    "No AI Discovery candidates yet. Run Harvest from shared news cache, or add a major event manually.":
+        "暂无 AI Discovery 候选。请运行采集（共享新闻缓存），或手动添加重大事件。",
+    "Event Score":
+        "事件分",
+    "Category":
+        "类别",
+    "Event":
+        "事件",
+    "Block / Note":
+        "拦截 / 备注",
+    "Analyze":
+        "分析",
+    "AI Discovery: events +{e} · analyzed {a} · orders {n}":
+        "AI Discovery：事件 +{e} · 已分析 {a} · 订单 {n}",
+    "Discovery event added: {ticker} · Event Score {score}":
+        "已添加 Discovery 事件：{ticker} · Event Score {score}",
+    "Analyzed {ticker}: {status}":
+        "已分析 {ticker}：{status}",
+    "Discovery paper orders: created {n} · skipped {s}":
+        "Discovery 纸上订单：创建 {n} · 跳过 {s}",
+    "Trade Guide":
+        "Trade Guide（交易说明）",
+    "Auto entry parameters":
+        "自动入场参数",
+    "Auto entry parameters (new)":
+        "自动入场参数（新阀门）",
+    "Price-location: ANY ONE of the three (OR). Knife is a separate hard block.":
+        "价格位置：三项任一通过即可（OR）。Knife 仍为独立硬拦截。",
+    "or":
+        "或",
+    "then":
+        "然后",
+    "Dist. from SMA25":
+        "距 SMA25",
+    "Knife Risk AUTO BLOCK":
+        "Knife Risk 自动拦截",
+    "Max slots":
+        "最多名额",
+    "no backfill":
+        "不凑数",
+    "Research Watchlist unchanged:":
+        "Research Watchlist 不变：",
+    "0 pass → NO TRADE":
+        "0 只通过 → NO TRADE",
+    "Auto gates":
+        "自动阀门",
+    "Ranked by AI Score; Priority Buy ⭐ only reorders allocation. Create Paper Orders is manual. Rising Now / 5D are timing references only.":
+        "按 AI Score 排序；优先买入 ⭐ 仅调整仓位顺序。创建纸上订单仍需手动。正在上涨 / 5日仅为时机参考。",
+    "Auto entry is stricter than Research: Dist. from SMA25 ≤ −20%, Target Ratio ≤ 70%, 63D Position ≤ 10%, then Knife Risk AUTO BLOCK. Research Watchlist keeps Dist < −10% / Target < 80% / 63D < 25%. Top 10 is a maximum — never backfill. 0 pass → NO TRADE. Ranked by AI Score; Priority Buy ⭐ only reorders allocation. Create Paper Orders is manual.":
+        "自动入场严于 Research：距 SMA25 ≤ −20%、Target Ratio ≤ 70%、63日位置 ≤ 10%，再过 Knife Risk 自动拦截。Research Watchlist 仍为 Dist < −10% / Target < 80% / 63D < 25%。Top 10 是上限，绝不凑数。0 只通过 → NO TRADE。按 AI Score 排序；优先买入 ⭐ 仅调整仓位顺序。创建纸上订单仍需手动。",
+    "NO TRADE":
+        "NO TRADE（无交易）",
+    "No names passed Auto price-location + Knife gates. Research filters are unchanged — wait for a better price, or refresh AI Candidates after prices update.":
+        "没有标的通过自动交易的价格位置 + Knife 门槛。Research 筛选不变 — 等待更好价格，或行情更新后刷新 AI Candidates。",
+    "max":
+        "上限",
+    "quality over fill":
+        "质量优先，不凑满",
     "Strict paper-trading list: Oversold + Target Ratio < 80% + 63D Position < 25% (low position / quality screens), ranked by existing AI Score. Rising Now / 5D metrics are timing references only and do not change AI Score. Priority ⭐ and Trade Candidate ★ are human flags. Orders are not created until you click Create Paper Orders. Research more names on Candidate Analysis → My Watchlist → Trade Candidate.":
         "严格纸上交易列表：超卖 + Target Ratio <80% + 63日位置 <25%（低位/质量筛），按现有 AI Score 排序。正在上涨 / 5日指标仅为时机参考，不改 AI Score。Priority ⭐ 与 Trade Candidate ★ 为人工标记。点击 Create Paper Orders 才会建仓。更多研究请走：候选分析 → 我的自选 → Trade Candidate。",
     "No Trade Candidates yet. Mark them on Candidate Analysis (separate from My Watchlist).":

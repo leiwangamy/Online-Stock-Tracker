@@ -30,7 +30,15 @@ PT = ZoneInfo("America/Los_Angeles")
 # Rank → target USD allocation (adapts to share prices; need not sum exactly to limit).
 ALLOC_LADDER = [300.0, 300.0, 250.0, 250.0, 200.0, 200.0]
 # Paper trading always allows fractional shares so small $ budgets can fill exactly.
-TOP_N = 10
+TOP_N = 10  # maximum Auto Trading slots — never a fill target
+
+# AI Auto Trading price-location gates (stricter than Research discovery).
+# Research keeps Dist < -10%, Target Ratio < 80%, 63D < 25%.
+# Units match stored dashboard fields: dist_pct / range_63d_pos are percent points;
+# target ratio is price / target_1y (fraction).
+AI_AUTO_MAX_SMA25_DIST = -20.0  # Dist. from SMA25 <= -20%
+AI_AUTO_MAX_TARGET_RATIO = 0.70  # Target Ratio <= 70%
+AI_AUTO_MAX_63D_POSITION = 10.0  # 63D Position <= 10%
 
 EXIT_STOP = "STOP_LOSS"
 EXIT_TAKE = "TAKE_PROFIT"
@@ -398,12 +406,14 @@ SRC_OVERSOLD = "oversold"
 SRC_TARGET = "target"
 SRC_63D = "63d"
 SRC_MANUAL = "manual"
-_SOURCE_ORDER = (SRC_OVERSOLD, SRC_TARGET, SRC_63D, SRC_MANUAL)
+SRC_AI_DISCOVERY = "ai_discovery"
+_SOURCE_ORDER = (SRC_OVERSOLD, SRC_TARGET, SRC_63D, SRC_MANUAL, SRC_AI_DISCOVERY)
 _SOURCE_MSGID = {
     SRC_OVERSOLD: "Oversold",
     SRC_TARGET: "Target",
     SRC_63D: "63D",
     SRC_MANUAL: "Manual Priority",
+    SRC_AI_DISCOVERY: "AI Discovery",
 }
 
 
@@ -439,6 +449,79 @@ def normalize_source_codes(codes: list[str] | set[str] | None) -> str:
     ordered = [c for c in _SOURCE_ORDER if c in seen]
     ordered.extend(sorted(c for c in seen if c not in _SOURCE_ORDER))
     return ",".join(ordered)
+
+
+def _ai_auto_thresholds() -> dict[str, float]:
+    """
+    Central Auto Trading price-location thresholds.
+    Optional settings overrides (same units) without touching Research list_* filters.
+    """
+    def _f(key: str, default: float) -> float:
+        try:
+            raw = get_setting(key, None)
+            if raw is None or str(raw).strip() == "":
+                return float(default)
+            return float(raw)
+        except (TypeError, ValueError):
+            return float(default)
+
+    return {
+        "sma25_dist": _f("ai_auto_max_sma25_dist", AI_AUTO_MAX_SMA25_DIST),
+        "target_ratio": _f("ai_auto_max_target_ratio", AI_AUTO_MAX_TARGET_RATIO),
+        "pos_63d": _f("ai_auto_max_63d_position", AI_AUTO_MAX_63D_POSITION),
+    }
+
+
+def target_ratio_from_row(row: dict[str, Any]) -> float | None:
+    """price / Yahoo 1Y target; None if unavailable."""
+    try:
+        price = float(row.get("price"))
+        target = float(row.get("target_1y"))
+    except (TypeError, ValueError):
+        return None
+    if price != price or target != target or target <= 0:
+        return None
+    return price / target
+
+
+def passes_ai_auto_price_location(
+    row: dict[str, Any], *, thresholds: dict[str, float] | None = None
+) -> bool:
+    """
+    AI Auto Trading price-location gate: any ONE of the three may pass (OR).
+    Missing a field only fails that leg; another leg can still qualify.
+    Knife Risk is intentionally NOT part of this gate.
+    """
+    return bool(ai_auto_price_location_hits(row, thresholds=thresholds))
+
+
+def ai_auto_price_location_hits(
+    row: dict[str, Any], *, thresholds: dict[str, float] | None = None
+) -> list[str]:
+    """
+    Which Auto price-location legs pass (OR pool).
+    Codes: 'sma25', 'target', '63d'. Empty → not Auto-eligible on price.
+    """
+    thr = thresholds or _ai_auto_thresholds()
+    hits: list[str] = []
+    try:
+        dist = row.get("dist_pct")
+        if dist is not None and float(dist) <= float(thr["sma25_dist"]):
+            hits.append("sma25")
+    except (TypeError, ValueError):
+        pass
+
+    ratio = target_ratio_from_row(row)
+    if ratio is not None and ratio <= float(thr["target_ratio"]):
+        hits.append("target")
+
+    try:
+        pos = row.get("range_63d_pos")
+        if pos is not None and float(pos) <= float(thr["pos_63d"]):
+            hits.append("63d")
+    except (TypeError, ValueError):
+        pass
+    return hits
 
 
 # ── Candidates ─────────────────────────────────────────────────────────────
@@ -550,25 +633,39 @@ def _score_universe_rows() -> list[dict[str, Any]]:
 
 
 def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> list[dict[str, Any]]:
-    """Build AI Candidates Top 10 with suggested allocation / shares / stops."""
+    """
+    Build AI Auto Trading candidates (max TOP_N — not a fill target).
+
+    Flow:
+      Research universe (unchanged broader screens)
+      → price-location OR gate (SMA25 / Target Ratio / 63D — any one)
+      → Knife Risk AUTO BLOCK (unchanged, independent hard gate)
+      → rank by AI Score; take up to TOP_N (0 → NO TRADE / empty list)
+    """
     from knife_risk import KNIFE_AUTO_BLOCK_THRESHOLD, knife_auto_blocked
 
     cfg = _cfg()
     day = as_of_date or trading_day_pt()
+    thr = _ai_auto_thresholds()
     scored = _score_universe_rows()
-    # Hard safety gate: Knife Risk >= threshold → never enter Auto Trading pool.
-    # AI Score cannot override. Blocked names stay on Watchlist / Research.
+    # Price-location OR (Auto-only), then Knife Risk. Do not backfill weaker names.
     eligible: list[dict[str, Any]] = []
-    blocked_n = 0
+    price_blocked_n = 0
+    knife_blocked_n = 0
     for r in scored:
+        hits = ai_auto_price_location_hits(r, thresholds=thr)
+        if not hits:
+            price_blocked_n += 1
+            continue
+        r["_auto_price_hits"] = hits
         k = r.get("knife") or {}
         score = k.get("score") if isinstance(k, dict) else None
         if knife_auto_blocked(score):
-            blocked_n += 1
+            knife_blocked_n += 1
             continue
         eligible.append(r)
     top = eligible[:TOP_N]
-    # Within Top 10, Priority only affects allocation order (not AI Score / not membership).
+    # Within selected names, Priority only affects allocation order (not AI Score / not membership).
     top.sort(
         key=lambda x: (
             -int(x.get("is_priority") or 0),
@@ -607,6 +704,8 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
             target = 0.0
         knife = r.get("knife") if isinstance(r.get("knife"), dict) else {}
         ticker = r["ticker"].upper()
+        tratio = target_ratio_from_row(r)
+        price_hits = list(r.get("_auto_price_hits") or ai_auto_price_location_hits(r, thresholds=thr))
         row = {
             "as_of_date": day,
             "rank": rank,
@@ -617,6 +716,10 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
             "financial_label": r.get("financial_label") or "—",
             "news_label": r.get("news_label") or "—",
             "price": price,
+            "target_1y": r.get("target_1y"),
+            "dist_pct": r.get("dist_pct"),
+            "target_ratio": tratio,
+            "auto_price_hits": price_hits,
             "is_priority": int(r.get("is_priority") or 0),
             "suggested_alloc": round(target, 2),
             "suggested_shares": shares,
@@ -684,6 +787,11 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
                                 "stop_source": row.get("stop_source"),
                                 "take_source": row.get("take_source"),
                                 "range_63d_pos": row.get("range_63d_pos"),
+                                "dist_pct": row.get("dist_pct"),
+                                "target_1y": row.get("target_1y"),
+                                "target_ratio": row.get("target_ratio"),
+                                "auto_price_hits": row.get("auto_price_hits") or [],
+                                "auto_price_mode": "OR",
                                 "financial_ok": row.get("financial_ok"),
                                 "financial_known": row.get("financial_known"),
                                 "news_tone": row.get("news_tone"),
@@ -691,7 +799,12 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
                                 "knife_score": row.get("knife_score"),
                                 "knife_level": row.get("knife_level"),
                                 "knife_auto_block_threshold": KNIFE_AUTO_BLOCK_THRESHOLD,
-                                "knife_blocked_pool_count": blocked_n,
+                                "knife_blocked_pool_count": knife_blocked_n,
+                                "price_location_blocked_count": price_blocked_n,
+                                "ai_auto_max_sma25_dist": thr["sma25_dist"],
+                                "ai_auto_max_target_ratio": thr["target_ratio"],
+                                "ai_auto_max_63d_position": thr["pos_63d"],
+                                "auto_eligible_count": len(eligible),
                             }
                         ),
                         row["updated_at"],
@@ -699,7 +812,9 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
                 )
         set_setting("paper_candidates_updated_at", now)
         set_setting("paper_candidates_as_of", day)
-        set_setting("paper_knife_blocked_count", blocked_n)
+        set_setting("paper_knife_blocked_count", knife_blocked_n)
+        set_setting("paper_price_location_blocked_count", price_blocked_n)
+        set_setting("paper_auto_eligible_count", len(eligible))
     return out
 
 
@@ -728,6 +843,14 @@ def list_candidates(as_of_date: str | None = None) -> list[dict[str, Any]]:
         row["source_label"] = format_source_label(codes)
         row["knife_score"] = meta.get("knife_score")
         row["knife_level"] = meta.get("knife_level")
+        if row.get("range_63d_pos") is None and meta.get("range_63d_pos") is not None:
+            row["range_63d_pos"] = meta.get("range_63d_pos")
+        if row.get("dist_pct") is None and meta.get("dist_pct") is not None:
+            row["dist_pct"] = meta.get("dist_pct")
+        if row.get("target_1y") is None and meta.get("target_1y") is not None:
+            row["target_1y"] = meta.get("target_1y")
+        if meta.get("target_ratio") is not None:
+            row["target_ratio"] = meta.get("target_ratio")
         row["stop_pct"] = meta.get("stop_pct", cfg["stop_loss_pct"])
         row["take_profit_pct"] = meta.get("take_profit_pct", cfg["take_profit_pct"])
         # Recompute AUTO defaults from current candidate price; re-apply manual overrides.

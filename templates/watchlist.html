@@ -885,6 +885,26 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         <p class="hint" style="text-align:left;margin:6px 0 0">{{ _("Risk penalties: severe financial −0~15, volume dump −0~5, high vol/low liquidity −0~5, near earnings −0~15. News is not double-counted in risk (only ±5 News Score). Hover AI for breakdown. Green≥70 / yellow 40–69 / red <40. 63D Position and Admin-only Intrinsic Value / real MOS are excluded from AI Score V1.") }}</p>
       </div>
       <div class="legend-col">
+        <strong>{{ _("Knife Risk (0–100) — independent of AI Score") }}</strong>
+        <ul style="columns:1">
+          <li>{{ _("Speed") }} <code>35</code> — {{ _("5D / 3D decline, consecutive down days, acceleration") }}</li>
+          <li>{{ _("Relative weakness") }} <code>35</code> — {{ _("5D vs SPY (~20) + sector ETF (~15)") }}</li>
+          <li>{{ _("Trend persistence") }} <code>30</code> — {{ _("10D / 20D log-price slope still falling") }}</li>
+          <li>{{ _("Volume confirm") }} <code>0–4</code> — {{ _("optional: down day + high RVOL (tiny add-on)") }}</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:8px 0 0">
+          <strong>{{ _("Levels:") }}</strong>
+          🟢 LOW &lt;25 · 🟡 WATCH 25–44 · 🟠 HIGH 45–69 · 🔴 KNIFE ≥70
+        </p>
+        <p class="hint" style="text-align:left;margin:6px 0 0">
+          <strong>{{ _("AUTO BLOCK:") }}</strong>
+          {{ _("Knife Risk ≥ 45 blocks AI Auto Trading / Create Paper Orders (threshold configurable). Watchlist and Research still show the name. AI Score cannot override.") }}
+        </p>
+        <p class="hint" style="text-align:left;margin:6px 0 0">
+          {{ _("Not an oversold / price-location score. Does not use 63D Position, Dist. from SMA, Financial, or News. Hover Knife for component breakdown.") }}
+        </p>
+      </div>
+      <div class="legend-col">
         {% if show_valuation|default(false) %}
         <strong>{{ _("Investment value (DCF v1.3 frozen + CLV, independent of AI)") }}</strong>
         <ul style="columns:1">
