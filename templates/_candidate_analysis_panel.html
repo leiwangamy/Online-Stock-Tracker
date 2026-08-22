@@ -3,7 +3,7 @@
 {% set rows = data.ca_rows or [] %}
 {% set ca_post = url_for('strong_stock_monitor', tab='candidates') %}
 
-<p class="hint">{{ _('Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Add to My Watchlist or mark Trade Candidate manually — nothing auto-selects for AI Trading.') }}</p>
+    <p class="hint">{{ _('Add names to My Watchlist for research. Prefer Priority Buy on AI Trading when you want earlier allocation — nothing auto-selects for AI Trading.') }}</p>
 
 <div class="ca-summary">
   <span><strong>{{ _('All Candidates') }}:</strong> {{ counts.total or 0 }}</span>
@@ -62,10 +62,11 @@
         <th class="sortable num" data-col="10" data-type="num">{{ _('Financial Score') }}</th>
         <th class="sortable num" data-col="11" data-type="num">{{ _('News') }}</th>
         <th class="sortable num" data-col="12" data-type="num">{{ _('AI Score') }}</th>
-        <th class="sortable num" data-col="13" data-type="num">{{ _('MOS T') }}</th>
-        <th class="sortable num" data-col="14" data-type="num">{{ _('Target Ratio') }}</th>
+        <th class="sortable num" data-col="13" data-type="num"
+            title="{{ _('Knife Risk — falling speed + relative weakness. Independent of AI Score.') }}">{{ _('Knife Risk') }}</th>
+        <th class="sortable num" data-col="14" data-type="num">{{ _('MOS T') }}</th>
+        <th class="sortable num" data-col="15" data-type="num">{{ _('Target Ratio') }}</th>
         <th>{{ _('My Watchlist') }}</th>
-        <th>{{ _('Trade Candidate') }}</th>
       </tr>
     </thead>
     <tbody>
@@ -137,6 +138,18 @@
             <span class="ai {{ cls }}">{{ row.ai_score }}</span>
           {% else %}—{% endif %}
         </td>
+        {% set k = row.knife %}
+        <td class="num" data-sort="{{ k.score if k and k.score is not none else '' }}"
+            {% if k and k.detail %}title="{{ k.detail }}"{% endif %}>
+          {% if k and k.score is not none %}
+            {% set kcls = 'knife' if k.level == 'KNIFE' else ('high' if k.level == 'HIGH' else ('watch' if k.level == 'WATCH' else 'low')) %}
+            <span class="knife-badge {{ kcls }}">
+              {% if k.level == 'KNIFE' %}🔴{% elif k.level == 'HIGH' %}🟠{% elif k.level == 'WATCH' %}🟡{% else %}🟢{% endif %}
+              {{ k.score }} {{ k.level }}
+            </span>
+            {% if k.auto_blocked %}<div class="knife-block">🚫 {{ _('Blocked') }}</div>{% endif %}
+          {% else %}—{% endif %}
+        </td>
         <td class="num" data-sort="{{ row.mos_t if row.mos_t is not none else '' }}">
           {% if row.mos_t is not none %}{{ '%+.1f'|format(row.mos_t) }}%{% else %}—{% endif %}
         </td>
@@ -160,25 +173,6 @@
             {% endif %}
           {% else %}
             {% if row.in_my_watchlist %}★{% else %}—{% endif %}
-          {% endif %}
-        </td>
-        <td>
-          {% if can_manage %}
-            {% if row.is_trade_candidate %}
-              <form method="post" action="{{ ca_post }}" style="display:inline;margin:0">
-                <input type="hidden" name="action" value="remove_trade">
-                <input type="hidden" name="ticker" value="{{ row.ticker }}">
-                <button class="btn" type="submit" style="padding:2px 8px;font-size:0.8rem">★ {{ _('Trade') }}</button>
-              </form>
-            {% else %}
-              <form method="post" action="{{ ca_post }}" style="display:inline;margin:0">
-                <input type="hidden" name="action" value="add_trade">
-                <input type="hidden" name="ticker" value="{{ row.ticker }}">
-                <button class="btn" type="submit" style="padding:2px 8px;font-size:0.8rem">☆ {{ _('Trade Candidate') }}</button>
-              </form>
-            {% endif %}
-          {% else %}
-            {% if row.is_trade_candidate %}★{% else %}—{% endif %}
           {% endif %}
         </td>
       </tr>

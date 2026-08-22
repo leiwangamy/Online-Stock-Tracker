@@ -1114,19 +1114,23 @@ def load_strong_monitor_page(tab: str = "daily") -> dict[str, Any]:
     """
     Bundle meta + tab payloads for the Strong Monitor page.
     Loads only the active tab's heavy payload (plus light meta) for speed/stability.
+
+    tab='meta' — badge counts + rules only (for Candidate Analysis / Rising / Multi).
     """
     tab = (tab or "daily").strip().lower()
-    if tab not in ("daily", "ranking", "watchlist"):
+    if tab not in ("daily", "ranking", "watchlist", "meta"):
         tab = "daily"
 
     as_of = get_setting(STRONG_META_AS_OF, "") or ""
     built_at = get_setting(STRONG_META_BUILT_AT, "") or ""
 
     # Auto-recalc when Strong Day % or COUNT threshold constants change.
-    try:
-        ensure_strong_rules_match()
-    except Exception:
-        log.exception("ensure_strong_rules_match failed")
+    # Skip on meta-only loads (Candidate Analysis) to keep Research opening fast.
+    if tab != "meta":
+        try:
+            ensure_strong_rules_match()
+        except Exception:
+            log.exception("ensure_strong_rules_match failed")
 
     empty_daily = {
         "columns": [],
@@ -1158,8 +1162,9 @@ def load_strong_monitor_page(tab: str = "daily") -> dict[str, Any]:
         daily = build_daily_strong_stocks()
     elif tab == "ranking":
         ranking = list_count20_ranking()
-    else:
+    elif tab == "watchlist":
         watchlist = list_active_strong_watchlist()
+    # tab == "meta": leave empty payloads; badges below
 
     # Prefer as_of/built_at from whichever payload was loaded
     if tab == "watchlist":

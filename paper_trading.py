@@ -29,7 +29,7 @@ PT = ZoneInfo("America/Los_Angeles")
 
 # Rank → target USD allocation (adapts to share prices; need not sum exactly to limit).
 ALLOC_LADDER = [300.0, 300.0, 250.0, 250.0, 200.0, 200.0]
-INTEGER_SHARE_MAX_PRICE = 500.0
+# Paper trading always allows fractional shares so small $ budgets can fill exactly.
 TOP_N = 10
 
 EXIT_STOP = "STOP_LOSS"
@@ -166,22 +166,14 @@ def clear_priority(ticker: str) -> None:
 def size_position(price: float, target_alloc: float) -> tuple[float, float, str]:
     """
     Returns (shares, cost, mode).
-    price <= $500 → prefer integer shares; price > $500 → fractional allowed.
+    Always uses fractional shares so allocation $ can be filled exactly.
     """
     if price is None or price <= 0 or target_alloc is None or target_alloc <= 0:
         return 0.0, 0.0, "none"
-    if price <= INTEGER_SHARE_MAX_PRICE:
-        shares = max(1, int(round(target_alloc / price)))
-        # Prefer not overshooting target too far when multiple shares.
-        while shares > 1 and shares * price > target_alloc * 1.35:
-            shares -= 1
-        # Single share above target is OK (e.g. $257 vs $250).
-        cost = round(shares * price, 4)
-        return float(shares), cost, "integer"
-    shares = round(target_alloc / price, 4)
+    shares = round(float(target_alloc) / float(price), 4)
     if shares <= 0:
         return 0.0, 0.0, "fractional"
-    cost = round(shares * price, 4)
+    cost = round(shares * float(price), 4)
     return shares, cost, "fractional"
 
 
@@ -191,6 +183,189 @@ def stop_take_prices(
     stop = round(entry * (1.0 - stop_pct / 100.0), 4)
     take = round(entry * (1.0 + take_pct / 100.0), 4)
     return stop, take
+
+
+def risk_reward_metrics(
+    entry: float | None, stop: float | None, take: float | None
+) -> dict[str, float | None]:
+    """Implied LONG risk / reward from entry vs stop / take prices."""
+    try:
+        e = float(entry) if entry is not None else None
+        s = float(stop) if stop is not None else None
+        t = float(take) if take is not None else None
+    except (TypeError, ValueError):
+        return {"stop_risk_pct": None, "reward_pct": None, "rr_ratio": None}
+    if e is None or e <= 0:
+        return {"stop_risk_pct": None, "reward_pct": None, "rr_ratio": None}
+    risk = round((e - s) / e * 100.0, 2) if s is not None else None
+    reward = round((t - e) / e * 100.0, 2) if t is not None else None
+    rr = None
+    if risk is not None and reward is not None and risk > 0:
+        rr = round(reward / risk, 2)
+    return {"stop_risk_pct": risk, "reward_pct": reward, "rr_ratio": rr}
+
+
+def validate_long_levels(entry: float, stop: float, take: float) -> str | None:
+    """Return error message if LONG levels are invalid; else None."""
+    if not (stop < entry < take):
+        return (
+            f"Stop Loss ({stop:.2f}) must be below entry ({entry:.2f}) "
+            f"and Take Profit ({take:.2f}) above entry"
+        )
+    return None
+
+
+def get_level_overrides(
+    tickers: list[str] | None = None,
+) -> dict[str, dict[str, float | None]]:
+    """Return {TICKER: {manual_stop, manual_take}} (None = auto for that side)."""
+    init_db()
+    with get_conn() as conn:
+        if tickers:
+            clean = [((t or "").strip().upper()) for t in tickers if (t or "").strip()]
+            if not clean:
+                return {}
+            ph = ",".join("?" * len(clean))
+            rows = conn.execute(
+                f"SELECT ticker, manual_stop, manual_take FROM paper_level_overrides "
+                f"WHERE ticker IN ({ph})",
+                clean,
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT ticker, manual_stop, manual_take FROM paper_level_overrides"
+            ).fetchall()
+    out: dict[str, dict[str, float | None]] = {}
+    for r in rows:
+        out[str(r["ticker"]).upper()] = {
+            "manual_stop": (
+                float(r["manual_stop"]) if r["manual_stop"] is not None else None
+            ),
+            "manual_take": (
+                float(r["manual_take"]) if r["manual_take"] is not None else None
+            ),
+        }
+    return out
+
+
+def upsert_level_override(
+    ticker: str,
+    *,
+    manual_stop: float | None = None,
+    manual_take: float | None = None,
+    reset_stop: bool = False,
+    reset_take: bool = False,
+) -> dict[str, float | None]:
+    """
+    Set / clear manual Stop or Take for a candidate ticker.
+    Pass reset_stop/reset_take to clear that side back to AUTO.
+    Omitting a side leaves the existing override unchanged.
+    """
+    t = (ticker or "").strip().upper()
+    if not t:
+        raise ValueError("ticker required")
+    init_db()
+    now = _utc_now_iso()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "SELECT manual_stop, manual_take FROM paper_level_overrides WHERE ticker = ?",
+            (t,),
+        ).fetchone()
+        stop = float(cur["manual_stop"]) if cur and cur["manual_stop"] is not None else None
+        take = float(cur["manual_take"]) if cur and cur["manual_take"] is not None else None
+        if reset_stop:
+            stop = None
+        elif manual_stop is not None:
+            s = float(manual_stop)
+            if s <= 0 or s != s:
+                raise ValueError("invalid stop")
+            stop = round(s, 2)
+        if reset_take:
+            take = None
+        elif manual_take is not None:
+            tp = float(manual_take)
+            if tp <= 0 or tp != tp:
+                raise ValueError("invalid take profit")
+            take = round(tp, 2)
+        if stop is None and take is None:
+            conn.execute("DELETE FROM paper_level_overrides WHERE ticker = ?", (t,))
+        else:
+            conn.execute(
+                """
+                INSERT INTO paper_level_overrides (ticker, manual_stop, manual_take, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(ticker) DO UPDATE SET
+                  manual_stop = excluded.manual_stop,
+                  manual_take = excluded.manual_take,
+                  updated_at = excluded.updated_at
+                """,
+                (t, stop, take, now),
+            )
+    return {"manual_stop": stop, "manual_take": take}
+
+
+def clear_level_overrides(tickers: list[str]) -> None:
+    clean = [((t or "").strip().upper()) for t in tickers if (t or "").strip()]
+    if not clean:
+        return
+    init_db()
+    ph = ",".join("?" * len(clean))
+    with get_conn() as conn:
+        conn.execute(
+            f"DELETE FROM paper_level_overrides WHERE ticker IN ({ph})", clean
+        )
+
+
+def apply_level_override_to_row(
+    row: dict[str, Any],
+    override: dict[str, float | None] | None,
+    *,
+    default_stop: float | None = None,
+    default_take: float | None = None,
+) -> dict[str, Any]:
+    """Mutate candidate row with AUTO defaults + MANUAL active levels + risk metrics."""
+    price = row.get("price")
+    try:
+        entry = float(price) if price is not None else None
+    except (TypeError, ValueError):
+        entry = None
+    d_stop = default_stop if default_stop is not None else row.get("default_stop")
+    d_take = default_take if default_take is not None else row.get("default_take")
+    if d_stop is None:
+        d_stop = row.get("stop_price")
+    if d_take is None:
+        d_take = row.get("take_profit_price")
+    try:
+        d_stop = float(d_stop) if d_stop is not None else None
+    except (TypeError, ValueError):
+        d_stop = None
+    try:
+        d_take = float(d_take) if d_take is not None else None
+    except (TypeError, ValueError):
+        d_take = None
+
+    ov = override or {}
+    m_stop = ov.get("manual_stop")
+    m_take = ov.get("manual_take")
+    stop = m_stop if m_stop is not None else d_stop
+    take = m_take if m_take is not None else d_take
+    row["default_stop"] = None if d_stop is None else round(d_stop, 2)
+    row["default_take"] = None if d_take is None else round(d_take, 2)
+    row["manual_stop"] = None if m_stop is None else round(float(m_stop), 2)
+    row["manual_take"] = None if m_take is None else round(float(m_take), 2)
+    row["stop_price"] = None if stop is None else round(float(stop), 2)
+    row["take_profit_price"] = None if take is None else round(float(take), 2)
+    row["stop_source"] = "manual" if m_stop is not None else "default"
+    row["take_source"] = "manual" if m_take is not None else "default"
+    metrics = risk_reward_metrics(entry, row["stop_price"], row["take_profit_price"])
+    row.update(metrics)
+    row["levels_valid"] = (
+        entry is not None
+        and row["stop_price"] is not None
+        and row["take_profit_price"] is not None
+        and validate_long_levels(entry, row["stop_price"], row["take_profit_price"]) is None
+    )
+    return row
 
 
 def _fund_label(fund: dict | None) -> str:
@@ -358,6 +533,15 @@ def _score_universe_rows() -> list[dict[str, Any]]:
         r["news_tone"] = news.get("tone") if isinstance(news, dict) else None
         scored.append(r)
 
+    # Knife Risk hard gate is applied in build_candidates (keep scores visible here).
+    try:
+        from knife_risk import attach_knife_risk
+
+        attach_knife_risk(scored, ensure_bench=True)
+    except Exception:
+        for r in scored:
+            r.setdefault("knife", None)
+
     # Rank purely by AI Score for Top-N selection (Priority does not change AI Score).
     scored.sort(
         key=lambda x: (-float(x.get("ai_score") or 0), x.get("ticker") or "")
@@ -367,10 +551,23 @@ def _score_universe_rows() -> list[dict[str, Any]]:
 
 def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> list[dict[str, Any]]:
     """Build AI Candidates Top 10 with suggested allocation / shares / stops."""
+    from knife_risk import KNIFE_AUTO_BLOCK_THRESHOLD, knife_auto_blocked
+
     cfg = _cfg()
     day = as_of_date or trading_day_pt()
     scored = _score_universe_rows()
-    top = scored[:TOP_N]
+    # Hard safety gate: Knife Risk >= threshold → never enter Auto Trading pool.
+    # AI Score cannot override. Blocked names stay on Watchlist / Research.
+    eligible: list[dict[str, Any]] = []
+    blocked_n = 0
+    for r in scored:
+        k = r.get("knife") or {}
+        score = k.get("score") if isinstance(k, dict) else None
+        if knife_auto_blocked(score):
+            blocked_n += 1
+            continue
+        eligible.append(r)
+    top = eligible[:TOP_N]
     # Within Top 10, Priority only affects allocation order (not AI Score / not membership).
     top.sort(
         key=lambda x: (
@@ -386,6 +583,9 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
     out: list[dict[str, Any]] = []
     used = 0.0
     now = _utc_now_iso()
+    # Preload manual SL/TP overrides (survive candidate rebuild / price refresh).
+    top_tickers = [(r.get("ticker") or "").upper() for r in top if r.get("ticker")]
+    overrides = get_level_overrides(top_tickers)
     for i, r in enumerate(top):
         rank = i + 1
         target = ALLOC_LADDER[i] if i < len(ALLOC_LADDER) else 0.0
@@ -394,19 +594,23 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
         target = min(target, room) if target > 0 else 0.0
         price = float(r["price"])
         shares, cost, mode = size_position(price, target) if target > 0 else (0.0, 0.0, "none")
-        # If integer share cost exceeds remaining room, skip suggestion.
+        # If share cost exceeds remaining room, skip suggestion.
         if cost > room + 1e-6:
             shares, cost, mode = 0.0, 0.0, "none"
             target = 0.0
-        stop, take = stop_take_prices(price, cfg["stop_loss_pct"], cfg["take_profit_pct"])
+        auto_stop, auto_take = stop_take_prices(
+            price, cfg["stop_loss_pct"], cfg["take_profit_pct"]
+        )
         if cost > 0:
             used += cost
         elif target > 0 and shares <= 0:
             target = 0.0
+        knife = r.get("knife") if isinstance(r.get("knife"), dict) else {}
+        ticker = r["ticker"].upper()
         row = {
             "as_of_date": day,
             "rank": rank,
-            "ticker": r["ticker"].upper(),
+            "ticker": ticker,
             "name": r.get("name") or "",
             "ai_score": r.get("ai_score"),
             "mos_t": r.get("mos_t"),
@@ -417,8 +621,8 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
             "suggested_alloc": round(target, 2),
             "suggested_shares": shares,
             "shares_mode": mode,
-            "stop_price": stop,
-            "take_profit_price": take,
+            "stop_price": auto_stop,
+            "take_profit_price": auto_take,
             "stop_pct": cfg["stop_loss_pct"],
             "take_profit_pct": cfg["take_profit_pct"],
             "range_63d_pos": r.get("range_63d_pos"),
@@ -427,8 +631,16 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
             "news_tone": r.get("news_tone"),
             "source_codes": r.get("source_codes") or "",
             "source_label": r.get("source_label") or format_source_label(r.get("source_codes") or ""),
+            "knife_score": knife.get("score"),
+            "knife_level": knife.get("level"),
             "updated_at": now,
         }
+        apply_level_override_to_row(
+            row,
+            overrides.get(ticker),
+            default_stop=auto_stop,
+            default_take=auto_take,
+        )
         out.append(row)
 
     if persist:
@@ -465,11 +677,21 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
                             {
                                 "stop_pct": row["stop_pct"],
                                 "take_profit_pct": row["take_profit_pct"],
+                                "default_stop": row.get("default_stop"),
+                                "default_take": row.get("default_take"),
+                                "manual_stop": row.get("manual_stop"),
+                                "manual_take": row.get("manual_take"),
+                                "stop_source": row.get("stop_source"),
+                                "take_source": row.get("take_source"),
                                 "range_63d_pos": row.get("range_63d_pos"),
                                 "financial_ok": row.get("financial_ok"),
                                 "financial_known": row.get("financial_known"),
                                 "news_tone": row.get("news_tone"),
                                 "source_codes": row.get("source_codes") or "",
+                                "knife_score": row.get("knife_score"),
+                                "knife_level": row.get("knife_level"),
+                                "knife_auto_block_threshold": KNIFE_AUTO_BLOCK_THRESHOLD,
+                                "knife_blocked_pool_count": blocked_n,
                             }
                         ),
                         row["updated_at"],
@@ -477,6 +699,7 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
                 )
         set_setting("paper_candidates_updated_at", now)
         set_setting("paper_candidates_as_of", day)
+        set_setting("paper_knife_blocked_count", blocked_n)
     return out
 
 
@@ -488,10 +711,14 @@ def list_candidates(as_of_date: str | None = None) -> list[dict[str, Any]]:
             "SELECT * FROM paper_candidates WHERE as_of_date = ? ORDER BY rank ASC",
             (day,),
         ).fetchall()
+    tickers = [str(r["ticker"]).upper() for r in rows if r["ticker"]]
+    overrides = get_level_overrides(tickers)
+    cfg = _cfg()
     out = []
     for r in rows:
         row = dict(r)
         codes = ""
+        meta: dict[str, Any] = {}
         try:
             meta = json.loads(row.get("meta_json") or "{}")
             codes = meta.get("source_codes") or ""
@@ -499,6 +726,28 @@ def list_candidates(as_of_date: str | None = None) -> list[dict[str, Any]]:
             codes = ""
         row["source_codes"] = codes
         row["source_label"] = format_source_label(codes)
+        row["knife_score"] = meta.get("knife_score")
+        row["knife_level"] = meta.get("knife_level")
+        row["stop_pct"] = meta.get("stop_pct", cfg["stop_loss_pct"])
+        row["take_profit_pct"] = meta.get("take_profit_pct", cfg["take_profit_pct"])
+        # Recompute AUTO defaults from current candidate price; re-apply manual overrides.
+        try:
+            px = float(row["price"]) if row.get("price") is not None else None
+        except (TypeError, ValueError):
+            px = None
+        if px is not None and px > 0:
+            auto_stop, auto_take = stop_take_prices(
+                px, float(row["stop_pct"]), float(row["take_profit_pct"])
+            )
+        else:
+            auto_stop = meta.get("default_stop")
+            auto_take = meta.get("default_take")
+        apply_level_override_to_row(
+            row,
+            overrides.get(str(row["ticker"]).upper()),
+            default_stop=auto_stop,
+            default_take=auto_take,
+        )
         out.append(row)
     return out
 
@@ -521,7 +770,233 @@ def list_open_trades() -> list[dict[str, Any]]:
         rows = conn.execute(
             "SELECT * FROM paper_trades WHERE status = 'open' ORDER BY entry_date DESC, id DESC"
         ).fetchall()
-    return [dict(r) for r in rows]
+    return [annotate_open_trade_levels(dict(r)) for r in rows]
+
+
+def annotate_open_trade_levels(tr: dict[str, Any]) -> dict[str, Any]:
+    """Attach AUTO defaults, manual flags, and R/R metrics for an open trade."""
+    try:
+        entry = float(tr["entry_price"])
+    except (TypeError, ValueError, KeyError):
+        entry = None
+    cfg = _cfg()
+    try:
+        stop_pct = float(
+            tr["stop_pct"] if tr.get("stop_pct") is not None else cfg["stop_loss_pct"]
+        )
+    except (TypeError, ValueError):
+        stop_pct = float(cfg["stop_loss_pct"])
+    try:
+        take_pct = float(
+            tr["take_profit_pct"]
+            if tr.get("take_profit_pct") is not None
+            else cfg["take_profit_pct"]
+        )
+    except (TypeError, ValueError):
+        take_pct = float(cfg["take_profit_pct"])
+    tr["stop_pct"] = stop_pct
+    tr["take_profit_pct"] = take_pct
+    if entry is not None and entry > 0:
+        d_stop, d_take = stop_take_prices(entry, stop_pct, take_pct)
+    else:
+        d_stop = d_take = None
+    tr["default_stop"] = None if d_stop is None else round(float(d_stop), 2)
+    tr["default_take"] = None if d_take is None else round(float(d_take), 2)
+    try:
+        cur_stop = float(tr["stop_price"]) if tr.get("stop_price") is not None else None
+    except (TypeError, ValueError):
+        cur_stop = None
+    try:
+        cur_take = (
+            float(tr["take_profit_price"])
+            if tr.get("take_profit_price") is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        cur_take = None
+    tr["stop_source"] = (
+        "manual"
+        if (
+            cur_stop is not None
+            and tr["default_stop"] is not None
+            and abs(cur_stop - tr["default_stop"]) > 0.009
+        )
+        else "default"
+    )
+    tr["take_source"] = (
+        "manual"
+        if (
+            cur_take is not None
+            and tr["default_take"] is not None
+            and abs(cur_take - tr["default_take"]) > 0.009
+        )
+        else "default"
+    )
+    tr.update(risk_reward_metrics(entry, cur_stop, cur_take))
+    tr["levels_valid"] = (
+        entry is not None
+        and cur_stop is not None
+        and cur_take is not None
+        and validate_long_levels(entry, cur_stop, cur_take) is None
+    )
+    return tr
+
+
+def update_open_trade_shares(trade_id: int, shares: float) -> dict[str, Any]:
+    """
+    Admin: change share count on an open paper trade.
+    Recalculates cost at entry price and adjusts portfolio cash.
+    Blocks if insufficient cash or trading limit would be exceeded.
+    """
+    tid = int(trade_id)
+    try:
+        new_shares = float(shares)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid shares") from exc
+    if new_shares <= 0 or new_shares != new_shares:
+        raise ValueError("shares must be > 0")
+
+    init_db()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM paper_trades WHERE id = ? AND status = 'open'",
+            (tid,),
+        ).fetchone()
+        if not row:
+            raise ValueError("open trade not found")
+        tr = dict(row)
+        # Always allow fractional shares on paper positions.
+        new_shares = round(new_shares, 4)
+
+        entry = float(tr["entry_price"])
+        old_shares = float(tr["shares"])
+        old_cost = float(tr["cost"])
+        new_cost = round(new_shares * entry, 4)
+        delta = round(new_cost - old_cost, 4)
+
+        port = conn.execute(
+            "SELECT cash, trading_limit FROM paper_portfolio WHERE id = 1"
+        ).fetchone()
+        if not port:
+            raise ValueError("portfolio missing")
+        cash = float(port["cash"])
+        trading_limit = float(port["trading_limit"])
+        inv_row = conn.execute(
+            "SELECT COALESCE(SUM(cost), 0) AS s FROM paper_trades WHERE status = 'open'"
+        ).fetchone()
+        invested = float(inv_row["s"] or 0)
+
+        if delta > 1e-6:
+            if delta > cash + 1e-6:
+                raise ValueError(
+                    f"insufficient cash: need ${delta:.2f} more, cash ${cash:.2f}"
+                )
+            if invested + delta > trading_limit + 1e-6:
+                raise ValueError(
+                    f"trading limit reached: invested ${invested:.2f}, "
+                    f"need +${delta:.2f}, limit ${trading_limit:.2f}"
+                )
+
+        try:
+            current = (
+                float(tr["current_price"])
+                if tr.get("current_price") is not None
+                else entry
+            )
+        except (TypeError, ValueError):
+            current = entry
+        mv = round(current * new_shares, 4)
+        upnl = round((current - entry) * new_shares, 4)
+        upct = round((current - entry) / entry * 100.0, 4) if entry else 0.0
+        now = _utc_now_iso()
+        conn.execute(
+            """
+            UPDATE paper_trades
+            SET shares = ?, cost = ?, market_value = ?,
+                unrealized_pnl = ?, unrealized_pnl_pct = ?, updated_at = ?
+            WHERE id = ? AND status = 'open'
+            """,
+            (new_shares, new_cost, mv, upnl, upct, now, tid),
+        )
+        conn.execute(
+            "UPDATE paper_portfolio SET cash = ?, updated_at = ? WHERE id = 1",
+            (round(cash - delta, 4), now),
+        )
+        updated = conn.execute(
+            "SELECT * FROM paper_trades WHERE id = ?", (tid,)
+        ).fetchone()
+    out = annotate_open_trade_levels(dict(updated))
+    out["cash_delta"] = delta
+    out["cash_after"] = round(cash - delta, 4)
+    return out
+
+
+def update_open_trade_levels(
+    trade_id: int,
+    *,
+    manual_stop: float | None = None,
+    manual_take: float | None = None,
+    reset_stop: bool = False,
+    reset_take: bool = False,
+) -> dict[str, Any]:
+    """
+    Admin: update Stop / Take on an open paper trade.
+    Reset restores AUTO from entry × frozen stop_pct / take_profit_pct.
+    Does not change entry price or shares.
+    """
+    tid = int(trade_id)
+    init_db()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM paper_trades WHERE id = ? AND status = 'open'",
+            (tid,),
+        ).fetchone()
+        if not row:
+            raise ValueError("open trade not found")
+        tr = dict(row)
+        entry = float(tr["entry_price"])
+        cfg = _cfg()
+        stop_pct = float(
+            tr["stop_pct"] if tr.get("stop_pct") is not None else cfg["stop_loss_pct"]
+        )
+        take_pct = float(
+            tr["take_profit_pct"]
+            if tr.get("take_profit_pct") is not None
+            else cfg["take_profit_pct"]
+        )
+        d_stop, d_take = stop_take_prices(entry, stop_pct, take_pct)
+        stop = float(tr["stop_price"])
+        take = float(tr["take_profit_price"])
+        if reset_stop:
+            stop = float(d_stop)
+        elif manual_stop is not None:
+            s = float(manual_stop)
+            if s <= 0 or s != s:
+                raise ValueError("invalid stop")
+            stop = round(s, 2)
+        if reset_take:
+            take = float(d_take)
+        elif manual_take is not None:
+            tp = float(manual_take)
+            if tp <= 0 or tp != tp:
+                raise ValueError("invalid take profit")
+            take = round(tp, 2)
+        err = validate_long_levels(entry, stop, take)
+        if err:
+            raise ValueError(err)
+        now = _utc_now_iso()
+        conn.execute(
+            """
+            UPDATE paper_trades
+            SET stop_price = ?, take_profit_price = ?, updated_at = ?
+            WHERE id = ? AND status = 'open'
+            """,
+            (round(stop, 4), round(take, 4), now, tid),
+        )
+        updated = conn.execute(
+            "SELECT * FROM paper_trades WHERE id = ?", (tid,)
+        ).fetchone()
+    return annotate_open_trade_levels(dict(updated))
 
 
 def list_closed_trades(*, limit: int = 200) -> list[dict[str, Any]]:
@@ -575,21 +1050,57 @@ def create_paper_orders_from_candidates(
         price = float(c["price"])
         cost = round(shares * price, 4)
         if invested + cost > trading_limit + 1e-6:
-            skipped.append({"ticker": t, "reason": "trading_limit"})
+            skipped.append(
+                {
+                    "ticker": t,
+                    "reason": "trading_limit",
+                    "detail": (
+                        f"need ${cost:.2f}, invested ${invested:.2f}, "
+                        f"limit ${trading_limit:.2f}"
+                    ),
+                    "cost": cost,
+                    "cash": cash,
+                    "invested": invested,
+                    "trading_limit": trading_limit,
+                }
+            )
             continue
         if cost > cash + 1e-6:
-            skipped.append({"ticker": t, "reason": "insufficient_cash"})
+            skipped.append(
+                {
+                    "ticker": t,
+                    "reason": "insufficient_cash",
+                    "detail": f"need ${cost:.2f}, cash ${cash:.2f}",
+                    "cost": cost,
+                    "cash": cash,
+                }
+            )
             continue
 
         stop = float(c["stop_price"])
         take = float(c["take_profit_price"])
+        level_err = validate_long_levels(price, stop, take)
+        if level_err:
+            skipped.append(
+                {
+                    "ticker": t,
+                    "reason": "invalid_levels",
+                    "detail": level_err,
+                }
+            )
+            continue
         meta = {}
         try:
             meta = json.loads(c.get("meta_json") or "{}")
         except Exception:
             meta = {}
-        stop_pct = float(meta.get("stop_pct", get_setting("paper_stop_loss_pct", 5.0)))
-        take_pct = float(meta.get("take_profit_pct", get_setting("paper_take_profit_pct", 10.0)))
+        # Prefer implied % from active levels; fall back to settings defaults.
+        if price > 0:
+            stop_pct = round((price - stop) / price * 100.0, 4)
+            take_pct = round((take - price) / price * 100.0, 4)
+        else:
+            stop_pct = float(meta.get("stop_pct", get_setting("paper_stop_loss_pct", 5.0)))
+            take_pct = float(meta.get("take_profit_pct", get_setting("paper_take_profit_pct", 10.0)))
         range_63d = meta.get("range_63d_pos")
         if range_63d is None:
             range_63d = c.get("range_63d_pos")
@@ -622,7 +1133,7 @@ def create_paper_orders_from_candidates(
                     day,
                     price,
                     shares,
-                    c.get("shares_mode") or "integer",
+                    c.get("shares_mode") or "fractional",
                     cost,
                     stop,
                     take,
@@ -654,6 +1165,8 @@ def create_paper_orders_from_candidates(
             )
         open_tickers.add(t)
         created.append({"ticker": t, "shares": shares, "cost": cost, "entry_price": price})
+        # Manual levels are consumed once an order is created.
+        clear_level_overrides([t])
 
     set_setting("paper_last_order_at", now)
     try:
@@ -661,6 +1174,255 @@ def create_paper_orders_from_candidates(
     except Exception:
         log.exception("equity snapshot after create_orders failed")
     return {"created": created, "skipped": skipped, "cash": cash, "invested": invested}
+
+
+def manual_buy_candidate(
+    ticker: str,
+    *,
+    amount: float | None = None,
+    shares: float | None = None,
+) -> dict[str, Any]:
+    """
+    Admin: manually buy / add shares for a Top-list ticker.
+    - Not open → create a new paper position
+    - Already open → add shares (加仓) at current candidate/open price
+    Prefer explicit shares; else amount ÷ price. Cash + trading limit still apply.
+    """
+    t = (ticker or "").strip().upper()
+    if not t:
+        raise ValueError("ticker required")
+
+    cands = {str(c["ticker"]).upper(): c for c in list_candidates()}
+    c = cands.get(t)
+    if not c:
+        # Fall back: allow buy if we can still price it (e.g. after refresh lag).
+        ohlc = _fetch_daily_ohlc(t)
+        if not ohlc or ohlc.get("close") is None:
+            raise ValueError(f"{t} not in today's AI candidates and no price")
+        price = float(ohlc["close"])
+        c = {
+            "ticker": t,
+            "name": "",
+            "price": price,
+            "stop_price": None,
+            "take_profit_price": None,
+            "ai_score": None,
+            "mos_t": None,
+            "financial_label": None,
+            "news_label": None,
+            "meta_json": "{}",
+            "is_priority": 0,
+            "rank": 0,
+            "shares_mode": "fractional",
+        }
+    try:
+        price = float(c["price"])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid price") from exc
+    if price <= 0:
+        raise ValueError("invalid price")
+
+    cfg = _cfg()
+    mode = "fractional"
+
+    add_shares: float | None = None
+    if shares is not None and str(shares).strip() != "":
+        try:
+            add_shares = float(shares)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid shares") from exc
+    elif amount is not None and str(amount).strip() != "":
+        try:
+            amt = float(amount)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid amount") from exc
+        if amt <= 0:
+            raise ValueError("amount must be > 0")
+        add_shares = round(amt / price, 4)
+    else:
+        raise ValueError("enter buy amount ($) or shares")
+
+    if add_shares is None or add_shares <= 0:
+        raise ValueError("shares must be > 0")
+    add_shares = round(float(add_shares), 4)
+
+    opens = {o["ticker"].upper(): o for o in list_open_trades()}
+    if t in opens:
+        # 加仓 existing position
+        tr = opens[t]
+        old = float(tr["shares"])
+        new_total = old + add_shares
+        # Buy add-on at current candidate price for cash, but cost basis uses entry*
+        # For paper simplicity: add cost at current price, blend into cost field.
+        # update_open_trade_shares recalculates cost = shares * entry_price which
+        # would mis-state cash for average-up. So do an explicit add-at-market.
+        return _add_to_open_trade(tr, add_shares=add_shares, fill_price=price)
+
+    # New position from candidate
+    cost = round(add_shares * price, 4)
+    stop = c.get("stop_price")
+    take = c.get("take_profit_price")
+    try:
+        stop_pct = float(c.get("stop_pct") or cfg["stop_loss_pct"])
+    except (TypeError, ValueError):
+        stop_pct = float(cfg["stop_loss_pct"])
+    try:
+        take_pct = float(c.get("take_profit_pct") or cfg["take_profit_pct"])
+    except (TypeError, ValueError):
+        take_pct = float(cfg["take_profit_pct"])
+    if stop is None or take is None:
+        stop, take = stop_take_prices(price, stop_pct, take_pct)
+    else:
+        stop, take = float(stop), float(take)
+    level_err = validate_long_levels(price, stop, take)
+    if level_err:
+        raise ValueError(level_err)
+
+    port = ensure_portfolio()
+    cash = float(port["cash"])
+    trading_limit = float(port["trading_limit"])
+    invested = sum_open_invested()
+    if cost > cash + 1e-6:
+        raise ValueError(f"insufficient cash: need ${cost:.2f}, cash ${cash:.2f}")
+    if invested + cost > trading_limit + 1e-6:
+        raise ValueError(
+            f"trading limit reached: invested ${invested:.2f}, "
+            f"need ${cost:.2f}, limit ${trading_limit:.2f}"
+        )
+
+    meta: dict[str, Any] = {}
+    try:
+        meta = json.loads(c.get("meta_json") or "{}")
+    except Exception:
+        meta = {}
+    day = trading_day_pt()
+    now = _utc_now_iso()
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO paper_trades (
+              ticker, name, status, entry_date, entry_price, shares, shares_mode,
+              cost, stop_price, take_profit_price, stop_pct, take_profit_pct,
+              ai_score_entry, mos_t_entry, financial_entry, news_entry,
+              range_63d_pos_entry, financial_ok_entry, financial_known_entry,
+              news_tone_entry, source_at_entry,
+              is_priority, rank_at_entry, current_price, market_value,
+              unrealized_pnl, unrealized_pnl_pct, ai_score_current,
+              created_at, updated_at
+            ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+            """,
+            (
+                t,
+                c.get("name") or "",
+                day,
+                price,
+                add_shares,
+                mode,
+                cost,
+                stop,
+                take,
+                stop_pct,
+                take_pct,
+                c.get("ai_score"),
+                c.get("mos_t"),
+                c.get("financial_label"),
+                c.get("news_label"),
+                meta.get("range_63d_pos", c.get("range_63d_pos")),
+                meta.get("financial_ok", c.get("financial_ok")),
+                meta.get("financial_known", c.get("financial_known")),
+                meta.get("news_tone", c.get("news_tone")),
+                meta.get("source_codes") or c.get("source_codes") or "",
+                int(c.get("is_priority") or 0),
+                int(c.get("rank") or 0),
+                price,
+                cost,
+                c.get("ai_score"),
+                now,
+                now,
+            ),
+        )
+        new_id = int(cur.lastrowid)
+        conn.execute(
+            "UPDATE paper_portfolio SET cash = ?, updated_at = ? WHERE id = 1",
+            (round(cash - cost, 4), now),
+        )
+    try:
+        save_equity_snapshot(as_of_date=day)
+    except Exception:
+        log.exception("equity snapshot after manual_buy failed")
+    return {
+        "mode": "new",
+        "id": new_id,
+        "ticker": t,
+        "shares": add_shares,
+        "entry_price": price,
+        "cost": cost,
+        "cash_after": round(cash - cost, 4),
+    }
+
+
+def _add_to_open_trade(
+    tr: dict[str, Any], *, add_shares: float, fill_price: float
+) -> dict[str, Any]:
+    """Add shares to an open trade at fill_price (average into cost)."""
+    tid = int(tr["id"])
+    add_shares = float(add_shares)
+    fill_price = float(fill_price)
+    if add_shares <= 0 or fill_price <= 0:
+        raise ValueError("invalid add size/price")
+    add_cost = round(add_shares * fill_price, 4)
+
+    port = ensure_portfolio()
+    cash = float(port["cash"])
+    trading_limit = float(port["trading_limit"])
+    invested = sum_open_invested()
+    if add_cost > cash + 1e-6:
+        raise ValueError(f"insufficient cash: need ${add_cost:.2f}, cash ${cash:.2f}")
+    if invested + add_cost > trading_limit + 1e-6:
+        raise ValueError(
+            f"trading limit reached: invested ${invested:.2f}, "
+            f"need ${add_cost:.2f}, limit ${trading_limit:.2f}"
+        )
+
+    old_shares = float(tr["shares"])
+    old_cost = float(tr["cost"])
+    new_shares = round(old_shares + add_shares, 4)
+    new_cost = round(old_cost + add_cost, 4)
+    new_entry = round(new_cost / new_shares, 4) if new_shares else fill_price
+    current = float(tr.get("current_price") or fill_price)
+    mv = round(current * new_shares, 4)
+    upnl = round(mv - new_cost, 4)
+    upct = round((current - new_entry) / new_entry * 100.0, 4) if new_entry else 0.0
+    # Keep stop/take as absolute prices; optionally leave unchanged on add.
+    now = _utc_now_iso()
+    init_db()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE paper_trades
+            SET shares = ?, cost = ?, entry_price = ?,
+                current_price = ?, market_value = ?,
+                unrealized_pnl = ?, unrealized_pnl_pct = ?, updated_at = ?
+            WHERE id = ? AND status = 'open'
+            """,
+            (new_shares, new_cost, new_entry, current, mv, upnl, upct, now, tid),
+        )
+        conn.execute(
+            "UPDATE paper_portfolio SET cash = ?, updated_at = ? WHERE id = 1",
+            (round(cash - add_cost, 4), now),
+        )
+    return {
+        "mode": "add",
+        "id": tid,
+        "ticker": tr["ticker"],
+        "shares_added": add_shares,
+        "shares": new_shares,
+        "fill_price": fill_price,
+        "cost_added": add_cost,
+        "cost": new_cost,
+        "entry_price": new_entry,
+        "cash_after": round(cash - add_cost, 4),
+    }
 
 
 def _fetch_daily_ohlc(ticker: str) -> dict[str, Any] | None:
@@ -783,6 +1545,373 @@ def manual_close_trade(trade_id: int, *, exit_price: float | None = None) -> dic
         exit_reason=EXIT_MANUAL,
         exit_note="manual_exit",
     )
+
+
+def _rebuy_cutoff_date(*, trading_days: int = 63) -> str:
+    """
+    Earliest exit_date (YYYY-MM-DD) still inside the last N trading days.
+    Prefer cached market calendar (daily_bars / strong_daily / equity snapshots);
+    fall back to a calendar-day estimate. Never deletes history.
+    """
+    n = max(1, int(trading_days))
+    today = trading_day_pt()
+    init_db()
+    dates: list[str] = []
+    with get_conn() as conn:
+        for sql, args in (
+            (
+                "SELECT DISTINCT date AS d FROM daily_bars "
+                "WHERE ticker IN ('SPY','spy') AND date <= ? "
+                "ORDER BY date DESC LIMIT ?",
+                (today, n),
+            ),
+            (
+                "SELECT DISTINCT as_of_date AS d FROM strong_daily "
+                "WHERE as_of_date <= ? ORDER BY as_of_date DESC LIMIT ?",
+                (today, n),
+            ),
+            (
+                "SELECT as_of_date AS d FROM paper_equity_snapshots "
+                "WHERE as_of_date <= ? ORDER BY as_of_date DESC LIMIT ?",
+                (today, n),
+            ),
+        ):
+            try:
+                rows = conn.execute(sql, args).fetchall()
+            except Exception:
+                rows = []
+            if rows:
+                dates = [str(r["d"])[:10] for r in rows if r["d"]]
+                break
+    if len(dates) >= n:
+        return dates[n - 1]
+    if dates:
+        return dates[-1]
+    # ~N trading days ≈ N * 7/5 calendar days (+ buffer).
+    from datetime import date, timedelta
+
+    try:
+        base = date.fromisoformat(today)
+    except ValueError:
+        base = datetime.now(PT).date()
+    return (base - timedelta(days=int(n * 1.5) + 7)).isoformat()
+
+
+def list_rebuy_candidates(
+    *, top_n: int = 8, lookback_trading_days: int = 63
+) -> dict[str, Any]:
+    """
+    Re-entry pool: closed within last N trading days, not currently open,
+    one row per ticker (most recent close). Ranked by current relevance
+    (watchlist / research / current AI Score / knife / exit date).
+
+    Returns:
+      {
+        "all": [...],          # full ranked pool (never permanently dropped)
+        "top": [...],          # first top_n of all
+        "total": int,
+        "top_n": int,
+        "lookback_trading_days": int,
+        "cutoff_date": str,
+      }
+    History rows are never deleted.
+    """
+    from knife_risk import knife_auto_blocked
+    from watchlist_config import get_my_watchlist
+
+    top_n = max(1, int(top_n))
+    cutoff = _rebuy_cutoff_date(trading_days=lookback_trading_days)
+    open_tickers = {t["ticker"].upper() for t in list_open_trades()}
+    # Pull enough closed rows; filter by exit_date >= cutoff.
+    closed = list_closed_trades(limit=2000)
+
+    latest_by_ticker: dict[str, dict[str, Any]] = {}
+    for t in closed:
+        ticker = str(t.get("ticker") or "").upper()
+        if not ticker or ticker in open_tickers:
+            continue
+        exit_date = str(t.get("exit_date") or "")[:10]
+        if not exit_date or exit_date < cutoff:
+            continue
+        prev = latest_by_ticker.get(ticker)
+        if prev is None or exit_date > str(prev.get("exit_date") or "")[:10]:
+            latest_by_ticker[ticker] = dict(t)
+        elif exit_date == str(prev.get("exit_date") or "")[:10]:
+            # Same day: prefer higher id (more recent insert).
+            try:
+                if int(t.get("id") or 0) > int(prev.get("id") or 0):
+                    latest_by_ticker[ticker] = dict(t)
+            except (TypeError, ValueError):
+                pass
+
+    mine = {str(x).strip().upper() for x in (get_my_watchlist() or []) if x}
+    # Current research / AI Trading caches (no new Yahoo calls).
+    cand_map: dict[str, dict[str, Any]] = {}
+    try:
+        for c in list_candidates():
+            tk = str(c.get("ticker") or "").upper()
+            if tk:
+                cand_map[tk] = c
+    except Exception:
+        log.exception("rebuy: list_candidates failed")
+
+    research_tickers = set(cand_map.keys())
+    # Optional: dashboard_cache tickers already in LeiBot pools count as research-ish.
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT ticker FROM dashboard_cache WHERE ticker IS NOT NULL"
+            ).fetchall()
+        research_tickers |= {
+            str(r["ticker"]).strip().upper() for r in rows if r["ticker"]
+        }
+    except Exception:
+        pass
+
+    ranked: list[dict[str, Any]] = []
+    for ticker, src in latest_by_ticker.items():
+        row = dict(src)
+        row["exit_reason_norm"] = normalize_exit_reason(src.get("exit_reason"))
+        c = cand_map.get(ticker) or {}
+        cur_ai = c.get("ai_score")
+        if cur_ai is None:
+            cur_ai = c.get("ai_score_current")
+        try:
+            cur_ai_f = float(cur_ai) if cur_ai is not None else None
+        except (TypeError, ValueError):
+            cur_ai_f = None
+        knife = c.get("knife_score")
+        if knife is None and isinstance(c.get("knife"), dict):
+            knife = c["knife"].get("score")
+        try:
+            knife_f = float(knife) if knife is not None else None
+        except (TypeError, ValueError):
+            knife_f = None
+        in_mine = 1 if ticker in mine else 0
+        in_research = 1 if ticker in research_tickers else 0
+        knife_ok = 0 if knife_auto_blocked(knife_f) else 1
+        row["current_ai_score"] = cur_ai_f
+        row["current_knife_score"] = knife_f
+        row["in_my_watchlist"] = in_mine
+        row["in_research"] = in_research
+        row["knife_ok"] = knife_ok
+        ranked.append(row)
+
+    # Watchlist / research → current AI Score → knife safety → recent exit (tie-break).
+    ranked.sort(
+        key=lambda r: (
+            int(r.get("in_my_watchlist") or 0),
+            int(r.get("in_research") or 0),
+            float(r["current_ai_score"])
+            if r.get("current_ai_score") is not None
+            else -1.0,
+            int(r.get("knife_ok") or 0),
+            str(r.get("exit_date") or ""),
+            int(r.get("id") or 0),
+        ),
+        reverse=True,
+    )
+
+    total = len(ranked)
+    return {
+        "all": ranked,
+        "top": ranked[:top_n],
+        "total": total,
+        "top_n": top_n,
+        "lookback_trading_days": lookback_trading_days,
+        "cutoff_date": cutoff,
+    }
+
+
+def rebuy_from_closed_trade(
+    trade_id: int, *, shares: float | None = None, amount: float | None = None
+) -> dict[str, Any]:
+    """
+    Admin: open a NEW independent paper trade for a previously closed ticker.
+    Uses current price, current settings Stop/Take %, current sizing, and
+    current AI Score / Knife from today's candidate cache when available.
+    Never reuses the old trade's entry / SL / TP / AI / Knife.
+    Old closed History row is left unchanged.
+    """
+    tid = int(trade_id)
+    init_db()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM paper_trades WHERE id = ? AND status = 'closed'",
+            (tid,),
+        ).fetchone()
+        if not row:
+            raise ValueError("closed trade not found")
+        src = dict(row)
+
+    ticker = str(src["ticker"]).upper()
+    open_tickers = {t["ticker"].upper() for t in list_open_trades()}
+    if ticker in open_tickers:
+        raise ValueError(f"{ticker} already has an open position")
+
+    # Prefer today's candidate row (cached); else live OHLC for price only.
+    cand_map = {str(c["ticker"]).upper(): c for c in list_candidates()}
+    c = cand_map.get(ticker) or {}
+    price = None
+    used_cand_price = False
+    try:
+        if c.get("price") is not None:
+            price = float(c["price"])
+            used_cand_price = price > 0
+    except (TypeError, ValueError):
+        price = None
+        used_cand_price = False
+    if price is None or price <= 0:
+        used_cand_price = False
+        ohlc = _fetch_daily_ohlc(ticker)
+        if ohlc and ohlc.get("close") is not None:
+            price = float(ohlc["close"])
+    if price is None or price <= 0:
+        raise ValueError("no current price available to re-enter")
+
+    cfg = _cfg()
+    stop_pct = float(cfg["stop_loss_pct"])
+    take_pct = float(cfg["take_profit_pct"])
+    # New SL/TP from current settings; reuse candidate/Admin levels only when
+    # entry price came from the same candidate row (same price basis).
+    if (
+        used_cand_price
+        and c.get("stop_price") is not None
+        and c.get("take_profit_price") is not None
+    ):
+        try:
+            stop = float(c["stop_price"])
+            take = float(c["take_profit_price"])
+            if price > 0:
+                stop_pct = round((price - stop) / price * 100.0, 4)
+                take_pct = round((take - price) / price * 100.0, 4)
+        except (TypeError, ValueError):
+            stop, take = stop_take_prices(price, stop_pct, take_pct)
+    else:
+        stop, take = stop_take_prices(price, stop_pct, take_pct)
+
+    level_err = validate_long_levels(price, stop, take)
+    if level_err:
+        raise ValueError(level_err)
+
+    mode = "fractional"
+    new_shares: float
+    if shares is not None and str(shares).strip() != "":
+        new_shares = round(float(shares), 4)
+    elif amount is not None and str(amount).strip() != "":
+        new_shares, _cost, mode = size_position(price, float(amount))
+    elif c.get("suggested_shares") and float(c.get("suggested_shares") or 0) > 0:
+        new_shares = round(float(c["suggested_shares"]), 4)
+        mode = c.get("shares_mode") or "fractional"
+    else:
+        # Current sizing: apply fractional size to prior dollar exposure (or ladder $300).
+        try:
+            prior_cost = float(src.get("cost") or 0)
+        except (TypeError, ValueError):
+            prior_cost = 0.0
+        target = prior_cost if prior_cost > 0 else float(ALLOC_LADDER[0])
+        new_shares, _cost, mode = size_position(price, target)
+
+    if new_shares <= 0:
+        raise ValueError("shares must be > 0")
+    new_shares = round(float(new_shares), 4)
+    cost = round(new_shares * price, 4)
+
+    port = ensure_portfolio()
+    cash = float(port["cash"])
+    trading_limit = float(port["trading_limit"])
+    invested = sum_open_invested()
+    if cost > cash + 1e-6:
+        raise ValueError(f"insufficient cash: need ${cost:.2f}, cash ${cash:.2f}")
+    if invested + cost > trading_limit + 1e-6:
+        raise ValueError(
+            f"trading limit reached: invested ${invested:.2f}, "
+            f"need ${cost:.2f}, limit ${trading_limit:.2f}"
+        )
+
+    # Current research fields from candidate cache only (not old trade).
+    meta: dict[str, Any] = {}
+    try:
+        meta = json.loads(c.get("meta_json") or "{}")
+    except Exception:
+        meta = {}
+    ai_now = c.get("ai_score")
+    if ai_now is None:
+        ai_now = meta.get("ai_score")
+    knife_now = c.get("knife_score")
+    if knife_now is None and isinstance(c.get("knife"), dict):
+        knife_now = c["knife"].get("score")
+    if knife_now is None:
+        knife_now = meta.get("knife_score")
+
+    day = trading_day_pt()
+    now = _utc_now_iso()
+    with get_conn() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO paper_trades (
+              ticker, name, status, entry_date, entry_price, shares, shares_mode,
+              cost, stop_price, take_profit_price, stop_pct, take_profit_pct,
+              ai_score_entry, mos_t_entry, financial_entry, news_entry,
+              range_63d_pos_entry, financial_ok_entry, financial_known_entry,
+              news_tone_entry, source_at_entry,
+              is_priority, rank_at_entry, current_price, market_value,
+              unrealized_pnl, unrealized_pnl_pct, ai_score_current,
+              created_at, updated_at
+            ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+            """,
+            (
+                ticker,
+                c.get("name") or src.get("name") or "",
+                day,
+                price,
+                new_shares,
+                mode if mode in ("integer", "fractional") else "fractional",
+                cost,
+                stop,
+                take,
+                stop_pct,
+                take_pct,
+                ai_now,
+                c.get("mos_t"),
+                c.get("financial_label"),
+                c.get("news_label"),
+                meta.get("range_63d_pos", c.get("range_63d_pos")),
+                meta.get("financial_ok", c.get("financial_ok")),
+                meta.get("financial_known", c.get("financial_known")),
+                meta.get("news_tone", c.get("news_tone")),
+                meta.get("source_codes") or c.get("source_codes") or "",
+                int(c.get("is_priority") or 0),
+                int(c.get("rank") or 0) if c.get("rank") is not None else None,
+                price,
+                cost,
+                ai_now,
+                now,
+                now,
+            ),
+        )
+        new_id = int(cur.lastrowid)
+        conn.execute(
+            "UPDATE paper_portfolio SET cash = ?, updated_at = ? WHERE id = 1",
+            (round(cash - cost, 4), now),
+        )
+    try:
+        save_equity_snapshot(as_of_date=day)
+    except Exception:
+        log.exception("equity snapshot after rebuy failed")
+    return {
+        "id": new_id,
+        "from_trade_id": tid,
+        "ticker": ticker,
+        "shares": new_shares,
+        "entry_price": price,
+        "cost": cost,
+        "stop_price": stop,
+        "take_profit_price": take,
+        "ai_score_entry": ai_now,
+        "knife_score": knife_now,
+        "cash_after": round(cash - cost, 4),
+    }
 
 
 def evaluate_open_trade_vs_ohlc(tr: dict[str, Any], ohlc: dict[str, Any]) -> dict[str, Any]:

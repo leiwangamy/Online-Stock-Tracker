@@ -327,6 +327,14 @@ def build_candidate_analysis(
 
         rows_out.append(base)
 
+    try:
+        from knife_risk import attach_knife_risk
+
+        attach_knife_risk(rows_out, ensure_bench=True)
+    except Exception:
+        for r in rows_out:
+            r.setdefault("knife", None)
+
     rows_out.sort(
         key=lambda r: (
             -(float(r.get("ai_score")) if r.get("ai_score") is not None else float("-inf")),

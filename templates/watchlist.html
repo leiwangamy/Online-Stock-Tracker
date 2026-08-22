@@ -163,6 +163,45 @@
     }
     #wl-table th.col-pools, #wl-table td.col-pools { min-width: 110px; }
     #wl-table th.col-ai, #wl-table td.col-ai { min-width: 88px; }
+
+    #wl-table th.col-knife, #wl-table td.col-knife { min-width: 72px; max-width: 88px; cursor: default; }
+    .knife-cell {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      line-height: 1.2;
+      cursor: default;
+    }
+    .knife-badge {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      padding: 1px 5px;
+      border-radius: 3px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+      cursor: default;
+    }
+    .knife-badge.low { color: #166534; background: #dcfce7; border-color: #86efac; }
+    .knife-badge.watch { color: #854d0e; background: #fef9c3; border-color: #fde047; }
+    .knife-badge.high { color: #9a3412; background: #ffedd5; border-color: #fdba74; }
+    .knife-badge.knife { color: #991b1b; background: #fee2e2; border-color: #f87171; }
+    .knife-badge.partial { opacity: 0.9; }
+    .knife-block {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: #64748b;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 999px;
+      padding: 0 6px;
+      line-height: 1.4;
+      white-space: nowrap;
+    }
+
     #wl-table th.col-fund, #wl-table td.col-fund { min-width: 140px; }
     #wl-table th.col-news, #wl-table td.col-news { min-width: 120px; }
     #wl-table th.col-alert, #wl-table td.col-alert { min-width: 88px; }
@@ -172,7 +211,7 @@
       margin-right: 6px;
       font-size: 0.95em;
       vertical-align: baseline;
-      cursor: help;
+      cursor: default;
       line-height: 1;
     }
     .alert-badge {
@@ -239,7 +278,19 @@
     }
     .alert-reset:hover { color: inherit; border-color: #999; }
     .alert-active-manual { font-weight: 600; }
-    .alert-hint-line { margin: 0 0 10px; font-size: 0.85rem; color: var(--muted, #64748b); }
+    .alert-hint-block { margin: 0 0 12px; }
+    .alert-hint-block > strong {
+      display: block;
+      margin: 0 0 6px;
+      font-size: 0.95rem;
+    }
+    .alert-hint-line {
+      margin: 0 0 4px;
+      font-size: 0.85rem;
+      color: var(--muted, #64748b);
+      line-height: 1.45;
+    }
+    .alert-hint-line:last-child { margin-bottom: 0; }
     .clv-val { font-weight: 600; font-variant-numeric: tabular-nums; }
     .clv-sub { font-size: 0.68rem; color: #94a3b8; line-height: 1.1; }
     .clv-flag { font-size: 0.65rem; color: #b45309; font-weight: 600; }
@@ -316,7 +367,7 @@
         <tr class="group-row">
           <th class="col-ticker freeze-col freeze-edge"></th>
           <th colspan="3">{{ _("Basic info") }}</th>
-          <th colspan="1">{{ _("Score") }}</th>
+          <th colspan="2">{{ _("Score") }}</th>
           <th colspan="5">{{ _("Price / trend") }}</th>
           <th colspan="7">{{ _("Range / momentum") }}</th>
           <th colspan="{{ 5 if show_valuation else 2 }}">{{ _("Investment value") }}</th>
@@ -331,57 +382,59 @@
           <th class="sortable num" data-col="3" data-type="num" title="{{ _('Market Cap') }}">{{ _("Market Cap") }}</th>
 
           <th class="sortable col-ai" data-col="4" data-type="num" title="{{ _('AI Score V1 = opportunity − risk. Uses public MOS T; excludes Admin Est.Value / real MOS and 63D Position.') }}">AI</th>
+          <th class="sortable num col-knife" data-col="5" data-type="num"
+              title="{{ _('Knife Risk 0–100 — downside velocity + relative weakness vs SPY/sector. Independent of AI Score. Not an oversold score.') }}">{{ _("Knife Risk") }}</th>
 
-          <th class="sortable" data-col="5" data-type="num" title="{{ _('Long-term trend: SMA63 vs SMA252 + SMA252 slope') }}">{{ _("Trend") }}</th>
-          <th class="sortable num" data-col="6" data-type="num">{{ _("Price") }}</th>
-          <th class="sortable num" data-col="7" data-type="num" title="{{ _('Short-term SMA used for Default / Deep alerts') }}">SMA{{ sma_period }}</th>
-          <th class="sortable num" data-col="8" data-type="num" title="{{ _('Distance from short-term SMA') }}">{{ _("Dist. from mean %") }}</th>
-          <th class="sortable num" data-col="9" data-type="num">{{ _("Day %") }}</th>
+          <th class="sortable" data-col="6" data-type="num" title="{{ _('Long-term trend: SMA63 vs SMA252 + SMA252 slope') }}">{{ _("Trend") }}</th>
+          <th class="sortable num" data-col="7" data-type="num">{{ _("Price") }}</th>
+          <th class="sortable num" data-col="8" data-type="num" title="{{ _('Short-term SMA used for Default / Deep alerts') }}">SMA{{ sma_period }}</th>
+          <th class="sortable num" data-col="9" data-type="num" title="{{ _('Distance from short-term SMA') }}">{{ _("Dist. from mean %") }}</th>
+          <th class="sortable num" data-col="10" data-type="num">{{ _("Day %") }}</th>
 
-          <th class="sortable num" data-col="10" data-type="num" title="{{ _('Lowest close in last 63 trading days') }}">63D Low</th>
-          <th class="sortable num" data-col="11" data-type="num" title="{{ _('Highest close in last 63 trading days') }}">63D High</th>
-          <th class="sortable num" data-col="12" data-type="num" title="{{ _('(Price−Low)/(High−Low)×100; observational only') }}">63D Position%</th>
-          <th class="sortable num" data-col="13" data-type="num">{{ _("Rebound %") }}</th>
-          <th class="sortable num" data-col="14" data-type="num" title="{{ _('RVOL = today volume / 20D avg volume') }}">RVOL</th>
-          <th class="sortable num" data-col="15" data-type="num" title="{{ _('20-day average volume') }}">{{ _("Avg vol 20D") }}</th>
-          <th class="sortable num" data-col="16" data-type="num" title="{{ _('Avg absolute daily move over 63 trading days') }}">{{ _("Avg daily move %(63D)") }}</th>
+          <th class="sortable num" data-col="11" data-type="num" title="{{ _('Lowest close in last 63 trading days') }}">63D Low</th>
+          <th class="sortable num" data-col="12" data-type="num" title="{{ _('Highest close in last 63 trading days') }}">63D High</th>
+          <th class="sortable num" data-col="13" data-type="num" title="{{ _('(Price−Low)/(High−Low)×100; observational only') }}">63D Position%</th>
+          <th class="sortable num" data-col="14" data-type="num">{{ _("Rebound %") }}</th>
+          <th class="sortable num" data-col="15" data-type="num" title="{{ _('RVOL = today volume / 20D avg volume') }}">RVOL</th>
+          <th class="sortable num" data-col="16" data-type="num" title="{{ _('20-day average volume') }}">{{ _("Avg vol 20D") }}</th>
+          <th class="sortable num" data-col="17" data-type="num" title="{{ _('Avg absolute daily move over 63 trading days') }}">{{ _("Avg daily move %(63D)") }}</th>
 
           {% if show_valuation %}
-          <th class="sortable num col-est" data-col="17" data-type="num" title="Bear / Base / Bull 每股内在价值（DCF 情景敏感性；MOS% 用 Base。悬停看 WACC / g / Confidence）">Est.Value</th>
-          <th class="sortable num" data-col="18" data-type="num" title="MOS% = (Est.Value − 现价) / Est.Value × 100。正=低估空间；随现价更新，不改 AI Score">MOS%</th>
-          <th class="sortable num col-clv" data-col="19" data-type="num" title="Conservative Liquidation Value — 保守清算价值（资产负债表资产底线，不是目标价）">CLV</th>
-          <th class="sortable col-fund" data-col="20" data-type="num" title="{{ _('Fundamentals health: 7 red-flag checks') }}">{{ _("Financial") }}</th>
-          <th class="sortable col-news" data-col="21" data-type="num" title="{{ _('News (last 30 days)') }}">{{ _("News") }}</th>
-          <th class="sortable num" data-col="22" data-type="num" title="{{ _('Yahoo 1-year analyst mean target price') }}">{{ _("1Y Target") }}</th>
-          <th class="sortable num" data-col="23" data-type="num" title="{{ _('Target Ratio = Price / 1Y Target; lower = more interesting') }}">{{ _("Target Ratio") }}</th>
-          <th class="sortable num" data-col="24" data-type="num" title="{{ _('MOS T — Margin of Safety based on 80% of the 1-Year Analyst Target Price.') }}">{{ _("MOS T") }}</th>
-          <th class="sortable" data-col="25" data-type="text">{{ _("Earnings date") }}</th>
+          <th class="sortable num col-est" data-col="18" data-type="num" title="Bear / Base / Bull 每股内在价值（DCF 情景敏感性；MOS% 用 Base。悬停看 WACC / g / Confidence）">Est.Value</th>
+          <th class="sortable num" data-col="19" data-type="num" title="MOS% = (Est.Value − 现价) / Est.Value × 100。正=低估空间；随现价更新，不改 AI Score">MOS%</th>
+          <th class="sortable num col-clv" data-col="20" data-type="num" title="Conservative Liquidation Value — 保守清算价值（资产负债表资产底线，不是目标价）">CLV</th>
+          <th class="sortable col-fund" data-col="21" data-type="num" title="{{ _('Fundamentals health: 7 red-flag checks') }}">{{ _("Financial") }}</th>
+          <th class="sortable col-news" data-col="22" data-type="num" title="{{ _('News (last 30 days)') }}">{{ _("News") }}</th>
+          <th class="sortable num" data-col="23" data-type="num" title="{{ _('Yahoo 1-year analyst mean target price') }}">{{ _("1Y Target") }}</th>
+          <th class="sortable num" data-col="24" data-type="num" title="{{ _('Target Ratio = Price / 1Y Target; lower = more interesting') }}">{{ _("Target Ratio") }}</th>
+          <th class="sortable num" data-col="25" data-type="num" title="{{ _('MOS T — Margin of Safety based on 80% of the 1-Year Analyst Target Price.') }}">{{ _("MOS T") }}</th>
+          <th class="sortable" data-col="26" data-type="text">{{ _("Earnings date") }}</th>
           {% if show_alert %}
-          <th class="sortable num col-alert" data-col="26" data-type="num"
-              title="{{ _('Default Alert = SMA × 0.95. Updates whenever SMA refreshes. Not a buy signal.') }}">{{ _("Default Alert") }}</th>
           <th class="sortable num col-alert" data-col="27" data-type="num"
-              title="{{ _('Manual Alert — your override. Stays fixed until you edit or Reset to Default.') }}">{{ _("Manual Alert") }}</th>
+              title="{{ _('Default Alert = SMA × 0.95. Updates whenever SMA refreshes. Not a buy signal.') }}">{{ _("Default Alert") }}</th>
           <th class="sortable num col-alert" data-col="28" data-type="num"
-              title="{{ _('Active Alert = Manual if set, else Default. Used for ALERT status.') }}">{{ _("Active Alert") }}</th>
-          <th class="sortable col-alert-status" data-col="29" data-type="text"
-              title="{{ _('WATCH ≤ Active×1.05 · ALERT ≤ Active · DEEP ≤ SMA×0.90. Research zones only — never auto-buy.') }}">{{ _("Alert Status") }}</th>
+              title="{{ _('Manual Alert — your override. Stays fixed until you edit or Reset to Default.') }}">{{ _("Manual Alert") }}</th>
+          <th class="sortable num col-alert" data-col="29" data-type="num"
+              title="{{ _('Active Alert = Manual if set, else Auto Default (SMA×0.95).') }}">{{ _("Active Alert") }}</th>
+          <th class="sortable col-alert-status" data-col="30" data-type="text"
+              title="{{ _('Auto: 🟡 WATCH / 🟢 DEEP · Manual: 🟡 WATCH / 🟢 ALERT. Same as dots on ticker.') }}">{{ _("Alert Status") }}</th>
           {% endif %}
           {% else %}
-          <th class="sortable col-fund" data-col="17" data-type="num" title="{{ _('Fundamentals health: 7 red-flag checks') }}">{{ _("Financial") }}</th>
-          <th class="sortable col-news" data-col="18" data-type="num" title="{{ _('News (last 30 days)') }}">{{ _("News") }}</th>
-          <th class="sortable num" data-col="19" data-type="num" title="{{ _('Yahoo 1-year analyst mean target price') }}">{{ _("1Y Target") }}</th>
-          <th class="sortable num" data-col="20" data-type="num" title="{{ _('Target Ratio = Price / 1Y Target; lower = more interesting') }}">{{ _("Target Ratio") }}</th>
-          <th class="sortable num" data-col="21" data-type="num" title="{{ _('MOS T — Margin of Safety based on 80% of the 1-Year Analyst Target Price.') }}">{{ _("MOS T") }}</th>
-          <th class="sortable" data-col="22" data-type="text">{{ _("Earnings date") }}</th>
+          <th class="sortable col-fund" data-col="18" data-type="num" title="{{ _('Fundamentals health: 7 red-flag checks') }}">{{ _("Financial") }}</th>
+          <th class="sortable col-news" data-col="19" data-type="num" title="{{ _('News (last 30 days)') }}">{{ _("News") }}</th>
+          <th class="sortable num" data-col="20" data-type="num" title="{{ _('Yahoo 1-year analyst mean target price') }}">{{ _("1Y Target") }}</th>
+          <th class="sortable num" data-col="21" data-type="num" title="{{ _('Target Ratio = Price / 1Y Target; lower = more interesting') }}">{{ _("Target Ratio") }}</th>
+          <th class="sortable num" data-col="22" data-type="num" title="{{ _('MOS T — Margin of Safety based on 80% of the 1-Year Analyst Target Price.') }}">{{ _("MOS T") }}</th>
+          <th class="sortable" data-col="23" data-type="text">{{ _("Earnings date") }}</th>
           {% if show_alert %}
-          <th class="sortable num col-alert" data-col="23" data-type="num"
-              title="{{ _('Default Alert = SMA × 0.95. Updates whenever SMA refreshes. Not a buy signal.') }}">{{ _("Default Alert") }}</th>
           <th class="sortable num col-alert" data-col="24" data-type="num"
-              title="{{ _('Manual Alert — your override. Stays fixed until you edit or Reset to Default.') }}">{{ _("Manual Alert") }}</th>
+              title="{{ _('Default Alert = SMA × 0.95. Updates whenever SMA refreshes. Not a buy signal.') }}">{{ _("Default Alert") }}</th>
           <th class="sortable num col-alert" data-col="25" data-type="num"
-              title="{{ _('Active Alert = Manual if set, else Default. Used for ALERT status.') }}">{{ _("Active Alert") }}</th>
-          <th class="sortable col-alert-status" data-col="26" data-type="text"
-              title="{{ _('WATCH ≤ Active×1.05 · ALERT ≤ Active · DEEP ≤ SMA×0.90. Research zones only — never auto-buy.') }}">{{ _("Alert Status") }}</th>
+              title="{{ _('Manual Alert — your override. Stays fixed until you edit or Reset to Default.') }}">{{ _("Manual Alert") }}</th>
+          <th class="sortable num col-alert" data-col="26" data-type="num"
+              title="{{ _('Active Alert = Manual if set, else Auto Default (SMA×0.95).') }}">{{ _("Active Alert") }}</th>
+          <th class="sortable col-alert-status" data-col="27" data-type="text"
+              title="{{ _('Auto: 🟡 WATCH / 🟢 DEEP · Manual: 🟡 WATCH / 🟢 ALERT. Same as dots on ticker.') }}">{{ _("Alert Status") }}</th>
           {% endif %}
           {% endif %}
         </tr>
@@ -393,15 +446,15 @@
             data-sma="{% if row.sma is not none %}{{ row.sma }}{% endif %}">
           <td class="col-ticker freeze-col freeze-edge" data-sort="{{ row.ticker }}">
             {% if show_alert and row.alert and row.alert.state in ('alert', 'deep') %}
-              <span class="alert-dot ready" title="{% if row.alert.state == 'deep' %}{{ _('DEEP — Price ≤ SMA × 0.90. Research zone only; not an auto BUY.') }}{% else %}{{ _('ALERT — Price ≤ Active Alert. Research zone only; not an auto BUY.') }}{% endif %}&#10;{{ _('Price') }}: {% if row.price is not none %}${{ '%.2f'|format(row.price) }}{% else %}—{% endif %}&#10;{{ _('Active Alert') }}: {% if row.active_alert is not none %}${{ '%.2f'|format(row.active_alert) }}{% else %}—{% endif %}">🟢</span>
+              <span class="alert-dot ready" title="{% if row.alert_source == 'manual' %}{{ _('ALERT — manual alert reached') }}{% else %}{{ _('DEEP — 10% below SMA') }}{% endif %}">🟢</span>
             {% elif show_alert and row.alert and row.alert.state == 'watch' %}
-              <span class="alert-dot near" title="{{ _('WATCH — within 5% above Active Alert (≤ Active×1.05). Research zone only; not an auto BUY.') }}&#10;{{ _('Price') }}: {% if row.price is not none %}${{ '%.2f'|format(row.price) }}{% else %}—{% endif %}&#10;{{ _('Active Alert') }}: {% if row.active_alert is not none %}${{ '%.2f'|format(row.active_alert) }}{% else %}—{% endif %}{% if row.alert and row.alert.dist_pct is not none %}&#10;{{ _('Distance') }}: {{ '%+.2f'|format(row.alert.dist_pct) }}%{% endif %}">🟡</span>
+              <span class="alert-dot near" title="{% if row.alert_source == 'manual' %}{{ _('WATCH — within 5% above manual alert') }}{% else %}{{ _('WATCH — 5% below SMA') }}{% endif %}">🟡</span>
             {% endif %}
             <strong>{{ row.ticker }}</strong>
             {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
           </td>
           {% if row.not_found %}
-            <td colspan="{% if show_valuation %}{% if show_alert %}29{% else %}25{% endif %}{% else %}{% if show_alert %}26{% else %}22{% endif %}{% endif %}" class="empty">{{ _("Ticker not found (bad symbol or delisted).") }}</td>
+            <td colspan="{% if show_valuation %}{% if show_alert %}30{% else %}26{% endif %}{% else %}{% if show_alert %}27{% else %}23{% endif %}{% endif %}" class="empty">{{ _("Ticker not found (bad symbol or delisted).") }}</td>
           {% else %}
             <td class="pools col-pools" data-sort="{{ row.pools }}">{{ row.pools }}</td>
             <td data-sort="{{ (row.industry or '')|lower }}">{% if row.industry %}{{ row.industry }}{% else %}—{% endif %}</td>
@@ -413,6 +466,23 @@
                 {% set cls = 'good' if a.final >= 70 else ('mid' if a.final >= 40 else 'bad') %}
                 <span class="ai {{ cls }}">{{ a.final }}</span>
                 <div class="ai-sub">{{ _("Opp") }} {{ a.opp }} · {{ _("Risk") }} −{{ a.risk }}</div>
+              {% else %}—{% endif %}
+            </td>
+
+            {% set k = row.knife %}
+            <td class="num col-knife" data-sort="{{ k.score if k and k.score is not none else '' }}"
+                {% if k and k.detail %}title="{{ k.detail }}"{% endif %}>
+              {% if k and k.score is not none %}
+                {% set kcls = 'knife' if k.level == 'KNIFE' else ('high' if k.level == 'HIGH' else ('watch' if k.level == 'WATCH' else 'low')) %}
+                <div class="knife-cell">
+                  <span class="knife-badge {{ kcls }}{% if k.partial %} partial{% endif %}">
+                    {% if k.level == 'KNIFE' %}🔴{% elif k.level == 'HIGH' %}🟠{% elif k.level == 'WATCH' %}🟡{% else %}🟢{% endif %}
+                    {{ k.score }} {{ k.level }}
+                  </span>
+                  {% if k.auto_blocked %}
+                    <span class="knife-block" title="{{ _('AUTO BLOCK — Knife Risk above Auto Trading threshold') }}">🚫 {{ _('Blocked') }}</span>
+                  {% endif %}
+                </div>
               {% else %}—{% endif %}
             </td>
 
@@ -578,13 +648,13 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
             <td class="col-alert-status js-alert-status"
                 data-sort="{{ row.alert.state if row.alert and row.alert.state else '' }}">
               {% if row.alert and row.alert.state == 'deep' %}
-                <span class="alert-badge deep" title="{{ _('DEEP — Price ≤ SMA × 0.90. Research zone only; not an auto BUY.') }}">DEEP</span>
+                <span class="alert-badge deep" title="{{ _('DEEP — 10% below SMA') }}">DEEP</span>
               {% elif row.alert and row.alert.state == 'alert' %}
-                <span class="alert-badge alert" title="{{ _('ALERT — Price ≤ Active Alert. Research zone only; not an auto BUY.') }}">ALERT</span>
+                <span class="alert-badge alert" title="{{ _('ALERT — manual alert reached') }}">ALERT</span>
               {% elif row.alert and row.alert.state == 'watch' %}
-                <span class="alert-badge watch" title="{{ _('WATCH — within 5% above Active Alert (≤ Active×1.05). Research zone only; not an auto BUY.') }}">WATCH</span>
+                <span class="alert-badge watch" title="{% if row.alert_source == 'manual' %}{{ _('WATCH — within 5% above manual alert') }}{% else %}{{ _('WATCH — 5% below SMA') }}{% endif %}">WATCH</span>
               {% else %}
-                <span class="alert-badge none" title="{{ _('Above SMA — no alert zone') }}">—</span>
+                <span class="alert-badge none" title="{{ _('No alert zone') }}">—</span>
               {% endif %}
             </td>
             {% endif %}
@@ -874,6 +944,18 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         </p>
       </div>
       <div class="legend-col">
+        <strong>{{ _("My Watchlist Alerts") }}</strong>
+        <ul style="columns:1">
+          <li><strong>{{ _("Auto") }}</strong> — {{ _("SMA-based until Manual is set") }}</li>
+          <li>🟡 WATCH = SMA × 0.95 ({{ _("5% below SMA") }})</li>
+          <li>🟢 DEEP = SMA × 0.90 ({{ _("10% below SMA") }})</li>
+          <li><strong>{{ _("Manual") }}</strong> — {{ _("custom price overrides Auto until Reset") }}</li>
+          <li>🟡 WATCH = {{ _("within 5% above manual alert") }} (≤ Active × 1.05)</li>
+          <li>🟢 ALERT = {{ _("price ≤ manual alert") }}</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">{{ _("Dots next to ticker only — hover for status. Research zones only; never auto-buy.") }}</p>
+      </div>
+      <div class="legend-col">
         <strong>{{ _("News (last 30 days; sentiment + / −)") }}</strong>
         <ul>
           <li><code>A</code> {{ _('Earnings / guidance') }} ★★★★★</li>
@@ -890,7 +972,11 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
   </dialog>
 
   {% if tab == 'mine' %}
-    <p class="alert-hint-line">{{ _("SMA alerts: Default = SMA×0.95 (auto). Manual overrides Active until Reset. WATCH / ALERT / DEEP are research zones only — never auto-buy.") }}</p>
+    <div class="alert-hint-block">
+      <strong>{{ _("My Watchlist Alerts") }}</strong>
+      <p class="alert-hint-line">{{ _("Auto: 🟡 WATCH = 5% below SMA · 🟢 DEEP = 10% below SMA") }}</p>
+      <p class="alert-hint-line">{{ _("Manual: Custom alert overrides Auto · 🟡 WATCH = within 5% above alert · 🟢 ALERT = alert reached · Remains active until reset") }}</p>
+    </div>
     {% if can_edit_mine|default(false) %}
     <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='mine') }}" style="margin-bottom:8px">
       <input type="hidden" name="action" value="add_mine">
@@ -1045,20 +1131,23 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         return "$" + Number(v).toFixed(2);
       }
 
-      function alertBadgeHtml(state) {
+      function alertBadgeHtml(state, source) {
+        var manual = source === "manual";
         if (state === "deep") {
-          return '<span class="alert-badge deep" title="DEEP — Price ≤ SMA × 0.90. Research zone only; not an auto BUY.">DEEP</span>';
+          return '<span class="alert-badge deep" title="DEEP — 10% below SMA">DEEP</span>';
         }
         if (state === "alert") {
-          return '<span class="alert-badge alert" title="ALERT — Price ≤ Active Alert. Research zone only; not an auto BUY.">ALERT</span>';
+          return '<span class="alert-badge alert" title="ALERT — manual alert reached">ALERT</span>';
         }
         if (state === "watch") {
-          return '<span class="alert-badge watch" title="WATCH — within 5% above Active Alert (≤ Active×1.05). Research zone only; not an auto BUY.">WATCH</span>';
+          return '<span class="alert-badge watch" title="'
+            + (manual ? "WATCH — within 5% above manual alert" : "WATCH — 5% below SMA")
+            + '">WATCH</span>';
         }
-        return '<span class="alert-badge none" title="Above SMA — no alert zone">—</span>';
+        return '<span class="alert-badge none" title="No alert zone">—</span>';
       }
 
-      function refreshAlertDot(tr, alert, price, sma, activeAlert) {
+      function refreshAlertDot(tr, alert, price, sma, activeAlert, source) {
         var td = tr.querySelector("td.col-ticker");
         if (!td) return;
         var old = td.querySelector(".alert-dot");
@@ -1066,23 +1155,17 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         var state = alert && alert.state;
         if (!state) return;
         var span = document.createElement("span");
-        var px = (price != null && price !== "") ? Number(price) : null;
-        var sm = (sma != null && sma !== "") ? Number(sma) : null;
-        var ap = (activeAlert != null && activeAlert !== "") ? Number(activeAlert) : null;
+        var manual = source === "manual" || (alert && alert.alert_source === "manual");
         if (state === "alert" || state === "deep") {
           span.className = "alert-dot ready";
           span.textContent = "🟢";
-          span.title = (state === "deep"
-            ? "DEEP — Price ≤ SMA × 0.90. Research zone only; not an auto BUY."
-            : "ALERT — Price ≤ Active Alert. Research zone only; not an auto BUY.")
-            + "\nPrice: " + (px != null && !isNaN(px) ? "$" + px.toFixed(2) : "—")
-            + "\nActive Alert: " + (ap != null && !isNaN(ap) ? "$" + ap.toFixed(2) : "—");
+          span.title = state === "deep" ? "DEEP — 10% below SMA" : "ALERT — manual alert reached";
         } else if (state === "watch") {
           span.className = "alert-dot near";
           span.textContent = "🟡";
-          span.title = "WATCH — within 5% above Active Alert (≤ Active×1.05). Research zone only; not an auto BUY."
-            + "\nPrice: " + (px != null && !isNaN(px) ? "$" + px.toFixed(2) : "—")
-            + "\nActive Alert: " + (ap != null && !isNaN(ap) ? "$" + ap.toFixed(2) : "—");
+          span.title = manual
+            ? "WATCH — within 5% above manual alert"
+            : "WATCH — 5% below SMA";
         } else {
           return;
         }
@@ -1125,14 +1208,15 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         var state = (j.alert && j.alert.state) || "";
         if (stTd) {
           stTd.setAttribute("data-sort", state);
-          stTd.innerHTML = alertBadgeHtml(state);
+          stTd.innerHTML = alertBadgeHtml(state, j.alert_source);
         }
         refreshAlertDot(
           tr,
           j.alert,
           tr.getAttribute("data-price"),
           tr.getAttribute("data-sma"),
-          j.active_alert
+          j.active_alert,
+          j.alert_source
         );
       }
 

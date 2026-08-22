@@ -2,26 +2,35 @@
 {% block title %}{{ _('Settings') }}{% endblock %}
 {% block content %}
   <h1>{{ _('Settings') }}</h1>
+  {% if can_edit %}
   <p class="meta">{{ _('SMA period is configurable — change it below, then refresh prices on Market Dashboard.') }}</p>
+  {% else %}
+  <p class="meta">{{ _('Public view — Settings are read-only. Sign in as Admin to change values.') }}
+    <a href="{{ url_for('owner_login', next=url_for('settings')) }}">{{ _('Sign in') }}</a>
+  </p>
+  {% endif %}
 
   <form class="settings-form" method="post" action="{{ url_for('settings') }}">
+    <fieldset {% if not can_edit %}disabled{% endif %} style="border:0;margin:0;padding:0">
     <label for="sma_period">{{ _('SMA period (days)') }}</label>
+    {% if can_edit %}
     <div class="preset-row">
       {% for p in presets %}
         <button type="button" onclick="document.getElementById('sma_period').value='{{ p }}'">{{ p }}</button>
       {% endfor %}
     </div>
-    <input id="sma_period" name="sma_period" type="number" min="5" max="250" step="1" value="{{ sma_period }}" required />
+    {% endif %}
+    <input id="sma_period" name="sma_period" type="number" min="5" max="250" step="1" value="{{ sma_period }}" required {% if not can_edit %}readonly{% endif %} />
 
     <label for="rebound_lookback">{{ _('Rebound lookback (days vs recent low)') }}</label>
-    <input id="rebound_lookback" name="rebound_lookback" type="number" min="5" max="250" step="1" value="{{ rebound_lookback }}" required />
+    <input id="rebound_lookback" name="rebound_lookback" type="number" min="5" max="250" step="1" value="{{ rebound_lookback }}" required {% if not can_edit %}readonly{% endif %} />
 
     <label>{{ _('Data source') }}</label>
     <select name="data_source" disabled>
       <option value="yahoo" selected>{{ _('Yahoo Finance (current)') }}</option>
       <option value="ibkr">{{ _('IBKR (future)') }}</option>
     </select>
-    <input type="hidden" name="data_source" value="yahoo" />
+    {% if can_edit %}<input type="hidden" name="data_source" value="yahoo" />{% endif %}
 
     <h2 style="margin-top:28px;font-size:1.15rem">{{ _('Auto updates (Pacific Time)') }}</h2>
     <p class="meta">
@@ -31,7 +40,7 @@
     </p>
 
     <label for="schedule_universe_weekday">{{ _('Universe update · weekday') }}</label>
-    <select id="schedule_universe_weekday" name="schedule_universe_weekday">
+    <select id="schedule_universe_weekday" name="schedule_universe_weekday" {% if not can_edit %}disabled{% endif %}>
       {% for key, label in weekdays %}
         <option value="{{ key }}" {% if key == schedule_universe_weekday %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
@@ -39,16 +48,16 @@
 
     <label>{{ _('Universe update · time') }}</label>
     <div style="display:flex;gap:8px;align-items:center">
-      <input name="schedule_universe_hour" type="number" min="0" max="23" value="{{ schedule_universe_hour }}" style="width:5rem" required />
+      <input name="schedule_universe_hour" type="number" min="0" max="23" value="{{ schedule_universe_hour }}" style="width:5rem" required {% if not can_edit %}readonly{% endif %} />
       <span>:</span>
-      <input name="schedule_universe_minute" type="number" min="0" max="59" value="{{ schedule_universe_minute }}" style="width:5rem" required />
+      <input name="schedule_universe_minute" type="number" min="0" max="59" value="{{ schedule_universe_minute }}" style="width:5rem" required {% if not can_edit %}readonly{% endif %} />
     </div>
 
     <label>{{ _('Price update · weekday after close') }}</label>
     <div style="display:flex;gap:8px;align-items:center">
-      <input name="schedule_price_hour" type="number" min="0" max="23" value="{{ schedule_price_hour }}" style="width:5rem" required />
+      <input name="schedule_price_hour" type="number" min="0" max="23" value="{{ schedule_price_hour }}" style="width:5rem" required {% if not can_edit %}readonly{% endif %} />
       <span>:</span>
-      <input name="schedule_price_minute" type="number" min="0" max="59" value="{{ schedule_price_minute }}" style="width:5rem" required />
+      <input name="schedule_price_minute" type="number" min="0" max="59" value="{{ schedule_price_minute }}" style="width:5rem" required {% if not can_edit %}readonly{% endif %} />
     </div>
 
     {% if scheduler %}
@@ -69,21 +78,26 @@
     </p>
     <label for="paper_stop_loss_pct">{{ _('Stop Loss %') }}</label>
     <input id="paper_stop_loss_pct" name="paper_stop_loss_pct" type="number" min="0.5" max="50" step="0.1"
-           value="{{ paper_stop_loss_pct }}" required />
+           value="{{ paper_stop_loss_pct }}" required {% if not can_edit %}readonly{% endif %} />
     <label for="paper_take_profit_pct">{{ _('Take Profit %') }}</label>
     <input id="paper_take_profit_pct" name="paper_take_profit_pct" type="number" min="0.5" max="100" step="0.1"
-           value="{{ paper_take_profit_pct }}" required />
+           value="{{ paper_take_profit_pct }}" required {% if not can_edit %}readonly{% endif %} />
+    </fieldset>
 
     <div style="margin-top:18px">
+      {% if can_edit %}
       <button class="btn primary" type="submit">{{ _('Save') }}</button>
+      {% endif %}
       <a class="btn" href="{{ url_for('market_dashboard') }}">{{ _('Back to Dashboard') }}</a>
       <a class="btn" href="{{ url_for('ai_trading') }}">{{ _('AI Trading') }}</a>
     </div>
   </form>
 
+  {% if can_edit %}
   <form class="settings-form" method="post" action="{{ url_for('refresh_all_prices') }}" style="margin-top:16px"
         onsubmit="this.querySelector('button').textContent={{ _('Updating (may take a few minutes)…')|tojson }}; this.querySelector('button').disabled=true;">
     <input type="hidden" name="next" value="{{ url_for('settings') }}">
     <button class="btn" type="submit" style="width:100%">{{ _('Refresh all prices + Watchlist now') }}</button>
   </form>
+  {% endif %}
 {% endblock %}

@@ -6,6 +6,7 @@ import uuid
 import time
 import glob
 import re
+import json
 from datetime import datetime, timezone
 
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
@@ -18,6 +19,7 @@ from db import (
     dashboard_meta,
     get_alert_prices,
     get_all_settings,
+    get_conn,
     get_dashboard_by_tickers,
     get_setting,
     get_universe_flags,
@@ -844,11 +846,15 @@ def refresh_all_prices():
     """
     Manual: refresh ALL index-pool dashboard prices + Watchlist (incl. MANUAL).
     Same job as weekday EOD schedule (update_jobs.job_refresh_prices).
+    Admin-only.
     """
     nxt = (request.form.get("next") or "").strip()
     # Only allow internal relative redirects
     if not nxt.startswith("/") or nxt.startswith("//"):
         nxt = url_for("market_dashboard")
+    if not is_owner():
+        flash(gettext("Please sign in to refresh all prices"), "warning")
+        return redirect(url_for("owner_login", next=nxt))
     try:
         from update_jobs import job_refresh_prices
 
@@ -872,6 +878,8 @@ def refresh_all_prices():
 
 @app.route("/settings", methods=["GET", "POST"])
 def settings():
+    """Settings: public read-only; Admin (owner) can change."""
+    can_edit = is_owner()
     weekdays = [
         ("mon", gettext("Mon")),
         ("tue", gettext("Tue")),
@@ -882,6 +890,9 @@ def settings():
         ("sun", gettext("Sun")),
     ]
     if request.method == "POST":
+        if not can_edit:
+            flash(gettext("Please sign in to change Settings"), "warning")
+            return redirect(url_for("owner_login", next=url_for("settings")))
         try:
             sma_period = int(request.form.get("sma_period", 25))
             rebound_lookback = int(request.form.get("rebound_lookback", sma_period))
@@ -958,6 +969,7 @@ def settings():
         sched = {"enabled": False, "running": False, "jobs": []}
     return render_template(
         "settings.html",
+        can_edit=can_edit,
         sma_period=int(settings_data.get("sma_period", 25)),
         rebound_lookback=int(settings_data.get("rebound_lookback", 25)),
         presets=settings_data.get("sma_presets", [25, 50, 63, 90]),
@@ -1459,6 +1471,16 @@ def watchlist():
             r["clv_tooltip"] = "登录后可见（估值方法开发中）"
             r["dcf_below_clv"] = False
 
+    # Knife Risk (independent of AI Score) — downside velocity + relative weakness.
+    try:
+        from knife_risk import attach_knife_risk
+
+        attach_knife_risk(rows, ensure_bench=True)
+    except Exception:
+        app.logger.exception("knife risk attach failed")
+        for r in rows:
+            r["knife"] = None
+
     # My Watchlist SMA alerts (research zones only — never auto-buy).
     # Manual override from DB; Default/Deep/Active computed from current SMA.
     alert_map = get_alert_prices([r.get("ticker") for r in rows if r.get("ticker")])
@@ -1574,6 +1596,235 @@ def candidate_analysis():
     return redirect(url_for("strong_stock_monitor", tab="candidates"))
 
 
+@app.route("/ai-trading/levels", methods=["POST"])
+def ai_trading_levels():
+    """
+    Admin-only: set / reset Stop Loss or Take Profit, or edit open-position shares.
+    - Candidates (Watchlist): ticker + field stop|take
+    - Open positions: trade_id + field stop|take|shares
+    Public may view; only owner can edit. Does not bypass Knife Risk gates.
+    """
+    if not is_owner():
+        return jsonify({"ok": False, "error": "login required"}), 401
+    from paper_trading import (
+        _cfg,
+        apply_level_override_to_row,
+        stop_take_prices,
+        trading_day_pt,
+        update_open_trade_levels,
+        update_open_trade_shares,
+        upsert_level_override,
+        validate_long_levels,
+    )
+
+    data = request.get_json(silent=True) or {}
+    field = (data.get("field") or "").strip().lower()
+    reset = bool(data.get("reset"))
+    if field not in ("stop", "take", "shares"):
+        return jsonify({"ok": False, "error": "field=stop|take|shares required"}), 400
+
+    raw = data.get("value")
+    if isinstance(raw, str):
+        raw = raw.strip().replace("$", "").replace(",", "")
+
+    # ── Open position path ──────────────────────────────────────────────
+    trade_id_raw = data.get("trade_id")
+    if trade_id_raw not in (None, ""):
+        try:
+            trade_id = int(trade_id_raw)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "invalid trade_id"}), 400
+
+        if field == "shares":
+            try:
+                if raw is None or raw == "":
+                    raise ValueError("shares required")
+                row = update_open_trade_shares(trade_id, float(raw))
+            except (TypeError, ValueError) as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
+            return jsonify(
+                {
+                    "ok": True,
+                    "scope": "trade",
+                    "field": "shares",
+                    "trade_id": trade_id,
+                    "ticker": row.get("ticker"),
+                    "shares": row.get("shares"),
+                    "cost": row.get("cost"),
+                    "market_value": row.get("market_value"),
+                    "unrealized_pnl": row.get("unrealized_pnl"),
+                    "unrealized_pnl_pct": row.get("unrealized_pnl_pct"),
+                    "cash_delta": row.get("cash_delta"),
+                    "cash_after": row.get("cash_after"),
+                }
+            )
+
+        try:
+            if reset or raw is None or raw == "":
+                row = update_open_trade_levels(
+                    trade_id,
+                    reset_stop=(field == "stop"),
+                    reset_take=(field == "take"),
+                )
+            else:
+                val = float(raw)
+                if val <= 0:
+                    raise ValueError("price must be > 0")
+                if field == "stop":
+                    row = update_open_trade_levels(trade_id, manual_stop=val)
+                else:
+                    row = update_open_trade_levels(trade_id, manual_take=val)
+        except (TypeError, ValueError) as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        warn = None
+        try:
+            warn = validate_long_levels(
+                float(row["entry_price"]),
+                float(row["stop_price"]),
+                float(row["take_profit_price"]),
+            )
+        except (TypeError, ValueError, KeyError):
+            warn = None
+        return jsonify(
+            {
+                "ok": True,
+                "scope": "trade",
+                "trade_id": trade_id,
+                "ticker": row.get("ticker"),
+                "price": row.get("entry_price"),
+                "default_stop": row.get("default_stop"),
+                "default_take": row.get("default_take"),
+                "stop_price": row.get("stop_price"),
+                "take_profit_price": row.get("take_profit_price"),
+                "stop_source": row.get("stop_source"),
+                "take_source": row.get("take_source"),
+                "stop_risk_pct": row.get("stop_risk_pct"),
+                "reward_pct": row.get("reward_pct"),
+                "rr_ratio": row.get("rr_ratio"),
+                "levels_valid": row.get("levels_valid"),
+                "warning": warn,
+            }
+        )
+
+    if field == "shares":
+        return jsonify({"ok": False, "error": "shares requires trade_id"}), 400
+
+    # ── Candidate Watchlist path ────────────────────────────────────────
+    ticker = (data.get("ticker") or "").strip().upper()
+    if not ticker:
+        return jsonify({"ok": False, "error": "ticker or trade_id required"}), 400
+
+    try:
+        if reset or raw is None or raw == "":
+            ov = upsert_level_override(
+                ticker,
+                reset_stop=(field == "stop"),
+                reset_take=(field == "take"),
+            )
+        else:
+            val = float(raw)
+            if val <= 0:
+                raise ValueError("price must be > 0")
+            if field == "stop":
+                ov = upsert_level_override(ticker, manual_stop=val)
+            else:
+                ov = upsert_level_override(ticker, manual_take=val)
+    except (TypeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    def _f(key: str) -> float | None:
+        v = data.get(key)
+        try:
+            return float(v) if v is not None and v != "" else None
+        except (TypeError, ValueError):
+            return None
+
+    price = _f("price")
+    cfg = _cfg()
+    stop_pct = float(data.get("stop_pct") or cfg["stop_loss_pct"])
+    take_pct = float(data.get("take_profit_pct") or cfg["take_profit_pct"])
+    if price is not None and price > 0:
+        d_stop, d_take = stop_take_prices(price, stop_pct, take_pct)
+    else:
+        d_stop, d_take = _f("default_stop"), _f("default_take")
+
+    row = {
+        "ticker": ticker,
+        "price": price,
+        "stop_price": d_stop,
+        "take_profit_price": d_take,
+    }
+    apply_level_override_to_row(row, ov, default_stop=d_stop, default_take=d_take)
+
+    try:
+        day = get_setting("paper_candidates_as_of") or trading_day_pt()
+        with get_conn() as conn:
+            cur = conn.execute(
+                "SELECT meta_json FROM paper_candidates WHERE as_of_date = ? AND ticker = ?",
+                (day, ticker),
+            ).fetchone()
+            if cur:
+                try:
+                    meta = json.loads(cur["meta_json"] or "{}")
+                except Exception:
+                    meta = {}
+                meta["default_stop"] = row.get("default_stop")
+                meta["default_take"] = row.get("default_take")
+                meta["manual_stop"] = row.get("manual_stop")
+                meta["manual_take"] = row.get("manual_take")
+                meta["stop_source"] = row.get("stop_source")
+                meta["take_source"] = row.get("take_source")
+                conn.execute(
+                    """
+                    UPDATE paper_candidates
+                    SET stop_price = ?, take_profit_price = ?, meta_json = ?, updated_at = ?
+                    WHERE as_of_date = ? AND ticker = ?
+                    """,
+                    (
+                        row.get("stop_price"),
+                        row.get("take_profit_price"),
+                        json.dumps(meta),
+                        datetime.now(timezone.utc).isoformat(),
+                        day,
+                        ticker,
+                    ),
+                )
+    except Exception:
+        app.logger.exception("sync candidate levels failed")
+
+    warn = None
+    if (
+        price is not None
+        and row.get("stop_price") is not None
+        and row.get("take_profit_price") is not None
+    ):
+        warn = validate_long_levels(
+            float(price), float(row["stop_price"]), float(row["take_profit_price"])
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "scope": "candidate",
+            "ticker": ticker,
+            "price": price,
+            "default_stop": row.get("default_stop"),
+            "default_take": row.get("default_take"),
+            "manual_stop": row.get("manual_stop"),
+            "manual_take": row.get("manual_take"),
+            "stop_price": row.get("stop_price"),
+            "take_profit_price": row.get("take_profit_price"),
+            "stop_source": row.get("stop_source"),
+            "take_source": row.get("take_source"),
+            "stop_risk_pct": row.get("stop_risk_pct"),
+            "reward_pct": row.get("reward_pct"),
+            "rr_ratio": row.get("rr_ratio"),
+            "levels_valid": row.get("levels_valid"),
+            "warning": warn,
+        }
+    )
+
+
 @app.route("/ai-trading", methods=["GET", "POST"])
 def ai_trading():
     """
@@ -1591,8 +1842,11 @@ def ai_trading():
         list_closed_trades,
         list_open_trades,
         list_priority_tickers,
+        list_rebuy_candidates,
+        manual_buy_candidate,
         manual_close_trade,
         portfolio_summary,
+        rebuy_from_closed_trade,
         run_daily_update,
         set_priority,
         trading_day_pt,
@@ -1621,13 +1875,63 @@ def ai_trading():
                 )
             elif action == "create_orders":
                 result = create_paper_orders_from_candidates()
-                flash(
-                    ngettext_format(
-                        "Paper orders created: {n} · skipped {s}",
-                        n=len(result.get("created") or []),
-                        s=len(result.get("skipped") or []),
-                    ),
-                    "ok",
+                created = result.get("created") or []
+                skipped = result.get("skipped") or []
+                if created:
+                    flash(
+                        ngettext_format(
+                            "Paper orders created: {n} · skipped {s}",
+                            n=len(created),
+                            s=len(skipped),
+                        ),
+                        "ok",
+                    )
+                else:
+                    flash(
+                        ngettext_format(
+                            "No paper orders created · skipped {s}. Blocked names did not pass.",
+                            s=len(skipped),
+                        ),
+                        "warning",
+                    )
+
+                def _skip_flash(reason: str, msg_key: str) -> None:
+                    rows = [s for s in skipped if s.get("reason") == reason]
+                    if not rows:
+                        return
+                    detail = "; ".join(
+                        (
+                            f"{s.get('ticker')}"
+                            + (f" ({s.get('detail')})" if s.get("detail") else "")
+                        )
+                        for s in rows[:8]
+                    )
+                    if len(rows) > 8:
+                        detail += f" …(+{len(rows) - 8})"
+                    flash(
+                        ngettext_format(msg_key, detail=detail, n=len(rows)),
+                        "warning",
+                    )
+
+                _skip_flash(
+                    "insufficient_cash",
+                    "Blocked — insufficient cash (cannot open): {detail}",
+                )
+                _skip_flash(
+                    "trading_limit",
+                    "Blocked — trading limit reached (cannot open): {detail}",
+                )
+                _skip_flash(
+                    "already_open",
+                    "Blocked — already have an open position: {detail}",
+                )
+                _skip_flash(
+                    "invalid_levels",
+                    "Blocked invalid Stop/Take (LONG requires Stop < Entry < Take): {detail}",
+                )
+                _skip_flash(
+                    "no_allocation",
+                    "Skipped — no suggested allocation ($0): {detail}",
                 )
             elif action == "daily_update":
                 result = run_daily_update(refresh_candidates=True)
@@ -1651,13 +1955,43 @@ def ai_trading():
                 if not added:
                     raise ValueError(gettext("Enter valid tickers"))
                 flash(
-                    ngettext_format("Priority marked: {tickers}", tickers=", ".join(added)),
+                    ngettext_format("Priority Buy marked: {tickers}", tickers=", ".join(added)),
                     "ok",
                 )
             elif action == "clear_priority":
                 t = (request.form.get("ticker") or "").strip().upper()
                 clear_priority(t)
-                flash(ngettext_format("Priority cleared: {ticker}", ticker=t), "ok")
+                flash(ngettext_format("Priority Buy cleared: {ticker}", ticker=t), "ok")
+            elif action == "manual_buy":
+                ticker = (request.form.get("ticker") or "").strip().upper()
+                amount_raw = (request.form.get("amount") or "").strip()
+                shares_raw = (request.form.get("shares") or "").strip()
+                amount = float(amount_raw) if amount_raw else None
+                shares = float(shares_raw) if shares_raw else None
+                result = manual_buy_candidate(ticker, amount=amount, shares=shares)
+                if result.get("mode") == "add":
+                    flash(
+                        ngettext_format(
+                            "Added to position: {ticker} +{shares} sh @ {price} · cost +{cost}",
+                            ticker=result.get("ticker"),
+                            shares=result.get("shares_added"),
+                            price=result.get("fill_price"),
+                            cost=result.get("cost_added"),
+                        ),
+                        "ok",
+                    )
+                else:
+                    flash(
+                        ngettext_format(
+                            "Manual buy opened: {ticker} · {shares} sh @ {price} · cost {cost}",
+                            ticker=result.get("ticker"),
+                            shares=result.get("shares"),
+                            price=result.get("entry_price"),
+                            cost=result.get("cost"),
+                        ),
+                        "ok",
+                    )
+                return redirect(url_for("ai_trading", tab="open"))
             elif action == "manual_exit":
                 tid = int(request.form.get("trade_id") or 0)
                 result = manual_close_trade(tid)
@@ -1669,6 +2003,34 @@ def ai_trading():
                     ),
                     "ok",
                 )
+                flash(
+                    ngettext_format(
+                        "Re-entry available: use Re-enter for {ticker} under Add / Re-entry.",
+                        ticker=result.get("ticker"),
+                    ),
+                    "ok",
+                )
+                return redirect(
+                    url_for(
+                        "ai_trading",
+                        tab="open",
+                        rebuy=result.get("id"),
+                    )
+                )
+            elif action == "rebuy":
+                tid = int(request.form.get("trade_id") or 0)
+                result = rebuy_from_closed_trade(tid)
+                flash(
+                    ngettext_format(
+                        "Re-entry opened: {ticker} · {shares} sh @ {price} · cost {cost}",
+                        ticker=result.get("ticker"),
+                        shares=result.get("shares"),
+                        price=result.get("entry_price"),
+                        cost=result.get("cost"),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="open"))
             else:
                 flash(gettext("Unknown action"), "warning")
         except Exception as exc:
@@ -1680,37 +2042,68 @@ def ai_trading():
         try:
             candidates = build_candidates(persist=True)
         except Exception:
+            app.logger.exception("build_candidates failed on AI Trading page")
             candidates = []
 
     from candidate_analysis import enrich_ai_trading_watchlist_rows
 
-    candidates = enrich_ai_trading_watchlist_rows(candidates)
-    trade_candidates = get_trade_candidates()
+    try:
+        candidates = enrich_ai_trading_watchlist_rows(candidates)
+    except Exception:
+        app.logger.exception("enrich_ai_trading_watchlist_rows failed")
+
+    trade_candidates = []
 
     summary = portfolio_summary()
     opens = list_open_trades()
     history = list_closed_trades(limit=300)
     priority = list_priority_tickers()
+    if is_owner():
+        rebuy_pool = list_rebuy_candidates(top_n=8, lookback_trading_days=63)
+    else:
+        rebuy_pool = {
+            "all": [],
+            "top": [],
+            "total": 0,
+            "top_n": 8,
+            "lookback_trading_days": 63,
+            "cutoff_date": "",
+        }
+    rebuy_candidates = rebuy_pool.get("all") or []
+    highlight_rebuy_id = None
+    try:
+        if request.args.get("rebuy"):
+            highlight_rebuy_id = int(request.args.get("rebuy"))
+    except (TypeError, ValueError):
+        highlight_rebuy_id = None
     range_key = (request.args.get("range") or "ALL").strip().upper()
     hist_report = None
     if tab == "history":
         hist_report = history_report(range_key=range_key)
 
-    return render_template(
-        "ai_trading.html",
-        tab=tab,
-        summary=summary,
-        candidates=candidates,
-        trade_candidates=trade_candidates,
-        opens=opens,
-        history=history,
-        hist_report=hist_report,
-        range_key=range_key if tab == "history" else "ALL",
-        priority=priority,
-        can_manage=is_owner(),
-        stop_pct=float(get_all_settings().get("paper_stop_loss_pct", 5.0)),
-        take_pct=float(get_all_settings().get("paper_take_profit_pct", 10.0)),
-    )
+    try:
+        return render_template(
+            "ai_trading.html",
+            tab=tab,
+            summary=summary,
+            candidates=candidates,
+            trade_candidates=trade_candidates,
+            opens=opens,
+            history=history,
+            hist_report=hist_report,
+            rebuy_pool=rebuy_pool,
+            rebuy_candidates=rebuy_candidates,
+            highlight_rebuy_id=highlight_rebuy_id,
+            open_ticker_set={str(t.get("ticker") or "").upper() for t in opens},
+            range_key=range_key if tab == "history" else "ALL",
+            priority=priority,
+            can_manage=is_owner(),
+            stop_pct=float(get_all_settings().get("paper_stop_loss_pct", 5.0)),
+            take_pct=float(get_all_settings().get("paper_take_profit_pct", 10.0)),
+        )
+    except Exception:
+        app.logger.exception("ai_trading render failed")
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -2007,8 +2400,15 @@ def strong_stock_monitor():
                 r["ai"] = compute_ai_score(r)
                 r["fund"] = None
                 r["news"] = None
+            try:
+                from knife_risk import attach_knife_risk
 
-    strong_tab = tab if tab in ("daily", "ranking", "watchlist") else "daily"
+                attach_knife_risk(active, ensure_bench=True)
+            except Exception:
+                for r in active:
+                    r.setdefault("knife", None)
+
+    strong_tab = tab if tab in ("daily", "ranking", "watchlist") else "meta"
     try:
         data = load_strong_monitor_page(tab=strong_tab)
     except Exception:

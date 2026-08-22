@@ -237,6 +237,13 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS paper_level_overrides (
+                ticker TEXT PRIMARY KEY,
+                manual_stop REAL,
+                manual_take REAL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_paper_trades_status ON paper_trades(status);
             CREATE INDEX IF NOT EXISTS idx_paper_candidates_date ON paper_candidates(as_of_date);
             CREATE INDEX IF NOT EXISTS idx_paper_equity_date ON paper_equity_snapshots(as_of_date);
@@ -446,16 +453,15 @@ def build_watchlist_alert(
     """
     My Watchlist alert bundle (research zones only — never creates orders).
 
-    Default Alert = SMA × 0.95 (moves with SMA).
-    Manual Alert  = user override (fixed until edit/reset).
-    Active Alert  = Manual if set, else Default.
-    Deep Alert    = SMA × 0.90 (always SMA-based).
+    Auto (no Manual):
+      WATCH 🟡 — price <= SMA × 0.95
+      DEEP  🟢 — price <= SMA × 0.90
+    Manual (overrides Auto until Reset):
+      WATCH 🟡 — Active < price <= Active × 1.05
+      ALERT 🟢 — price <= Active (manual alert price)
 
-    Status priority (most severe wins):
-      DEEP  — price <= SMA × 0.90
-      ALERT — price <= Active Alert          (🟢)
-      WATCH — Active < price <= Active×1.05 (🟡 near band; classic 5%)
-      —     — otherwise
+    Default Alert = SMA × 0.95; Deep Alert = SMA × 0.90 (SMA-based levels).
+    Active Alert  = Manual if set, else Default.
     """
     default_alert = default_alert_from_sma(sma)
     deep_alert = deep_alert_from_sma(sma)
@@ -486,12 +492,17 @@ def build_watchlist_alert(
         s = None
 
     if px is not None:
-        if deep_alert is not None and px <= deep_alert:
-            state = "deep"
-        elif active is not None and px <= active:
-            state = "alert"
-        elif active is not None and px <= active * 1.05:
-            state = "watch"
+        if source == "manual" and active is not None:
+            if px <= active:
+                state = "alert"
+            elif px <= active * 1.05:
+                state = "watch"
+        else:
+            # AUTO — SMA-based only (Manual absent)
+            if deep_alert is not None and px <= deep_alert:
+                state = "deep"
+            elif default_alert is not None and px <= default_alert:
+                state = "watch"
 
     dist_pct = None
     if px is not None and active is not None and active > 0:
@@ -512,6 +523,7 @@ def build_watchlist_alert(
             "default_alert": default_alert,
             "deep_alert": deep_alert,
             "manual_alert": manual,
+            "alert_source": source,
             "dist_pct": dist_pct,
         },
         # Backward-compatible alias used by older templates/JS

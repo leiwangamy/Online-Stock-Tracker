@@ -176,6 +176,34 @@
   .ai.good { color: #15803d; font-weight: 700; }
   .ai.mid { color: #a16207; font-weight: 700; }
   .ai.bad { color: #b91c1c; font-weight: 700; }
+  .knife-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    line-height: 1.25;
+    cursor: default;
+  }
+  .knife-badge.low { color: #166534; background: #dcfce7; border-color: #86efac; }
+  .knife-badge.watch { color: #854d0e; background: #fef9c3; border-color: #fde047; }
+  .knife-badge.high { color: #9a3412; background: #ffedd5; border-color: #fdba74; }
+  .knife-badge.knife { color: #991b1b; background: #fee2e2; border-color: #f87171; }
+  .knife-block {
+    display: inline-block;
+    margin-top: 2px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: #64748b;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    padding: 0 6px;
+    line-height: 1.4;
+  }
   #ca-table .news.skipped { color: #94a3b8; font-weight: 600; font-style: italic; }
   table.data .pools { color: var(--muted); font-size: 0.82rem; }
 </style>
@@ -187,16 +215,7 @@
 
 {% block content %}
   <h1>{{ _('Research') }}</h1>
-
-  {% if tab == 'candidates' %}
-    <p class="rules">{{ _('Unified candidate analysis from LeiBot signal groups.') }}</p>
-  {% elif tab in ('daily', 'ranking', 'watchlist') %}
-    <p class="rules">{{ data.rules }}</p>
-  {% elif tab == 'rising_now' %}
-    <p class="rules">{{ data.rising_rules or _('Up Days ≥ 3/5 · 5D Return ≥ +3%. Dynamic daily group; no retention.') }}</p>
-  {% elif tab == 'multi_signal' %}
-    <p class="rules">{{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Strong is a separate indicator.') }}</p>
-  {% endif %}
+  <p class="rules">{{ _('Research selects strong candidates for the Long-Term Watchlist — not for immediate buying. Wait for the price to pull back toward its lowest range before considering an entry.') }}</p>
 
   {% if tab in ('daily', 'ranking', 'watchlist') %}
   <div class="ops-bar">
@@ -209,18 +228,22 @@
       {% endif %}
     </div>
   </div>
+  {% elif tab == 'rising_now' %}
+    <p class="rules" style="margin-top:0">{{ data.rising_rules or _('Up Days ≥ 3/5 · 5D Return ≥ +3%. Dynamic daily group; no retention. Research candidates only — not a Buy signal.') }}</p>
+  {% elif tab == 'multi_signal' %}
+    <p class="rules" style="margin-top:0">{{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Strong is a separate indicator. Research candidates only — not a Buy signal.') }}</p>
   {% endif %}
 
   <details class="ops-details">
     <summary>{{ _('Guide') }}</summary>
     <div class="ops-details-body">
-      <p><strong>{{ _('Candidate Analysis') }}:</strong> {{ _('Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Human My Watchlist and Trade Candidate flags. AI Score unchanged.') }}</p>
-      <p><strong>{{ _('Daily Strong Stocks') }}:</strong> {{ _('Only stocks meeting the Strong Day Position threshold on that date. Column lengths differ by day.') }}</p>
-      <p><strong>{{ _('COUNT20 Ranking') }}:</strong> {{ _('Historical frequency over the latest 20 trading days. Current Position may be below the Strong Day threshold.') }}</p>
-      <p><strong>{{ _('Strong Watchlist') }}:</strong> {{ _('COUNT ≥ threshold qualifies; retain N trading days after last qualify; renew resets retention. Position may be below the Strong Day threshold during retention (pullback watch).') }}</p>
-      <p><strong>{{ _('Rising Now') }}:</strong> {{ _('Up Days ≥ 3/5 · 5D Return ≥ +3%. Dynamic daily group; no retention. Independent of Strong Day / COUNT20.') }}</p>
-      <p><strong>{{ _('Multi-Signal') }}:</strong> {{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Strong is a separate indicator. No retention.') }}</p>
-      <p>{{ _('Workflow: Watchlist → Research → My Watchlist / Trade Candidate → AI Trading. Signal ≠ research decision ≠ trade decision.') }}</p>
+      <p><strong>{{ _('Candidate Analysis') }}:</strong> {{ _('Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Manual My Watchlist only — nothing auto-selects for AI Trading. Use Priority Buy on AI Trading for earlier allocation.') }}</p>
+      <p><strong>{{ _('Daily Strong Stocks') }}:</strong> {{ _('Stocks meeting the Strong Day Position threshold that day — research candidates for monitoring, not immediate Buy signals. Column lengths differ by day.') }}</p>
+      <p><strong>{{ _('COUNT20 Ranking') }}:</strong> {{ _('Historical frequency over the latest 20 trading days. Research ranking only; not a Buy list. Current Position may be below the Strong Day threshold.') }}</p>
+      <p><strong>{{ _('Strong Watchlist') }}:</strong> {{ _('COUNT ≥ threshold qualifies; retain N trading days after last qualify. For monitoring pullbacks — not automatic Buy. Renew resets retention.') }}</p>
+      <p><strong>{{ _('Rising Now') }}:</strong> {{ _('Up Days ≥ 3/5 · 5D Return ≥ +3%. Short-term momentum research group; not a Buy signal. No retention.') }}</p>
+      <p><strong>{{ _('Multi-Signal') }}:</strong> {{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Overlap research screen only — not a Buy signal. Strong is a separate indicator.') }}</p>
+      <p>{{ _('Workflow: Find strong stocks → Monitor → Wait for pullback → Reassess → Consider entry. Signal ≠ research decision ≠ trade decision. Nothing auto-selects for AI Trading.') }}</p>
     </div>
   </details>
 

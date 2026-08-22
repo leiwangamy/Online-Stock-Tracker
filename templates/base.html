@@ -351,7 +351,7 @@
     {% block content %}{% endblock %}
     <aside class="site-disclaimer" role="note">
       <strong>{{ _('Risk Disclaimer') }}:</strong>
-      {{ _('Stock markets are inherently unpredictable and involve risk. This project is intended solely for educational, research, and experimental purposes. Users are encouraged to use <strong>Paper Trading</strong> or approximately <strong>CAD/USD 100</strong> in small experimental capital through <strong>Fractional Shares</strong>. Any data, analysis, valuation, scoring, or other information provided by this project <strong>does not constitute investment advice</strong>. Users are solely responsible for their own investment decisions and risks.')|safe }}
+      {{ _('Stock markets are unpredictable and involve risk. This project is for educational, research, and experimental purposes only and does not constitute investment advice. Users are encouraged to use Paper Trading or small experimental positions through Fractional Shares and are solely responsible for their own investment decisions and risks.') }}
     </aside>
   </div>
   <script>
@@ -537,6 +537,115 @@
         });
       });
     });
+  </script>
+  <div id="lei-confirm" class="lei-modal" hidden aria-hidden="true">
+    <div class="lei-modal-backdrop" data-lei-cancel></div>
+    <div class="lei-modal-card" role="dialog" aria-modal="true" aria-labelledby="lei-confirm-title">
+      <div class="lei-modal-icon" aria-hidden="true">!</div>
+      <h3 id="lei-confirm-title" class="lei-modal-title"></h3>
+      <p class="lei-modal-body"></p>
+      <div class="lei-modal-actions">
+        <button type="button" class="btn lei-modal-cancel" data-lei-cancel>{{ _('Cancel') }}</button>
+        <button type="button" class="btn primary lei-modal-ok" data-lei-ok>{{ _('Confirm') }}</button>
+      </div>
+    </div>
+  </div>
+  <style>
+    .lei-modal[hidden] { display: none !important; }
+    .lei-modal {
+      position: fixed; inset: 0; z-index: 9999;
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    .lei-modal-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(15, 23, 42, 0.45);
+    }
+    .lei-modal-card {
+      position: relative; z-index: 1;
+      width: min(420px, 100%);
+      background: var(--panel, #fff);
+      color: var(--text, #1f2937);
+      border: 1px solid var(--border, #e5e7eb);
+      border-radius: 12px;
+      box-shadow: 0 18px 50px rgba(15, 23, 42, 0.22);
+      padding: 22px 22px 16px;
+      text-align: center;
+    }
+    .lei-modal-icon {
+      width: 40px; height: 40px; margin: 0 auto 10px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 1.15rem;
+      color: #b45309; background: #fff7ed; border: 1px solid #fdba74;
+    }
+    .lei-modal.danger .lei-modal-icon {
+      color: #b91c1c; background: #fef2f2; border-color: #fca5a5;
+    }
+    .lei-modal-title {
+      margin: 0 0 8px; font-size: 1.1rem; color: #0f172a;
+    }
+    .lei-modal-body {
+      margin: 0 0 18px; color: var(--muted, #6b7280);
+      font-size: 0.95rem; line-height: 1.45; white-space: pre-line;
+    }
+    .lei-modal-actions {
+      display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;
+    }
+    .lei-modal-actions .btn { min-width: 96px; }
+    .lei-modal.danger .lei-modal-ok {
+      background: #b91c1c; border-color: #b91c1c; color: #fff;
+    }
+    .lei-modal.danger .lei-modal-ok:hover { background: #991b1b; }
+  </style>
+  <script>
+    (function () {
+      var root = document.getElementById("lei-confirm");
+      if (!root) return;
+      var titleEl = root.querySelector(".lei-modal-title");
+      var bodyEl = root.querySelector(".lei-modal-body");
+      var okBtn = root.querySelector("[data-lei-ok]");
+      var pending = null;
+
+      function close(result) {
+        root.hidden = true;
+        root.setAttribute("aria-hidden", "true");
+        root.classList.remove("danger");
+        document.body.style.overflow = "";
+        var cb = pending;
+        pending = null;
+        if (cb) cb(!!result);
+      }
+
+      root.querySelectorAll("[data-lei-cancel]").forEach(function (el) {
+        el.addEventListener("click", function () { close(false); });
+      });
+      okBtn.addEventListener("click", function () { close(true); });
+      document.addEventListener("keydown", function (e) {
+        if (root.hidden) return;
+        if (e.key === "Escape") { e.preventDefault(); close(false); }
+        if (e.key === "Enter") { e.preventDefault(); close(true); }
+      });
+
+      window.leiConfirm = function (opts) {
+        opts = opts || {};
+        return new Promise(function (resolve) {
+          if (pending) close(false);
+          pending = resolve;
+          titleEl.textContent = opts.title || {{ _('Please confirm')|tojson }};
+          bodyEl.textContent = opts.message || "";
+          okBtn.textContent = opts.okText || {{ _('Confirm')|tojson }};
+          var cancelBtn = root.querySelector(".lei-modal-cancel");
+          if (cancelBtn) cancelBtn.textContent = opts.cancelText || {{ _('Cancel')|tojson }};
+          if (opts.danger) root.classList.add("danger");
+          else root.classList.remove("danger");
+          root.hidden = false;
+          root.setAttribute("aria-hidden", "false");
+          document.body.style.overflow = "hidden";
+          okBtn.focus();
+        });
+      };
+    })();
   </script>
 </body>
 </html>

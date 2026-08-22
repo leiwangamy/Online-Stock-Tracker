@@ -150,34 +150,83 @@ ZH: dict[str, str] = {
     "Reset": "重置",
     "Deep Alert (info)": "深度提醒（仅参考）",
     "SMA alerts: Default = SMA×0.95 (auto). Manual overrides Active until Reset. WATCH / ALERT / DEEP are research zones only — never auto-buy.":
-        "SMA 提醒：默认价 = SMA×0.95（随均线更新）。人工价覆盖生效价直至「重置」。🟡 WATCH = 距生效价 ≤5%；🟢 ALERT/DEEP 进入提醒区。绝不会自动下单。",
+        "我的自选提醒：Auto 🟡 WATCH = SMA 下方 5% · 🟢 DEEP = SMA 下方 10%。Manual 覆盖 Auto，直至重置。",
+    "SMA alerts: Default = SMA×0.95 (auto). Manual overrides Active until Reset. WATCH = within 5% above Active; ALERT ≤ Active; DEEP ≤ SMA×0.90. Research only — never auto-buy.":
+        "我的自选提醒：Auto 🟡 WATCH = SMA 下方 5% · 🟢 DEEP = SMA 下方 10%。Manual 覆盖 Auto，直至重置。",
+    "My Watchlist SMA alerts: Default = SMA×0.95 (auto); Manual overrides Active until Reset. Dots on ticker: 🟡 WATCH = within 5% above Active (≤ Active×1.05); 🟢 ALERT = price ≤ Active; 🟢 DEEP = price ≤ SMA×0.90. Research only — never auto-buy.":
+        "我的自选提醒：Auto 🟡 WATCH = SMA 下方 5% · 🟢 DEEP = SMA 下方 10%。Manual 覆盖 Auto，直至重置。",
+    "My Watchlist Alerts": "我的自选提醒",
+    "Auto: 🟡 WATCH = 5% below SMA · 🟢 DEEP = 10% below SMA":
+        "Auto：🟡 WATCH = SMA 下方 5% · 🟢 DEEP = SMA 下方 10%",
+    "Manual: Custom alert overrides Auto · 🟡 WATCH = within 5% above alert · 🟢 ALERT = alert reached · Remains active until reset":
+        "Manual：自定义提醒覆盖 Auto · 🟡 WATCH = 手动提醒价上方 5% 内 · 🟢 ALERT = 已到达提醒价 · 持续有效直至重置",
+    "Auto: 🟡 WATCH / 🟢 DEEP · Manual: 🟡 WATCH / 🟢 ALERT. Same as dots on ticker.":
+        "Auto：🟡 WATCH / 🟢 DEEP · Manual：🟡 WATCH / 🟢 ALERT。与代码旁圆点同义。",
+    "WATCH — 5% below SMA": "WATCH — SMA 下方 5%",
+    "DEEP — 10% below SMA": "DEEP — SMA 下方 10%",
+    "WATCH — within 5% above manual alert": "WATCH — 手动提醒价上方 5% 内",
+    "ALERT — manual alert reached": "ALERT — 已到达手动提醒价",
+    "No alert zone": "无提醒区",
+    "Auto": "Auto",
+    "Manual": "手动",
+    "SMA-based until Manual is set": "基于 SMA，直到设置 Manual",
+    "5% below SMA": "SMA 下方 5%",
+    "10% below SMA": "SMA 下方 10%",
+    "custom price overrides Auto until Reset": "自定义价格覆盖 Auto，直至重置",
+    "within 5% above manual alert": "手动提醒价上方 5% 内",
+    "price ≤ manual alert": "现价 ≤ 手动提醒价",
+    "Dots next to ticker only — hover for status. Research zones only; never auto-buy.":
+        "代码旁仅显示黄/绿点 — 悬停查看状态。仅为研究区，绝不会自动买入。",
     "Default Alert = SMA × 0.95. Updates whenever SMA refreshes. Not a buy signal.":
-        "默认提醒价 = SMA × 0.95。随 SMA 刷新而更新。不是买入信号。",
+        "默认提醒价 = SMA × 0.95（Auto WATCH 阈值）。随 SMA 刷新而更新。不是买入信号。",
     "Manual Alert — your override. Stays fixed until you edit or Reset to Default.":
-        "人工提醒价 — 你的覆盖值。固定不变，直到你修改或「重置为默认」。",
+        "人工提醒价 — 覆盖 Auto。固定不变，直到你修改或「重置为默认」。",
     "Active Alert = Manual if set, else Default. Used for ALERT status.":
-        "生效提醒价 = 有人工价用人工价，否则用默认价。用于 ALERT 状态判断。",
-    "WATCH ≤ SMA · ALERT ≤ Active · DEEP ≤ SMA×0.90. Research zones only — never auto-buy.":
-        "WATCH ≤ Active×1.05 · ALERT ≤ 生效价 · DEEP ≤ SMA×0.90。仅为研究区，绝不自动买入。",
+        "生效提醒价 = 有 Manual 用 Manual，否则用 Auto 默认（SMA×0.95）。",
+    "Active Alert = Manual if set, else Auto Default (SMA×0.95).":
+        "生效提醒价 = 有 Manual 用 Manual，否则用 Auto 默认（SMA×0.95）。",
     "WATCH ≤ Active×1.05 · ALERT ≤ Active · DEEP ≤ SMA×0.90. Research zones only — never auto-buy.":
-        "WATCH ≤ Active×1.05 · ALERT ≤ 生效价 · DEEP ≤ SMA×0.90。仅为研究区，绝不自动买入。",
+        "Auto：🟡 WATCH / 🟢 DEEP · Manual：🟡 WATCH / 🟢 ALERT。仅为研究区，绝不自动买入。",
+    "WATCH ≤ SMA · ALERT ≤ Active · DEEP ≤ SMA×0.90. Research zones only — never auto-buy.":
+        "Auto：🟡 WATCH / 🟢 DEEP · Manual：🟡 WATCH / 🟢 ALERT。仅为研究区，绝不自动买入。",
+    "🟡 WATCH ≤ Active×1.05 · 🟢 ALERT ≤ Active · 🟢 DEEP ≤ SMA×0.90. Same meaning as dots on ticker. Research only — never auto-buy.":
+        "Auto：🟡 WATCH / 🟢 DEEP · Manual：🟡 WATCH / 🟢 ALERT。与代码旁圆点同义。仅为研究区，绝不自动买入。",
     "Manual Alert. Enter/blur to save; clear or Reset to use Default (SMA×0.95). Does not trigger trades.":
-        "人工提醒价。回车/失焦保存；清空或点「重置」则改回默认（SMA×0.95）。不触发交易。",
+        "人工提醒价。回车/失焦保存；清空或点「重置」则回到 Auto（SMA×0.95）。不触发交易。",
     "Reset to Default — clear Manual; Active = current SMA × 0.95":
-        "重置为默认 — 清除人工价；生效价 = 当前 SMA × 0.95",
-    "Active = Manual Alert": "生效 = 人工提醒价",
-    "Active = Default Alert (SMA × 0.95)": "生效 = 默认提醒价（SMA × 0.95）",
+        "重置为默认 — 清除 Manual；回到 Auto（当前 SMA × 0.95）",
+    "Active = Manual Alert": "生效 = Manual 提醒价",
+    "Active = Default Alert (SMA × 0.95)": "生效 = Auto 默认（SMA × 0.95）",
     "DEEP — Price ≤ SMA × 0.90. Research zone only; not an auto BUY.":
-        "DEEP — 现价 ≤ SMA × 0.90。仅为研究区，不是自动买入。",
+        "DEEP — SMA 下方 10%。仅为研究区，不是自动买入。",
     "ALERT — Price ≤ Active Alert. Research zone only; not an auto BUY.":
-        "ALERT — 现价 ≤ 生效提醒价。仅为研究区，不是自动买入。",
+        "ALERT — 已到达手动提醒价。仅为研究区，不是自动买入。",
     "WATCH — Price ≤ SMA. Research zone only; not an auto BUY.":
-        "WATCH — 现价在生效提醒价上方 5% 内（≤ Active×1.05）。仅为研究区，不是自动买入。",
+        "WATCH — SMA 下方 5%。仅为研究区，不是自动买入。",
     "WATCH — within 5% above Active Alert (≤ Active×1.05). Research zone only; not an auto BUY.":
-        "WATCH — 现价在生效提醒价上方 5% 内（≤ Active×1.05）。仅为研究区，不是自动买入。",
-    "Above SMA — no alert zone": "高于提醒区 — 无黄/绿点",
+        "WATCH — 手动提醒价上方 5% 内。仅为研究区，不是自动买入。",
+    "🟢 DEEP — Price ≤ SMA × 0.90. Same as green dot / Alert Status. Research only; not an auto BUY.":
+        "DEEP — SMA 下方 10%。",
+    "🟢 ALERT — Price ≤ Active Alert. Same as green dot / Alert Status. Research only; not an auto BUY.":
+        "ALERT — 已到达手动提醒价。",
+    "🟡 WATCH — within 5% above Active Alert (≤ Active×1.05). Same as yellow dot / Alert Status. Research only; not an auto BUY.":
+        "WATCH — 手动提醒价上方 5% 内。",
+    "Above SMA — no alert zone": "无提醒区",
+    "No 🟡/🟢 — price above WATCH band (above Active×1.05)": "无提醒区",
     "Distance": "距离",
     "Short-term SMA used for Default / Deep alerts": "用于默认/深度提醒的短期均线",
+    "AUTO BLOCK": "禁止自动交易",
+    "Blocked": "Blocked",
+    "AUTO BLOCK — Knife Risk above Auto Trading threshold":
+        "禁止自动交易 — Knife Risk 高于自动交易门槛",
+    "Knife Risk 0–100 — downside velocity + relative weakness vs SPY/sector. Independent of AI Score. Not an oversold score.":
+        "Knife Risk 0–100 — 下跌速度 + 相对弱势 + 10D/20D 趋势持续性。独立于 AI Score。不是超卖分数。",
+    "Knife Risk — falling speed + relative weakness. Independent of AI Score.":
+        "Knife Risk — 下跌速度 + 相对弱势 + 趋势持续性。独立于 AI Score。",
+    "Knife Risk — Auto pool excludes Knife ≥ threshold":
+        "Knife Risk — 自动交易池排除 Knife ≥ 门槛的股票",
+    "Knife Risk ≥ 45 blocks Auto Trading (configurable). Watchlist / Research still show the name.":
+        "Knife Risk ≥ 45 会禁止自动交易（可配置）。Watchlist / 研究中心仍可查看。",
     "Pool": "所属股池",
     "No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)":
         "暂无数据。（超卖/强势回调需先到 Market Dashboard 刷新行情；我的自选/临时会实时抓取。）",
@@ -223,16 +272,52 @@ ZH: dict[str, str] = {
         "聚合各信号组并补齐财报 / 新闻 / COUNT20。人工「我的自选」与 Trade Candidate 标记。不改 AI Score。",
     "Unified candidate analysis from LeiBot signal groups.":
         "汇总 LeiBot 各信号组的统一候选分析。",
-    "Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Human My Watchlist and Trade Candidate flags. AI Score unchanged.":
-        "去重研究宇宙：汇总估值、仓位、动量、强势与财报信号。人工「我的自选」与 Trade Candidate 标记。不改 AI Score。",
+    "Research identifies strong stocks for monitoring — not immediate buying. The strategy is to wait for a suitable pullback and reassess price, risk and signals before considering entry.":
+        "研究中心用于发现并监控强势股——不是立即买入信号。策略是等待合适回调，再重新评估价格、风险与信号，然后才考虑是否入场。",
+    "Research selects candidates for the Long-Term Watchlist — not for immediate buying. Wait for the price to pull back toward its lowest range before considering an entry.":
+        "研究中心筛选强势候选进入长期观察列表——不是立即买入。等待价格回落到低位区间后再考虑入场。",
+    "Research selects strong candidates for the Long-Term Watchlist — not for immediate buying. Wait for the price to pull back toward its lowest range before considering an entry.":
+        "研究中心筛选强势候选进入长期观察列表——不是立即买入。等待价格回落到低位区间后再考虑入场。",
+    "Strong first · Wait for pullback · Reassess before entry":
+        "先找强势 · 等待回调 · 入场前再评估",
+    "Candidate Analysis combines valuation, position, momentum, strength and financial signals. Candidates are for research and monitoring; selection does not mean Buy.":
+        "候选分析汇总估值、仓位、动量、强势与财报信号。候选仅供研究与监控；入选不等于买入。",
+    "Add to My Watchlist or mark Trade Candidate manually — nothing auto-selects for AI Trading.":
+        "请手动加入「我的自选」或标记 Trade Candidate——不会自动进入 AI Trading。",
+    "Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Manual My Watchlist / Trade Candidate flags only — nothing auto-selects for AI Trading.":
+        "去重研究宇宙：汇总估值、仓位、动量、强势与财报信号。仅手动「我的自选」/ Trade Candidate 标记——不会自动进入 AI Trading。",
     "Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Add to My Watchlist or mark Trade Candidate manually — nothing auto-selects for AI Trading.":
         "去重研究宇宙：汇总估值、仓位、动量、强势与财报信号。手动加入「我的自选」或标记 Trade Candidate——不会自动进入 AI Trading。",
     "Workflow: Watchlist → Research → My Watchlist / Trade Candidate → AI Trading. Signal ≠ research decision ≠ trade decision.":
         "流程：观察列表 → 研究中心 → 我的自选 / Trade Candidate → AI Trading。信号 ≠ 研究决策 ≠ 交易决策。",
+    "Workflow: Find strong stocks → Monitor → Wait for pullback → Reassess → Consider entry. Signal ≠ research decision ≠ trade decision. Nothing auto-selects for AI Trading.":
+        "流程：发现强势股 → 监控 → 等待回调 → 重新评估 → 再考虑入场。信号 ≠ 研究决策 ≠ 交易决策。不会自动选入 AI Trading。",
+    "Stocks meeting the Strong Day Position threshold that day — research candidates for monitoring, not immediate Buy signals. Column lengths differ by day.":
+        "当日达到 Strong Day 仓位阈值的股票——供监控的研究候选，不是立即买入信号。各列长度因日而异。",
+    "Historical frequency over the latest 20 trading days. Research ranking only; not a Buy list. Current Position may be below the Strong Day threshold.":
+        "近 20 个交易日的历史出现频率。仅为研究排名，不是买入清单。当前仓位可能低于 Strong Day 阈值。",
+    "COUNT ≥ threshold qualifies; retain N trading days after last qualify. For monitoring pullbacks — not automatic Buy. Renew resets retention.":
+        "COUNT ≥ 阈值入选；末次达标后再留存 N 个交易日。用于监控回调——不是自动买入。续期会重置留存。",
+    "Up Days ≥ 3/5 · 5D Return ≥ +3%. Short-term momentum research group; not a Buy signal. No retention.":
+        "上涨天数 ≥ 3/5 · 5日涨幅 ≥ +3%。短期动量研究分组；不是买入信号。无留存。",
+    "Up Days ≥ 3/5 · 5D Return ≥ +3%. Dynamic daily group; no retention. Research candidates only — not a Buy signal.":
+        "上涨天数 ≥ 3/5 · 5日涨幅 ≥ +3%。每日动态分组，无留存。仅为研究候选——不是买入信号。",
+    "Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Strong is a separate indicator. Research candidates only — not a Buy signal.":
+        "在超卖 / Target <80% / 63D 低位 / 正在上涨 中匹配 ≥2。Strong 为独立指示。仅为研究候选——不是买入信号。",
+    "Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Overlap research screen only — not a Buy signal. Strong is a separate indicator.":
+        "在超卖 / Target <80% / 63D 低位 / 正在上涨 中匹配 ≥2。仅为重叠研究筛选——不是买入信号。Strong 为独立指示。",
     "Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Strong is a separate indicator.":
         "在超卖 / Target <80% / 63D 低位 / 正在上涨 中匹配 ≥2。Strong 为独立指示。",
     "Up Days ≥ 3/5 · 5D Return ≥ +3%. Dynamic daily group; no retention.":
         "上涨天数 ≥ 3/5 · 5日涨幅 ≥ +3%。每日动态分组，无留存。",
+    "Please sign in to manage Settings":
+        "请先登录后再管理设置",
+    "Please sign in to change Settings":
+        "请先登录后再修改设置",
+    "Please sign in to refresh all prices":
+        "请先登录后再刷新全部行情",
+    "Public view — Settings are read-only. Sign in as Admin to change values.":
+        "公开只读视图。登录 Admin 后才能修改设置。",
     "Financial Score":
         "财报得分",
     "AI Score":
@@ -368,13 +453,13 @@ ZH: dict[str, str] = {
     "Total":
         "共",
     "desc_mine_owner":
-        "Long-term My Watchlist (current: {list}). SMA alerts: Default=SMA×0.95 (auto), optional Manual override. Signed in: edit list & alerts; Est.Value / MOS / CLV visible.",
+        "Long-term My Watchlist (current: {list}). Auto: 🟡 WATCH = 5% below SMA · 🟢 DEEP = 10% below SMA. Manual overrides Auto until reset. Signed in: edit list & alerts; Est.Value / MOS / CLV visible.",
     "desc_mine_owner_zh":
-        "长期观察 / 我的自选（当前：{list}）。SMA 提醒：默认=SMA×0.95（自动），可人工覆盖。已登录：可增删自选、改提醒，并显示 Est.Value / MOS / CLV。",
+        "长期观察 / 我的自选（当前：{list}）。Auto：🟡 WATCH = SMA 下方 5% · 🟢 DEEP = SMA 下方 10%。Manual 覆盖 Auto 直至重置。已登录：可增删自选、改提醒，并显示 Est.Value / MOS / CLV。",
     "desc_mine_public":
-        "Long-term My Watchlist (current: {list}). SMA Default/Active alerts shown; public page hides Est.Value / MOS / CLV; sign in to edit list & Manual Alert.",
+        "Long-term My Watchlist (current: {list}). Auto 🟡/🟢 SMA alerts; Manual overrides until reset. Public page hides Est.Value / MOS / CLV; sign in to edit list & Manual Alert.",
     "desc_mine_public_zh":
-        "长期观察 / 我的自选（当前：{list}）。显示 SMA 默认/生效提醒；公开页不显示 Est.Value / MOS / CLV；登录后可改自选与人工提醒价。",
+        "长期观察 / 我的自选（当前：{list}）。显示 Auto 黄/绿 SMA 提醒；Manual 覆盖直至重置。公开页不显示 Est.Value / MOS / CLV；登录后可改自选与人工提醒价。",
     "desc_temp":
         "Temporary tickers for this browser session only; cleared when the browser closes.",
     "desc_temp_zh":
@@ -661,8 +746,10 @@ ZH: dict[str, str] = {
         '收盘行情时间',
     'Risk Disclaimer':
         '风险提示',
+    'Stock markets are unpredictable and involve risk. This project is for educational, research, and experimental purposes only and does not constitute investment advice. Users are encouraged to use Paper Trading or small experimental positions through Fractional Shares and are solely responsible for their own investment decisions and risks.':
+        '股市风险莫测。本项目仅供教学、研究与实验使用，不构成投资建议。建议使用 Paper Trading（模拟交易）或以 Fractional Shares（碎股）进行小额实验；用户须自行承担投资决策与风险。',
     'Stock markets are inherently unpredictable and involve risk. This project is intended solely for educational, research, and experimental purposes. Users are encouraged to use <strong>Paper Trading</strong> or approximately <strong>CAD/USD 100</strong> in small experimental capital through <strong>Fractional Shares</strong>. Any data, analysis, valuation, scoring, or other information provided by this project <strong>does not constitute investment advice</strong>. Users are solely responsible for their own investment decisions and risks.':
-        '股市风险莫测。本项目仅供教学、研究及实验使用，建议仅使用 <strong>Paper Trading（模拟交易）</strong>，或以约 <strong>100 加元/美元</strong>的小额资金通过 <strong>Fractional Shares（碎股）</strong>进行实验。本项目所提供的任何数据、分析、估值、评分或其他信息均<strong>不构成投资建议</strong>。投资者应自行判断并承担投资风险。',
+        '股市存在不确定性且伴随风险。本项目仅供教学、研究与实验使用，不构成投资建议。建议使用 Paper Trading（模拟交易）或以 Fractional Shares（碎股）进行小额实验；用户须自行承担投资决策与风险。',
     # Dashboard group tabs + remaining column labels
     'S&P500 + Nasdaq100':
         'S&P500 + 纳斯达克100',
@@ -962,6 +1049,66 @@ ZH: dict[str, str] = {
         'AI 评分',
     'Priority':
         '优先',
+    'Priority Buy':
+        '优先买入',
+    'Add Priority Buy tickers, e.g. AMD, SHOP.TO':
+        '添加优先买入代码，例如 AMD, SHOP.TO',
+    'Mark Priority Buy ⭐':
+        '标记优先买入 ⭐',
+    'Priority Buy list:':
+        '优先买入列表：',
+    'Clear Priority Buy':
+        '清除优先买入',
+    'Priority Buy ⭐ — Admin flag: earlier suggested allocation on Create Paper Orders. Does not change AI Score.':
+        '优先买入 ⭐ — Admin 标记：创建纸上订单时更早获得建议仓位。不改变 AI Score。',
+    'Public view — sign in to create paper orders, mark Priority Buy, or run updates.':
+        '公开只读 — 登录后可创建纸上订单、标记优先买入或运行更新。',
+    'Strict paper-trading list: Oversold + Target Ratio < 80% + 63D Position < 25% (low position / quality screens), ranked by existing AI Score. Rising Now / 5D metrics are timing references only and do not change AI Score. Priority Buy ⭐ moves a name earlier in suggested allocation (does not change AI Score). Orders are not created until you click Create Paper Orders. Research more names on Candidate Analysis → My Watchlist.':
+        '严格纸上交易列表：超卖 + Target Ratio <80% + 63日位置 <25%（低位/质量筛），按现有 AI Score 排序。正在上涨 / 5日指标仅为时机参考，不改 AI Score。优先买入 ⭐ 会让该标的更早获得建议仓位（不改 AI Score）。点击「创建纸上订单」才会建仓。更多研究：候选分析 → 我的自选。',
+    'Add names to My Watchlist for research. Prefer Priority Buy on AI Trading when you want earlier allocation — nothing auto-selects for AI Trading.':
+        '研究请加入「我的自选」。若要优先分配仓位，请在 AI Trading 标记「优先买入」——不会自动进入 AI Trading。',
+    'Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Manual My Watchlist only — nothing auto-selects for AI Trading. Use Priority Buy on AI Trading for earlier allocation.':
+        '去重研究宇宙：汇总估值、仓位、动量、强势与财报信号。仅手动「我的自选」——不会自动进入 AI Trading。需要更早分配仓位时，请在 AI Trading 使用「优先买入」。',
+    'Please confirm':
+        '请确认',
+    'Confirm':
+        '确认',
+    'Confirm close':
+        '确认平仓',
+    'Create orders':
+        '创建订单',
+    'Re-buy now':
+        '立即重新持仓',
+    'Re-enter now':
+        '立即重新入场',
+    'Close this paper position at the latest market price? This cannot be undone.':
+        '将按最新市价平仓该模拟持仓？此操作不可撤销。',
+    'Buy $':
+        '买入 $',
+    'Buy sh':
+        '买入股数',
+    'Buy':
+        '买入',
+    'Buy amount in $':
+        '买入金额（美元）',
+    'Buy shares (optional)':
+        '买入股数（可选）',
+    'Manual buy / add':
+        '手动买入 / 加仓',
+    'Enter Buy $ or Buy shares first.':
+        '请先填写买入金额或股数。',
+    'Buy / add at the latest list price? Cash and trading limit still apply.':
+        '按列表最新价买入/加仓？仍受现金与交易额度限制。',
+    'Manual buy $ — enter dollars to buy or add. Cash and trading limit still apply.':
+        '手动买入 $ — 填写金额以开仓或加仓。仍受现金与交易额度限制。',
+    'Manual buy shares — optional; overrides Buy $ if both set.':
+        '手动买入股数 — 可选；若同时填写，以股数为准。',
+    'End columns Buy $ / Buy sh / Buy: enter dollars or shares, then Buy. Opens a new position or adds to an existing one. Cash and trading limit still apply; blocked names show a warning.':
+        '末尾「买入 $ / 股数 / 买入」：填写金额或股数后点买入。可新建仓或对已有持仓加仓。现金不足或超额度会警告拦截。',
+    'Added to position: {ticker} +{shares} sh @ {price} · cost +{cost}':
+        '已加仓：{ticker} +{shares} 股 @ {price} · 成本 +{cost}',
+    'Manual buy opened: {ticker} · {shares} sh @ {price} · cost {cost}':
+        '已手动开仓：{ticker} · {shares} 股 @ {price} · 成本 {cost}',
     'Suggested Allocation':
         '建议仓位',
     'Shares':
@@ -1016,6 +1163,36 @@ ZH: dict[str, str] = {
         '手动平仓该模拟持仓？',
     'Please sign in to manage Paper Trading':
         '请登录后管理模拟交易',
+    'Admin: click Stop/Take to override; Reset restores AUTO. Manual does not bypass Knife Risk.':
+        'Admin：点击 Stop/Take 可覆盖；重置恢复 AUTO。手动价不会绕过 Knife Risk。',
+    'Stop/Take shown read-only — Admin can override before Create Paper Orders.':
+        'Stop/Take 为只读展示 — Admin 可在创建纸上订单前覆盖。',
+    'Stop Loss — AUTO from Settings %; Admin can override. Reset restores AUTO.':
+        '止损 — 默认来自设置百分比；仅 Admin 可覆盖。重置恢复 AUTO。',
+    'Take Profit — AUTO from Settings %; Admin can override. Reset restores AUTO.':
+        '止盈 — 默认来自设置百分比；仅 Admin 可覆盖。重置恢复 AUTO。',
+    'Stop Risk % · Reward % · Reward/Risk':
+        '止损风险% · 收益% · 盈亏比',
+    'R/R = Reward% ÷ Risk% (Take Profit % / Stop Loss %). Example: +10% / 5% = 2.0. Higher usually means more reward per unit of risk.':
+        'R/R = 收益% ÷ 风险%（止盈% / 止损%）。例如 +10% / 5% = 2.0。数值越高，通常单位风险对应的潜在收益越大。',
+    'R/R = Reward% ÷ Risk%':
+        'R/R = 收益% ÷ 风险%',
+    'Manual Stop — Admin override. Reset restores AUTO.':
+        '手动止损 — Admin 覆盖。重置恢复 AUTO。',
+    'Manual Take Profit — Admin override. Reset restores AUTO.':
+        '手动止盈 — Admin 覆盖。重置恢复 AUTO。',
+    'AUTO Stop = Entry × (1 − Stop%). Click to override (Admin).':
+        'AUTO 止损 = 入场价 × (1 − 止损%)。点击覆盖（仅 Admin）。',
+    'AUTO Take Profit = Entry × (1 + Take%). Click to override (Admin).':
+        'AUTO 止盈 = 入场价 × (1 + 止盈%)。点击覆盖（仅 Admin）。',
+    'Reset to AUTO':
+        '重置为 AUTO',
+    'Reward':
+        '收益',
+    'Invalid LONG levels':
+        '无效多头价位',
+    'Blocked invalid Stop/Take (LONG requires Stop < Entry < Take): {detail}':
+        '已拦截无效 Stop/Take（多头需 Stop < 入场价 < Take）：{detail}',
     'Simulation only — never places real brokerage orders. Stop / Take Profit % are fixed at paper-order entry and not recalculated daily.':
         '仅模拟 — 从不下真实券商订单。止损/止盈百分比在开仓时固定，不会按每日市价重算。',
     'Stop Loss % must be between 0.5 and 50':
@@ -1026,12 +1203,86 @@ ZH: dict[str, str] = {
         'AI 候选已刷新：{day} 共 {n} 只',
     'Paper orders created: {n} · skipped {s}':
         '已创建模拟订单：{n} · 跳过 {s}',
+    'No paper orders created · skipped {s}. Blocked names did not pass.':
+        '未创建任何模拟订单 · 跳过 {s}。被拦截的标的未通过。',
+    'Blocked — insufficient cash (cannot open): {detail}':
+        '已拦截 — 现金不足（不能开仓）：{detail}',
+    'Blocked — trading limit reached (cannot open): {detail}':
+        '已拦截 — 已达交易额度上限（不能开仓）：{detail}',
+    'Blocked — already have an open position: {detail}':
+        '已拦截 — 已有持仓：{detail}',
+    'Skipped — no suggested allocation ($0): {detail}':
+        '已跳过 — 无建议仓位（$0）：{detail}',
+    'Could not save Stop/Take — check values (Stop < Entry < Take) and try again.':
+        '无法保存 Stop/Take — 请检查价位（需 Stop < 入场价 < Take）后重试。',
+    'Save failed — check values and try again.':
+        '保存失败 — 请检查数值后重试。',
+    'WARNING: Manually close this paper position at the latest market price? This cannot be undone. Click OK only if you are sure.':
+        '警告：将按最新市价手动平仓该模拟持仓？此操作不可撤销。确认请点确定。',
+    'Confirm again to close this paper position. OK = close now.':
+        '再次确认平仓该模拟持仓。点确定将立即平仓。',
+    'Admin: edit shares. Cost recalculates at entry price. Blocked if cash/limit insufficient.':
+        'Admin：可改股数。成本按开仓价重算。现金不足或超额度会拦截。',
+    'Admin: edit shares (fractional OK). Cost recalculates at entry price. Blocked if cash/limit insufficient.':
+        'Admin：可改股数（允许碎股）。成本按开仓价重算。现金不足或超额度会拦截。',
+    'Buy shares — fractional OK (optional; overrides Buy $ if both set)':
+        '买入股数 — 允许碎股（可选；若同时填写金额则以股数为准）',
+    'Re-buy / Re-open':
+        '加买 / 重新持仓',
+    'Add / Re-entry':
+        '加仓 / 重新入场',
+    'View All':
+        '查看全部',
+    'Collapse':
+        '收起',
+    'of':
+        '/',
+    'candidates':
+        '个候选',
+    'Re-enter':
+        '重新入场',
+    'Recently closed (last 63 trading days), not currently held. Shows the Top 8 by current relevance; View All keeps the full pool. Re-enter opens a new trade at current price / AI Score / Knife / Stop / Take — never reuses the old trade. Manual only.':
+        '最近 63 个交易日内已平仓、且当前未持仓。默认按当前相关性显示 Top 8；「查看全部」保留完整候选池。重新入场会按现价 / AI Score / 刀口 / 止损 / 止盈开新仓，绝不复用旧单。仅手动操作。',
+    'Re-enter {ticker} as a new trade at the current price, AI Score, Knife Risk, Stop and Take? Cash and trading limit still apply. The old closed trade stays in History.':
+        '以现价、当前 AI Score、刀口风险、止损与止盈为 {ticker} 开一笔全新交易？仍受现金与交易额度限制。旧平仓记录保留在 History。',
+    'Re-entry available: use Re-enter for {ticker} under Add / Re-entry.':
+        '可重新入场：请在「加仓 / 重新入场」中对 {ticker} 点击「重新入场」。',
+    'Re-entry opened: {ticker} · {shares} sh @ {price} · cost {cost}':
+        '已重新入场：{ticker} · {shares} 股 @ {price} · 成本 {cost}',
+    'Re-buy':
+        '重新持仓',
+    'After a manual exit (or any close), use Re-buy to open again at the latest price with the same share count and Stop/Take %. Blocked if cash or trading limit is insufficient, or if already open.':
+        '手动平仓（或任意平仓）后，可用「重新持仓」按最新价、相同股数与止损/止盈%再次开仓。现金不足、超额度或已有持仓时会拦截。',
+    'Re-buy available: use the Re-buy button for {ticker} to open again.':
+        '可重新持仓：请用 {ticker} 的「重新持仓」按钮再次开仓。',
+    'Re-buy opened: {ticker} · {shares} sh @ {price} · cost {cost}':
+        '已重新持仓：{ticker} · {shares} 股 @ {price} · 成本 {cost}',
+    'Re-buy {ticker} now at the latest market price with the same shares? Cash and trading limit still apply.':
+        '按最新市价、相同股数重新持仓 {ticker}？仍受现金与交易额度限制。',
+    'Re-buy at the latest market price with the same shares? Cash and trading limit still apply.':
+        '按最新市价、相同股数重新持仓？仍受现金与交易额度限制。',
+    'Stop Loss — AUTO from entry %; Admin can override. Reset restores AUTO.':
+        '止损 — 默认来自开仓时百分比；仅 Admin 可覆盖。重置恢复 AUTO。',
+    'Take Profit — AUTO from entry %; Admin can override. Reset restores AUTO.':
+        '止盈 — 默认来自开仓时百分比；仅 Admin 可覆盖。重置恢复 AUTO。',
+    'AUTO Stop from entry %. Click to override (Admin).':
+        'AUTO 止损来自开仓百分比。点击覆盖（仅 Admin）。',
+    'AUTO Take Profit from entry %. Click to override (Admin).':
+        'AUTO 止盈来自开仓百分比。点击覆盖（仅 Admin）。',
+    'Priority ⭐ — Admin human flag on AI Trading. Boosts ranking attention; does not change AI Score. Mark below or clear from the Priority list.':
+        '优先 ⭐ — AI Trading 上的人工标记。提升排序关注度，不改变 AI Score。可在下方标记或从优先列表清除。',
+    'Trade Candidate ★ — Marked on Candidate Analysis (separate from My Watchlist). Research flag only; does not auto-create paper orders.':
+        '交易候选 ★ — 在候选分析中标记（与我的自选分开）。仅为研究标记，不会自动创建纸上订单。',
     'Daily paper update done: closed {c}, marked {m}, candidates {n}':
         '每日模拟更新完成：平仓 {c}，标记 {m}，候选 {n}',
     'Priority marked: {tickers}':
         '已标记优先：{tickers}',
     'Priority cleared: {ticker}':
         '已清除优先：{ticker}',
+    'Priority Buy marked: {tickers}':
+        '已标记优先买入：{tickers}',
+    'Priority Buy cleared: {ticker}':
+        '已清除优先买入：{ticker}',
     'Manual exit: {ticker} · P&L {pnl}':
         '手动平仓：{ticker} · 盈亏 {pnl}',
     'Paper Trading action failed: {exc}':
