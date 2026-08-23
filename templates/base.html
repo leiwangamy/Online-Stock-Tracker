@@ -142,13 +142,14 @@
       z-index: 50; /* stay above sticky freeze columns in the panel */
       overflow-x: auto;
       overflow-y: hidden;
-      height: 18px;
-      margin-bottom: 6px;
+      height: 22px;
+      margin-bottom: 0;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: #e2e8f0;
       scrollbar-width: auto;
       scrollbar-color: #64748b #e2e8f0;
+      pointer-events: auto;
     }
     .hscroll-top .hscroll-spacer { height: 1px; }
     .hscroll-top::-webkit-scrollbar { height: 14px; }
@@ -380,14 +381,18 @@
         }
         function sync() {
           var w = contentWidth();
-          spacer.style.width = w + "px";
+          // Vertical scrollbar eats into panel.clientWidth but not the top bar.
+          // Without this gutter, max scrollLeft stops ~14px short and clips the last column.
+          var vGutter = Math.max(0, scroller.offsetWidth - scroller.clientWidth);
+          spacer.style.width = (w + vGutter) + "px";
           bar.style.display = w > scroller.clientWidth + 1 ? "block" : "none";
         }
         sync();
         window.addEventListener("resize", sync);
-        // Re-measure after column-resize script finishes.
+        // Re-measure after column-resize / late layout.
         setTimeout(sync, 0);
         setTimeout(sync, 200);
+        setTimeout(sync, 800);
 
         var lock = false;
         bar.addEventListener("scroll", function () {
@@ -396,6 +401,15 @@
         scroller.addEventListener("scroll", function () {
           if (lock) return; lock = true; bar.scrollLeft = scroller.scrollLeft; lock = false;
         });
+
+        // Re-measure when a parent <details> opens (News History etc.).
+        var details = panel.closest("details");
+        if (details) {
+          details.addEventListener("toggle", function () {
+            if (details.open) setTimeout(sync, 50);
+          });
+        }
+        panel._leiHScrollSync = sync;
       });
 
       // Keep multi-column freeze offsets in sync with resized widths.
@@ -428,6 +442,12 @@
     document.addEventListener("DOMContentLoaded", function () {
       document.querySelectorAll("table.data").forEach(function (table) {
         if (!table.id || !table.tHead) return;
+        // Discovery / News History: fixed Symbol freeze width — skip col-resize
+        // (saved narrow widths were crushing "Symbol" under the top scrollbar).
+        if (table.id === "disc-layer-table" || table.id === "news-history-table") {
+          if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
+          return;
+        }
         // Prefer the leaf column header row (two-level thead); never the colspan group row.
         var head =
           table.tHead.querySelector("tr.col-row") ||
@@ -460,9 +480,16 @@
         // Measure natural widths (content-based) before fixing the layout.
         table.style.tableLayout = "auto";
         table.style.width = "auto";
-        var natural = ths.map(function (th) { return Math.max(48, th.offsetWidth); });
+        var natural = ths.map(function (th) {
+          var floor = th.classList.contains("freeze-col") ? 72 : 48;
+          return Math.max(floor, th.offsetWidth);
+        });
 
-        var widths = ths.map(function (th, i) { return saved[i] || natural[i]; });
+        var widths = ths.map(function (th, i) {
+          var floor = th.classList.contains("freeze-col") ? 72 : 48;
+          var w = saved[i] != null ? saved[i] : natural[i];
+          return Math.max(floor, w);
+        });
         function applyCol(i) { cols[i].style.width = widths[i] + "px"; }
         function totalWidth() { return widths.reduce(function (a, b) { return a + b; }, 0); }
         widths.forEach(function (_, i) { applyCol(i); });
@@ -499,10 +526,11 @@
             var moved = false;
             var startX = e.clientX;
             var startW = widths[i];
+            var floor = th.classList.contains("freeze-col") ? 72 : 40;
             document.body.style.cursor = "col-resize";
             function move(ev) {
               moved = true;
-              widths[i] = Math.max(40, startW + (ev.clientX - startX));
+              widths[i] = Math.max(floor, startW + (ev.clientX - startX));
               applyCol(i);
               table.style.width = totalWidth() + "px";
               if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);

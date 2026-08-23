@@ -464,6 +464,8 @@ def init_db() -> None:
                 ("source_tags", "TEXT"),
                 ("source_sites", "TEXT"),
                 ("is_recent", "INTEGER NOT NULL DEFAULT 1"),
+                ("is_news_priority", "INTEGER NOT NULL DEFAULT 0"),
+                ("news_priority_at", "TEXT"),
             ):
                 if col not in disc_cand_cols:
                     conn.execute(

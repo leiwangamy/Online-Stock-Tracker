@@ -3,7 +3,7 @@ flask
 matplotlib
 yfinance
 gunicorn
-pandas
+openpyxl>=3.1.0
 lxml
 html5lib
 beautifulsoup4

@@ -1302,6 +1302,70 @@ ZH: dict[str, str] = {
         '今日',
     'History':
         '历史',
+    'Trade History':
+        '交易历史',
+    'DOWNLOAD AI TRADING DATA (.XLSX)':
+        '下载 AI Trading 数据 (.XLSX)',
+    'RESET AI TRADING':
+        '重置 AI Trading',
+    'Reset AI Trading?':
+        '重置 AI Trading？',
+    'This will permanently clear the current AI Trading experiment, including:':
+        '将永久清空当前 AI Trading 实验，包括：',
+    'It will NOT delete:':
+        '不会删除：',
+    'Download Excel first if you want to keep a copy of this trading experiment.':
+        '如需保留本轮实验记录，请先下载 Excel。',
+    'Download Excel':
+        '下载 Excel',
+    'AI Trading reset: trades {t} · priority {p} · cash restored ${c:.2f}. Discovery / Saved News kept.':
+        'AI Trading 已重置：交易 {t} · 优先买入 {p} · 现金恢复 ${c:.2f}。Discovery / 已保存新闻保留。',
+    'Excel export failed: {exc}':
+        'Excel 导出失败：{exc}',
+    'Unsaved news auto-clears after 7 full days · ★ Saved News kept until you delete':
+        '未保存新闻满 7 个自然日后清除 · ★ 优先新闻满 7 日后可手工删除',
+    'Unsaved news auto-clears after 7 full days · ★ PRIORITY Delete only after 7 days':
+        '未保存新闻满 7 个自然日后清除 · ★ 优先新闻满 7 日后才可删除',
+    'PRIORITY NEWS':
+        '优先新闻',
+    'PRIORITY':
+        '优先',
+    'PRIORITY — keep in News History past 7 days until manually deleted':
+        '优先 — 满 7 日后仍保留在新闻历史，可手工删除',
+    'Non-priority auto-clears after 7 days · ★ PRIORITY kept until you delete':
+        '未保存新闻满 7 个自然日后清除 · ★ 优先新闻满 7 日后可手工删除',
+    'No PRIORITY news yet. Star ★ PRIORITY on Broad Discover / Official 5×5.':
+        '暂无优先新闻。请在 Broad Discover / Official 5×5 最右列点 ★ PRIORITY。',
+    'No other stored news in archive.':
+        '归档中暂无其他新闻。',
+    'Delete this PRIORITY news from History? This cannot be undone.':
+        '从新闻历史删除这条优先新闻？此操作不可撤销。',
+    'Removed from News History: {ticker}':
+        '已从新闻历史移除：{ticker}',
+    'News History keeps items for {days} full days — delete is disabled until then ({ticker}, day {age}).':
+        '新闻历史需保留满 {days} 个自然日，此前不可删除（{ticker}，第 {age} 天）。',
+    'News History keeps items for 7 full days — Delete unlocks after that.':
+        '新闻历史需保留满 7 个自然日，之后才可删除。',
+    'Keep 7d':
+        '满7日可删',
+    'Delete':
+        '删除',
+    'News Priority':
+        '新闻优先',
+    'News Priority {state}: {ticker}':
+        '新闻优先 {state}：{ticker}',
+    'on':
+        '开',
+    'off':
+        '关',
+    'Archive of stored discovery events (recent + older). Star ⭐ pins News Priority for long-term visibility — not Priority Buy, and never auto-trades.':
+        '已存储的发现事件档案（近期 + 更早）。星标 ⭐ 为新闻优先（长期置顶）— 不是优先买入，也不会自动下单。',
+    'No stored news events yet. Run Harvest from AI Discovery first.':
+        '暂无已存储新闻事件。请先在 AI Discovery 运行采集。',
+    'Recent':
+        '近期',
+    'Archive':
+        '归档',
     'Stop Loss':
         '止损',
     'Take Profit':

@@ -54,7 +54,10 @@
   .disc-panel-slot .k { color: var(--muted); font-size: 0.78rem; }
   .news-trading-kpi { font-size: 0.9rem; font-weight: 500; }
   .news-trading-kpi strong { font-weight: 700; }
-  .disc-event-cell { max-width: 420px; font-size: 0.88rem; line-height: 1.35; }
+  .disc-event-cell {
+    max-width: 420px; font-size: 0.88rem; line-height: 1.35;
+    white-space: normal; overflow-wrap: anywhere; word-break: break-word;
+  }
   .disc-layer-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; align-items: center; }
   .disc-layer-tabs .tab { border-radius: 8px; }
   .unresolved-footer {
@@ -65,32 +68,101 @@
     gap: 8px 16px; margin: 0 0 10px; font-size: 0.9rem; color: var(--muted);
   }
   .actions { margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .panel { overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+  /* Discovery / News History: same scroll model as Watchlist / Today / Open. */
+  .panel.disc-panel,
+  .panel.nh-panel {
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+  .panel.disc-panel > table,
+  .panel.nh-panel > table {
+    margin: 0;
+  }
+  .news-history-dock .panel.nh-panel {
+    max-height: 56vh;
+    margin: 8px 0 0;
+  }
   /* Keep separate collapse so sticky freeze columns stay opaque while scrolling. */
   table.data {
-    width: max-content; min-width: 100%;
-    border-collapse: separate; border-spacing: 0;
+    width: max-content;
+    min-width: max-content;
+    border-collapse: separate;
+    border-spacing: 0;
     font-size: 0.88rem;
   }
   table.data th, table.data td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; }
   table.data th { background: #f8fafc; font-size: 0.78rem; color: #475569; white-space: nowrap; }
   table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Extra end padding so PRIORITY column is fully visible when scrolled right. */
+  table.data th:last-child,
+  table.data td:last-child { padding-right: 20px; min-width: 3.2rem; }
+  .news-history-dock {
+    margin: 14px 0 4px; width: 100%;
+    display: block; text-align: left;
+  }
+  .news-history-dock > details {
+    width: 100%; max-width: 100%; text-align: left;
+  }
+  .news-history-dock summary {
+    cursor: pointer; list-style: none; user-select: none;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+    width: 100%; margin: 0 0 10px;
+  }
+  .news-history-dock summary::-webkit-details-marker { display: none; }
+  .news-history-dock .nh-hint {
+    flex: 1 1 240px; margin: 0; color: var(--muted);
+    font-size: 0.85rem; line-height: 1.4; white-space: normal;
+  }
+  .news-history-dock .nh-section-title {
+    margin: 4px 0 8px; font-size: 1rem; font-weight: 700;
+    color: #0f172a; line-height: 1.3;
+  }
   #ai-cand-table th.freeze-col,
   #ai-cand-table td.freeze-col,
   #ai-open-table th.freeze-col,
-  #ai-open-table td.freeze-col {
-    position: sticky; left: 0; z-index: 3;
-    background: #fff; min-width: 4.5rem;
+  #ai-open-table td.freeze-col,
+  #disc-layer-table th.freeze-col,
+  #disc-layer-table td.freeze-col,
+  #news-history-table th.freeze-col,
+  #news-history-table td.freeze-col {
+    position: sticky;
+    left: 0;
+    min-width: 5rem;
+    box-sizing: border-box;
+    white-space: nowrap;
   }
+  /* Body freeze: above scrolling cells (same as base / Today / Open). */
+  #ai-cand-table td.freeze-col,
+  #ai-open-table td.freeze-col,
+  #disc-layer-table td.freeze-col,
+  #news-history-table td.freeze-col {
+    z-index: 5;
+    background: #fff;
+  }
+  /* Header freeze corner: must stay ABOVE other sticky headers while h-scrolling. */
   #ai-cand-table thead th.freeze-col,
-  #ai-open-table thead th.freeze-col {
-    z-index: 5; background: #f8fafc;
+  #ai-open-table thead th.freeze-col,
+  #disc-layer-table thead th.freeze-col,
+  #news-history-table thead th.freeze-col {
+    z-index: 30;
+    background: #f8fafc;
   }
   #ai-cand-table td.freeze-col.freeze-edge,
   #ai-cand-table th.freeze-col.freeze-edge,
   #ai-open-table td.freeze-col.freeze-edge,
-  #ai-open-table th.freeze-col.freeze-edge {
+  #ai-open-table th.freeze-col.freeze-edge,
+  #disc-layer-table td.freeze-col.freeze-edge,
+  #disc-layer-table th.freeze-col.freeze-edge,
+  #news-history-table td.freeze-col.freeze-edge,
+  #news-history-table th.freeze-col.freeze-edge {
     box-shadow: 4px 0 6px -4px rgba(15, 23, 42, 0.18);
+  }
+  #disc-layer-table tr[data-pri="1"] td.freeze-col,
+  #news-history-table tr[data-pri="1"] td.freeze-col {
+    background: #fff8ef;
   }
   .pri { color: #b45309; font-weight: 700; }
   .hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 10px; }
@@ -310,7 +382,7 @@
     <a class="tab {% if tab == 'today' %}active{% endif %}" href="{{ url_for('ai_trading', tab='today') }}">{{ _('Today') }}</a>
     <a class="tab {% if tab == 'discovery' %}active{% endif %}" href="{{ url_for('ai_trading', tab='discovery') }}">{{ _('AI Discovery') }} ({{ discovery_count if discovery_count is defined else (discovery_rows|length if discovery_rows is defined else 0) }})</a>
     <a class="tab {% if tab == 'open' %}active{% endif %}" href="{{ url_for('ai_trading', tab='open') }}">{{ _('Open Positions') }} ({{ opens|length }})</a>
-    <a class="tab {% if tab == 'history' %}active{% endif %}" href="{{ url_for('ai_trading', tab='history') }}">{{ _('History') }} ({{ history|length }})</a>
+    <a class="tab {% if tab == 'history' %}active{% endif %}" href="{{ url_for('ai_trading', tab='history') }}">{{ _('Trade History') }} ({{ history|length }})</a>
   </div>
 
   {% if can_manage %}
@@ -331,7 +403,56 @@
       <input type="hidden" name="action" value="daily_update">
       <button class="btn" type="submit">{{ _('Run daily paper update') }}</button>
     </form>
+    <a class="btn" href="{{ url_for('ai_trading_export_xlsx') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
+    <button type="button" class="btn" id="btn-reset-ai-trading"
+            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET AI TRADING') }}</button>
   </div>
+  <div id="reset-ai-trading-modal" class="lei-modal danger" hidden aria-hidden="true">
+    <div class="lei-modal-backdrop" data-reset-close></div>
+    <div class="lei-modal-card" role="dialog" aria-modal="true" aria-labelledby="reset-ai-title">
+      <div class="lei-modal-icon" aria-hidden="true">!</div>
+      <h3 id="reset-ai-title" class="lei-modal-title">{{ _('Reset AI Trading?') }}</h3>
+      <div class="lei-modal-body" style="text-align:left">
+        <p style="margin:0 0 8px">{{ _('This will permanently clear the current AI Trading experiment, including:') }}</p>
+        <p style="margin:0 0 8px"><code>Positions · Orders · Trade History · Priority Buy · Trading P&amp;L and Statistics</code></p>
+        <p style="margin:0 0 8px">{{ _('It will NOT delete:') }}</p>
+        <p style="margin:0 0 8px"><code>AI Discovery · Saved News ★ · My Watchlist · Research · Settings</code></p>
+        <p style="margin:0">{{ _('Download Excel first if you want to keep a copy of this trading experiment.') }}</p>
+      </div>
+      <div class="lei-modal-actions">
+        <button type="button" class="btn lei-modal-cancel" data-reset-close>{{ _('Cancel') }}</button>
+        <a class="btn" href="{{ url_for('ai_trading_export_xlsx') }}">{{ _('Download Excel') }}</a>
+        <form method="post" action="{{ url_for('ai_trading', tab='today') }}" style="display:inline;margin:0">
+          <input type="hidden" name="action" value="reset_ai_trading">
+          <button class="btn primary lei-modal-ok" type="submit">{{ _('RESET AI TRADING') }}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var btn = document.getElementById("btn-reset-ai-trading");
+    var modal = document.getElementById("reset-ai-trading-modal");
+    if (!btn || !modal) return;
+    function open() {
+      modal.hidden = false;
+      modal.setAttribute("aria-hidden", "false");
+      document.body.style.overflow = "hidden";
+    }
+    function close() {
+      modal.hidden = true;
+      modal.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+    }
+    btn.addEventListener("click", open);
+    modal.querySelectorAll("[data-reset-close]").forEach(function (el) {
+      el.addEventListener("click", close);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (!modal.hidden && e.key === "Escape") close();
+    });
+  })();
+  </script>
   {% else %}
   <p class="hint">{{ _('Public view — sign in to create paper orders, mark Priority Buy, or run updates.') }}
     <a href="{{ url_for('owner_login', next=url_for('ai_trading', tab=tab)) }}">{{ _('Sign in') }}</a>
@@ -352,13 +473,6 @@
       · {{ _('Gov Disclosure') }} <code>{{ cc.gov_transactions if cc.gov_transactions is defined else '—' }}</code>
       · {{ _('Pool') }} <code>{{ discovery_count if discovery_count is defined else 0 }}</code>
       <a href="{{ url_for('ai_trading', tab='discovery') }}" style="margin-left:8px">{{ _('Open AI Discovery') }} →</a>
-      {% if can_manage %}
-      <form method="post" action="{{ url_for('ai_trading', tab='discovery') }}" style="display:inline;margin-left:8px">
-        <input type="hidden" name="action" value="discovery_run">
-        <input type="hidden" name="create_orders" value="0">
-        <button class="btn" type="submit" style="padding:2px 10px;font-size:0.8rem">{{ _('Harvest + Analyze only') }}</button>
-      </form>
-      {% endif %}
     </div>
 
     <h2 class="section">{{ _('AI Trading Watchlist — up to Top 10') }}</h2>
@@ -728,7 +842,7 @@
          href="{{ url_for('ai_trading', tab='discovery', layer='official') }}">{{ _('OFFICIAL 5×5 RADAR') }} ({{ official_n }})</a>
     </div>
 
-    <div class="panel">
+    <div class="panel disc-panel">
       {% if not layer_rows %}
         {% if layer == 'broad' %}
         <p class="hint">{{ _('No Broad Discovery rows yet. Run Harvest + Analyze only (combined Broad + Official). Official rows are under the right tab.') }}</p>
@@ -736,10 +850,10 @@
         <p class="hint">{{ _('No Official 5×5 Radar rows at the current minimum Event Score.') }}</p>
         {% endif %}
       {% else %}
-      <table class="data">
+      <table class="data" id="disc-layer-table">
         <thead>
           <tr>
-            <th>{{ _('Symbol') }}</th>
+            <th class="freeze-col freeze-edge">{{ _('Symbol') }}</th>
             <th>{{ _('News') }}</th>
             <th>{{ _('Event') }}</th>
             <th>{{ _('Source') }}</th>
@@ -750,13 +864,14 @@
             <th>{{ _('Period') }}</th>
             <th class="num">{{ _('5D') }}</th>
             <th class="num">{{ _('20D') }}</th>
-            {% if can_manage %}<th></th>{% endif %}
+            <th class="num">{{ _('PRIORITY') }}</th>
           </tr>
         </thead>
         <tbody>
           {% for r in layer_rows %}
-          <tr>
-            <td><strong>{{ r.ticker }}</strong></td>
+          <tr id="disc-row-{{ r.id }}" data-pri="{{ '1' if r.is_news_priority else '0' }}"
+              {% if r.is_news_priority %}style="background:rgba(217,119,6,0.06)"{% endif %}>
+            <td class="freeze-col freeze-edge"><strong>{{ r.ticker }}</strong></td>
             <td>
               {% if r.news_quality == 'good' %}
               <span class="news-q good" title="POSITIVE / 利好">🟢 {{ _('POSITIVE') }}</span>
@@ -781,24 +896,134 @@
             <td style="font-size:0.82rem;white-space:nowrap">{{ r.event_period or r.event_date or '—' }}</td>
             <td class="num">{% if r.ret_5d is not none %}{{ '%.1f'|format(r.ret_5d) }}%{% else %}—{% endif %}</td>
             <td class="num">{% if r.ret_20d is not none %}{{ '%.1f'|format(r.ret_20d) }}%{% else %}—{% endif %}</td>
-            {% if can_manage %}
-            <td>
-              {% if r.status != 'ORDER_CREATED' %}
+            <td class="num">
+              {% if can_manage %}
               <form method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="display:inline">
-                <input type="hidden" name="action" value="discovery_analyze">
+                <input type="hidden" name="action" value="news_priority_toggle">
                 <input type="hidden" name="candidate_id" value="{{ r.id }}">
-                <button class="btn" type="submit" style="padding:2px 8px;font-size:0.75rem">{{ _('Analyze') }}</button>
+                <input type="hidden" name="layer" value="{{ layer }}">
+                <input type="hidden" name="on" value="{{ '0' if r.is_news_priority else '1' }}">
+                <button class="btn" type="submit" title="{{ _('PRIORITY — keep in News History past 7 days until manually deleted') }}"
+                        style="padding:2px 8px;font-size:0.85rem;{% if r.is_news_priority %}color:#d97706{% endif %}">
+                  {% if r.is_news_priority %}★{% else %}☆{% endif %}
+                </button>
               </form>
               {% else %}
-                <span class="hint">#{{ r.paper_trade_id }}</span>
+                {% if r.is_news_priority %}★{% else %}{% endif %}
               {% endif %}
             </td>
-            {% endif %}
           </tr>
           {% endfor %}
         </tbody>
       </table>
       {% endif %}
+    </div>
+
+    {% set nh_priority = news_history_priority_rows if news_history_priority_rows is defined else [] %}
+    {% set nh_rest = news_history_archive_rows if news_history_archive_rows is defined else [] %}
+    {% set nh_open = open_news_history if open_news_history is defined else false %}
+    <div class="news-history-dock" id="news-history-dock">
+      <details {% if nh_open %}open{% endif %}>
+        <summary>
+          <span class="btn" style="padding:2px 10px;font-size:0.82rem;pointer-events:none">
+            {{ _('News History') }} ({{ news_history_count if news_history_count is defined else (nh_priority|length + nh_rest|length) }})
+          </span>
+          <span class="nh-hint">{{ _('Unsaved news auto-clears after 7 full days · ★ PRIORITY Delete only after 7 days') }}</span>
+        </summary>
+
+        <h3 class="nh-section-title">{{ _('PRIORITY NEWS') }}</h3>
+        {% set nh_all = nh_priority + nh_rest %}
+        {% if not nh_all %}
+        <p class="hint">{{ _('No stored news events yet. Run Harvest from AI Discovery first.') }}</p>
+        {% else %}
+        <div class="panel nh-panel">
+          <table class="data" id="news-history-table">
+            <thead>
+              <tr>
+                <th class="freeze-col freeze-edge">{{ _('Symbol') }}</th>
+                <th>{{ _('News') }}</th>
+                <th>{{ _('Event') }}</th>
+                <th>{{ _('Source') }}</th>
+                <th class="num">{{ _('Event Score') }}</th>
+                <th>{{ _('Status') }}</th>
+                <th class="num">{{ _('AI Score') }}</th>
+                <th class="num">{{ _('Knife') }}</th>
+                <th>{{ _('Period') }}</th>
+                <th class="num">{{ _('5D') }}</th>
+                <th class="num">{{ _('20D') }}</th>
+                <th class="num">{{ _('PRIORITY') }}</th>
+                {% if can_manage %}<th></th>{% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in nh_all %}
+              <tr id="nh-row-{{ r.id }}" data-pri="{{ '1' if r.is_news_priority else '0' }}"
+                  {% if r.is_news_priority %}style="background:rgba(217,119,6,0.06)"{% endif %}>
+                <td class="freeze-col freeze-edge"><strong>{{ r.ticker }}</strong></td>
+                <td>
+                  {% if r.news_quality == 'good' %}
+                  <span class="news-q good">🟢 {{ _('POSITIVE') }}</span>
+                  {% elif r.news_quality == 'bad' %}
+                  <span class="news-q bad">🔴 {{ _('NEGATIVE') }}</span>
+                  {% else %}
+                  <span class="news-q medium">⚪ {{ _('NEUTRAL') }}</span>
+                  {% endif %}
+                </td>
+                <td class="disc-event-cell" title="{{ r.event_summary or '' }}">{{ r.event_summary or '—' }}</td>
+                <td style="max-width:140px;font-size:0.78rem">
+                  {% if r.source_link %}
+                  <a href="{{ r.source_link }}" target="_blank" rel="noopener">{{ r.source_display or '—' }}</a>
+                  {% else %}
+                  {{ r.source_display or r.source_tags or r.primary_source or '—' }}
+                  {% endif %}
+                </td>
+                <td class="num">{% if r.event_score is not none %}{{ '%.0f'|format(r.event_score) }}{% else %}—{% endif %}</td>
+                <td style="font-size:0.82rem">{{ r.status }}</td>
+                <td class="num">{% if r.ai_score is not none %}{{ '%.0f'|format(r.ai_score) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if r.knife_score is not none %}{{ '%.0f'|format(r.knife_score) }}{% else %}—{% endif %}</td>
+                <td style="font-size:0.82rem;white-space:nowrap">{{ r.event_period or r.event_date or '—' }}</td>
+                <td class="num">{% if r.ret_5d is not none %}{{ '%.1f'|format(r.ret_5d) }}%{% else %}—{% endif %}</td>
+                <td class="num">{% if r.ret_20d is not none %}{{ '%.1f'|format(r.ret_20d) }}%{% else %}—{% endif %}</td>
+                <td class="num">
+                  {% if can_manage %}
+                  <form method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="display:inline">
+                    <input type="hidden" name="action" value="news_priority_toggle">
+                    <input type="hidden" name="candidate_id" value="{{ r.id }}">
+                    <input type="hidden" name="layer" value="{{ layer }}">
+                    <input type="hidden" name="on" value="{{ '0' if r.is_news_priority else '1' }}">
+                    <button class="btn" type="submit" title="{{ _('PRIORITY — keep in News History past 7 days until manually deleted') }}"
+                            style="padding:2px 8px;font-size:0.85rem;{% if r.is_news_priority %}color:#d97706{% endif %}">
+                      {% if r.is_news_priority %}★{% else %}☆{% endif %}
+                    </button>
+                  </form>
+                  {% else %}
+                    {% if r.is_news_priority %}★{% endif %}
+                  {% endif %}
+                </td>
+                {% if can_manage %}
+                <td>
+                  {% if r.is_news_priority and r.can_manual_delete_news %}
+                  <form method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="display:inline"
+                        class="js-lei-confirm-form"
+                        data-confirm-message="{{ _('Delete this PRIORITY news from History? This cannot be undone.') }}"
+                        data-confirm-danger="1">
+                    <input type="hidden" name="action" value="news_history_delete">
+                    <input type="hidden" name="candidate_id" value="{{ r.id }}">
+                    <input type="hidden" name="layer" value="{{ layer }}">
+                    <button class="btn" type="submit" style="padding:2px 8px;font-size:0.75rem">{{ _('Delete') }}</button>
+                  </form>
+                  {% elif r.is_news_priority %}
+                  <span class="hint" title="{{ _('News History keeps items for 7 full days — Delete unlocks after that.') }}">{{ _('Keep 7d') }}</span>
+                  {% endif %}
+                </td>
+                {% endif %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </details>
     </div>
 
     <div class="unresolved-footer">
@@ -1445,6 +1670,22 @@
     }
     bindGuideToolbar("disc-toolbar");
     bindGuideToolbar("trade-guide-toolbar");
+
+    // After PRIORITY toggle redirect (#disc-row-N), stay on that row instead of page top.
+    if (location.hash && location.hash.indexOf("#disc-row-") === 0) {
+      var row = document.querySelector(location.hash);
+      if (row) {
+        requestAnimationFrame(function () {
+          row.scrollIntoView({ block: "center", behavior: "auto" });
+        });
+      }
+    }
+    if (window.updateFreezeColOffsets) {
+      ["disc-layer-table", "news-history-table"].forEach(function (id) {
+        var t = document.getElementById(id);
+        if (t) window.updateFreezeColOffsets(t);
+      });
+    }
   })();
   </script>
   {% endif %}

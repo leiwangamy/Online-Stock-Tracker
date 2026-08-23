@@ -15,7 +15,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -45,6 +45,10 @@ SRC_GOV_DISCLOSURE = "GOV_DISCLOSURE"
 
 # Underlying event must be recent to compete as "Today's Discovery".
 MAX_EVENT_AGE_DAYS = 90
+
+# News History: keep rows for this many full calendar days.
+# Manual Delete is blocked until the retention window has elapsed.
+NEWS_HISTORY_RETAIN_DAYS = 7
 
 SENT_POSITIVE = "POSITIVE"
 SENT_NEGATIVE = "NEGATIVE"
@@ -1824,12 +1828,15 @@ def list_discovery_candidates(
     apply_display_threshold: bool = True,
     recent_only: bool = True,
     exclude_negative: bool = True,
+    history_mode: bool = False,
+    priority_first: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Pool list sorted by Event Score DESC.
     By default: display threshold + recent underlying events only (Today's Discovery).
     History rows remain stored; pass recent_only=False for full history jobs.
-    Set exclude_negative=False to show 差/NEGATIVE rows in the Discovery UI
+    history_mode=True: News History archive (all stored events, priority-first).
+    Set exclude_negative=False to show NEGATIVE rows in the Discovery UI
     (still not trade-eligible until analyze gates say otherwise).
     """
     init_db()
@@ -1856,18 +1863,250 @@ def list_discovery_candidates(
     elif min_event_score is not None:
         sql += " AND c.event_score IS NOT NULL AND c.event_score >= ?"
         args.append(float(min_event_score))
-    if recent_only:
+    if recent_only and not history_mode:
         # Prefer is_recent=1; also allow NULL legacy rows.
         sql += " AND (c.is_recent IS NULL OR c.is_recent = 1)"
-    if exclude_negative:
+    if exclude_negative and not history_mode:
         # Long Discovery pool: prefer POSITIVE; still show NEUTRAL if high score.
         sql += " AND (c.sentiment IS NULL OR c.sentiment != ?)"
         args.append(SENT_NEGATIVE)
-    sql += " ORDER BY c.event_score DESC, c.ai_score DESC, c.id DESC LIMIT ?"
+    if history_mode or priority_first:
+        sql += (
+            " ORDER BY COALESCE(c.is_news_priority, 0) DESC, "
+            "c.event_score DESC, c.ai_score DESC, c.id DESC LIMIT ?"
+        )
+    else:
+        sql += " ORDER BY c.event_score DESC, c.ai_score DESC, c.id DESC LIMIT ?"
     args.append(int(limit))
     with get_conn() as conn:
         rows = conn.execute(sql, args).fetchall()
-    return [enrich_discovery_source_fields(dict(r)) for r in rows]
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        d = enrich_discovery_source_fields(dict(r))
+        age = news_history_age_days(d)
+        d["news_age_days"] = age
+        d["can_manual_delete_news"] = age >= NEWS_HISTORY_RETAIN_DAYS
+        out.append(d)
+    return out
+
+
+def _candidate_retention_day(row: dict[str, Any] | Any) -> str | None:
+    """
+    Calendar YYYY-MM-DD for News History retention.
+
+    Uses created_at (when LeiBot stored the row), NOT underlying event_date.
+    Official awards often have FY/contract dates years ago; retention is about
+    how long the news has been in History, not the contract date.
+    """
+    try:
+        v = row["created_at"] if not isinstance(row, dict) else row.get("created_at")
+    except (KeyError, IndexError, TypeError):
+        v = None
+    if v:
+        s = str(v).strip()[:10]
+        if len(s) >= 10:
+            return s
+    return None
+
+
+def news_history_age_days(row: dict[str, Any] | Any) -> int:
+    """Full calendar days since the news was stored in LeiBot (created_at, UTC date)."""
+    day = _candidate_retention_day(row)
+    if not day:
+        return 0
+    try:
+        d = datetime.strptime(day, "%Y-%m-%d").date()
+    except ValueError:
+        return 0
+    return max(0, (datetime.utcnow().date() - d).days)
+
+
+def can_manual_delete_news_history(
+    row: dict[str, Any] | Any,
+    *,
+    retain_days: int = NEWS_HISTORY_RETAIN_DAYS,
+) -> bool:
+    """True only after the 7-day News History retention window."""
+    return news_history_age_days(row) >= max(1, int(retain_days))
+
+
+def count_news_history(*, min_event_score: float | None = None) -> int:
+    """All stored discovery candidates (archive size for News History badge)."""
+    init_db()
+    thr = float(
+        min_event_score
+        if min_event_score is not None
+        else get_min_event_score_display()
+    )
+    with get_conn() as conn:
+        n = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM ai_discovery_candidates
+            WHERE event_score IS NOT NULL AND event_score >= ?
+            """,
+            (thr,),
+        ).fetchone()["n"]
+    return int(n or 0)
+
+
+def set_news_priority(candidate_id: int, *, on: bool = True) -> dict[str, Any]:
+    """
+    Pin a discovery event for long-term News History visibility.
+    Does NOT enable trading / Priority Buy / auto orders.
+    """
+    init_db()
+    now = _utc_now_iso()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, ticker FROM ai_discovery_candidates WHERE id = ?",
+            (int(candidate_id),),
+        ).fetchone()
+        if not row:
+            raise ValueError("discovery candidate not found")
+        conn.execute(
+            """
+            UPDATE ai_discovery_candidates
+            SET is_news_priority = ?, news_priority_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (1 if on else 0, now if on else None, now, int(candidate_id)),
+        )
+    return {
+        "id": int(candidate_id),
+        "ticker": row["ticker"],
+        "is_news_priority": 1 if on else 0,
+    }
+
+
+def delete_news_history_candidate(candidate_id: int) -> dict[str, Any]:
+    """
+    Manual remove from News History — only after NEWS_HISTORY_RETAIN_DAYS.
+
+    Within the retention window, deletion is rejected so History keeps the
+    full 7 calendar days. After that, ★ PRIORITY may be removed manually;
+    non-priority rows are normally auto-purged instead.
+    """
+    init_db()
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT id, ticker, paper_trade_id, event_id, event_date, created_at,
+                   is_news_priority
+            FROM ai_discovery_candidates WHERE id = ?
+            """,
+            (int(candidate_id),),
+        ).fetchone()
+        if not row:
+            raise ValueError("discovery candidate not found")
+        age = news_history_age_days(row)
+        if age < NEWS_HISTORY_RETAIN_DAYS:
+            return {
+                "id": int(candidate_id),
+                "ticker": row["ticker"],
+                "mode": "blocked_retain",
+                "news_age_days": age,
+                "retain_days": NEWS_HISTORY_RETAIN_DAYS,
+            }
+        if row["paper_trade_id"]:
+            conn.execute(
+                """
+                UPDATE ai_discovery_candidates
+                SET is_news_priority = 0, news_priority_at = NULL,
+                    is_recent = 0, updated_at = ?
+                WHERE id = ?
+                """,
+                (_utc_now_iso(), int(candidate_id)),
+            )
+            # Keep row for trade linkage; mark non-priority and non-recent.
+            mode = "detached"
+        else:
+            event_id = row["event_id"]
+            conn.execute(
+                "DELETE FROM ai_discovery_candidates WHERE id = ?",
+                (int(candidate_id),),
+            )
+            if event_id:
+                left = conn.execute(
+                    "SELECT COUNT(*) AS n FROM ai_discovery_candidates WHERE event_id = ?",
+                    (int(event_id),),
+                ).fetchone()["n"]
+                if int(left or 0) == 0:
+                    conn.execute(
+                        "DELETE FROM ai_discovery_events WHERE id = ?",
+                        (int(event_id),),
+                    )
+            mode = "deleted"
+    return {
+        "id": int(candidate_id),
+        "ticker": row["ticker"],
+        "mode": mode,
+        "news_age_days": age,
+        "retain_days": NEWS_HISTORY_RETAIN_DAYS,
+    }
+
+
+def purge_expired_news_history(*, retain_days: int = NEWS_HISTORY_RETAIN_DAYS) -> dict[str, Any]:
+    """
+    Drop non-priority discovery candidates older than retain_days (full calendar days).
+    ★ Saved News (is_news_priority=1) is kept until manual delete after retention —
+    never auto-purged. Candidates linked to paper trades are kept (trade history).
+    """
+    init_db()
+    days = max(1, int(retain_days))
+    # Compare on calendar date so items do not vanish before a full N days elapse.
+    cutoff_date = (datetime.utcnow().date() - timedelta(days=days)).isoformat()
+    deleted = 0
+    skipped_trade = 0
+    skipped_priority = 0
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, paper_trade_id, event_id, is_news_priority,
+                   substr(created_at, 1, 10) AS age_day
+            FROM ai_discovery_candidates
+            WHERE created_at IS NOT NULL
+              AND substr(created_at, 1, 10) < ?
+            """,
+            (cutoff_date,),
+        ).fetchall()
+        for r in rows:
+            if int(r["is_news_priority"] or 0) == 1:
+                skipped_priority += 1
+                continue
+            if r["paper_trade_id"]:
+                skipped_trade += 1
+                conn.execute(
+                    """
+                    UPDATE ai_discovery_candidates
+                    SET is_recent = 0, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (_utc_now_iso(), int(r["id"])),
+                )
+                continue
+            event_id = r["event_id"]
+            conn.execute(
+                "DELETE FROM ai_discovery_candidates WHERE id = ?",
+                (int(r["id"]),),
+            )
+            deleted += 1
+            if event_id:
+                left = conn.execute(
+                    "SELECT COUNT(*) AS n FROM ai_discovery_candidates WHERE event_id = ?",
+                    (int(event_id),),
+                ).fetchone()["n"]
+                if int(left or 0) == 0:
+                    conn.execute(
+                        "DELETE FROM ai_discovery_events WHERE id = ?",
+                        (int(event_id),),
+                    )
+    return {
+        "deleted": deleted,
+        "skipped_trade": skipped_trade,
+        "skipped_priority": skipped_priority,
+        "retain_days": days,
+        "cutoff_date": cutoff_date,
+    }
 
 
 def discovery_performance() -> dict[str, Any]:
@@ -3150,6 +3389,11 @@ def harvest_five_independent_channels(
 def run_discovery_cycle(*, create_orders: bool = True) -> dict[str, Any]:
     """Broad Discovery + Official 5×5 → analyze → optional orders → returns."""
     harvest = harvest_combined_discovery()
+    try:
+        purged = purge_expired_news_history(retain_days=7)
+    except Exception:
+        log.exception("purge_expired_news_history failed")
+        purged = {"deleted": 0}
     retry = maybe_retry_unresolved(force=True)
     analyzed = analyze_all_pending(limit=50)
     orders = (
@@ -3164,6 +3408,7 @@ def run_discovery_cycle(*, create_orders: bool = True) -> dict[str, Any]:
         rets = {"updated": 0}
     return {
         "harvest": harvest,
+        "purged": purged,
         "unresolved_retry": retry,
         "analyze": {"analyzed": analyzed.get("analyzed"), "errors": analyzed.get("errors")},
         "orders": orders,

@@ -9,7 +9,7 @@ import re
 import json
 from datetime import datetime, timezone
 
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, Response
 import yfinance as yf
 import matplotlib.pyplot as plt
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -1843,6 +1843,40 @@ def _normalize_discovery_channel_stats(stats: dict) -> dict:
     return out
 
 
+@app.route("/ai-trading/export.xlsx", methods=["GET"])
+def ai_trading_export_xlsx():
+    """Admin: download AI Trading experiment snapshot (.xlsx). Does not modify data."""
+    if not is_owner():
+        flash(gettext("Please sign in to manage Paper Trading"), "warning")
+        return redirect(
+            url_for("owner_login", next=url_for("ai_trading_export_xlsx"))
+        )
+    try:
+        from ai_trading_export import build_ai_trading_workbook
+
+        data = build_ai_trading_workbook()
+    except Exception as exc:
+        app.logger.exception("AI Trading Excel export failed")
+        flash(
+            ngettext_format("Excel export failed: {exc}", exc=exc),
+            "warning",
+        )
+        return redirect(url_for("ai_trading", tab="today"))
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    stamp = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y%m%d_%H%M")
+    fname = f"AI_Trading_Data_{stamp}.xlsx"
+    return Response(
+        data,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @app.route("/ai-trading", methods=["GET", "POST"])
 def ai_trading():
     """
@@ -1874,6 +1908,11 @@ def ai_trading():
 
     ensure_portfolio()
     tab = (request.args.get("tab") or request.form.get("tab") or "today").strip().lower()
+    if tab == "news_history":
+        # Legacy top-tab URL → dock under AI Discovery.
+        return redirect(
+            url_for("ai_trading", tab="discovery", news_hist=1) + "#news-history-dock"
+        )
     if tab not in ("today", "open", "history", "discovery"):
         tab = "today"
 
@@ -2127,7 +2166,85 @@ def ai_trading():
                     ),
                     "ok",
                 )
-                return redirect(url_for("ai_trading", tab="discovery"))
+                _layer = (
+                    request.form.get("layer") or request.args.get("layer") or "official"
+                ).strip().lower()
+                if _layer not in ("broad", "official"):
+                    _layer = "official"
+                return redirect(
+                    url_for("ai_trading", tab="discovery", layer=_layer)
+                    + f"#disc-row-{cid}"
+                )
+            elif action == "news_priority_toggle":
+                from ai_discovery import set_news_priority
+
+                cid = int(request.form.get("candidate_id") or 0)
+                on = (request.form.get("on") or "1") == "1"
+                row = set_news_priority(cid, on=on)
+                flash(
+                    ngettext_format(
+                        "News Priority {state}: {ticker}",
+                        state=gettext("on") if on else gettext("off"),
+                        ticker=row.get("ticker"),
+                    ),
+                    "ok",
+                )
+                layer = (request.form.get("layer") or request.args.get("layer") or "official").strip().lower()
+                if layer not in ("broad", "official"):
+                    layer = "official"
+                return redirect(
+                    url_for("ai_trading", tab="discovery", layer=layer)
+                    + f"#disc-row-{cid}"
+                )
+            elif action == "news_history_delete":
+                from ai_discovery import delete_news_history_candidate
+
+                cid = int(request.form.get("candidate_id") or 0)
+                row = delete_news_history_candidate(cid)
+                if row.get("mode") == "blocked_retain":
+                    flash(
+                        ngettext_format(
+                            "News History keeps items for {days} full days — delete is disabled until then ({ticker}, day {age}).",
+                            days=row.get("retain_days") or 7,
+                            ticker=row.get("ticker"),
+                            age=row.get("news_age_days") or 0,
+                        ),
+                        "warning",
+                    )
+                else:
+                    flash(
+                        ngettext_format(
+                            "Removed from News History: {ticker}",
+                            ticker=row.get("ticker"),
+                        ),
+                        "ok",
+                    )
+                layer = (request.form.get("layer") or "official").strip().lower()
+                if layer not in ("broad", "official"):
+                    layer = "official"
+                return redirect(
+                    url_for(
+                        "ai_trading",
+                        tab="discovery",
+                        layer=layer,
+                        news_hist=1,
+                    )
+                    + "#news-history-dock"
+                )
+            elif action == "reset_ai_trading":
+                from ai_trading_export import reset_ai_trading
+
+                result = reset_ai_trading()
+                flash(
+                    ngettext_format(
+                        "AI Trading reset: trades {t} · priority {p} · cash restored ${c:.2f}. Discovery / Saved News kept.",
+                        t=result.get("trades_deleted"),
+                        p=result.get("priority_cleared"),
+                        c=float(result.get("cash_restored") or 0),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="today"))
             elif action == "discovery_create_orders":
                 from ai_discovery import create_discovery_paper_orders
 
@@ -2190,12 +2307,15 @@ def ai_trading():
     discovery_min_score = 70.0
     discovery_channel_stats = {}
     discovery_count = 0
+    news_history_rows = []
+    news_history_count = 0
     discovery_layer = (request.args.get("layer") or "official").strip().lower()
     if discovery_layer not in ("broad", "official"):
         discovery_layer = "official"
     # Always load badge count + last radar stats (so Today tab is not stuck at 0).
     try:
         from ai_discovery import (
+            count_news_history,
             discovery_pool_counts,
             get_min_event_score_display,
         )
@@ -2204,6 +2324,7 @@ def ai_trading():
         discovery_min_score = get_min_event_score_display()
         pool0 = discovery_pool_counts(min_event_score=discovery_min_score)
         discovery_count = int(pool0.get("qualifying_events") or 0)
+        news_history_count = count_news_history(min_event_score=discovery_min_score)
         discovery_channel_stats = _gs("ai_discovery_last_channel_stats", {}) or {}
         if not isinstance(discovery_channel_stats, dict):
             discovery_channel_stats = {}
@@ -2213,6 +2334,7 @@ def ai_trading():
     except Exception:
         app.logger.exception("AI Discovery badge/stats load failed")
         discovery_count = 0
+        news_history_count = 0
         discovery_channel_stats = {}
 
     if tab == "discovery":
@@ -2262,6 +2384,30 @@ def ai_trading():
             discovery_unresolved = []
             discovery_unresolved_count = 0
             discovery_resolved_today = 0
+
+    # News History archive lives under AI Discovery (not a top tab).
+    if tab == "discovery":
+        try:
+            from ai_discovery import list_discovery_candidates
+
+            news_history_rows = list_discovery_candidates(
+                limit=500,
+                recent_only=False,
+                exclude_negative=False,
+                history_mode=True,
+            )
+            news_history_count = len(news_history_rows)
+        except Exception:
+            app.logger.exception("News History load failed")
+            news_history_rows = []
+
+    news_history_priority_rows = [
+        r for r in news_history_rows if int(r.get("is_news_priority") or 0)
+    ]
+    news_history_archive_rows = [
+        r for r in news_history_rows if not int(r.get("is_news_priority") or 0)
+    ]
+
     highlight_rebuy_id = None
     try:
         if request.args.get("rebuy"):
@@ -2319,6 +2465,11 @@ def ai_trading():
             discovery_min_score=discovery_min_score,
             discovery_channel_stats=discovery_channel_stats,
             discovery_count=discovery_count,
+            news_history_rows=news_history_rows,
+            news_history_count=news_history_count,
+            news_history_priority_rows=news_history_priority_rows,
+            news_history_archive_rows=news_history_archive_rows,
+            open_news_history=bool(request.args.get("news_hist")),
         )
     except Exception:
         app.logger.exception("ai_trading render failed")
