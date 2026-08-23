@@ -18,14 +18,25 @@ Built for single-name analysis and large-universe ranking on one shared database
 - Rebound rate vs recent low
 - **Earnings Night Review date** — earnings column shows date only, for evening news review before overnight moves
 
+**Research / Watchlist / AI Discovery**
+- My Watchlist with layout that matches the full nav
+- AI Discovery harvest + News History (non-★ auto-purge after 7 calendar days from `created_at`)
+
+**AI Paper Trading (simulation only — no brokerage orders)**
+- Ranked candidates, Stop / Take Profit, Priority Buy, daily OHLC settle
+- Excel export + Reset Trading (does not clear Discovery / Watchlist / settings)
+- **After Stop/Take:** auto-buy the highest-ranked AI name **not yet used** in this experiment (1:1 with exits; toggle in Settings)
+
 **Settings**
 - SMA period presets: 25 / 50 / 63 / 90 (also manually editable)
 - Rebound lookback configurable
+- Paper Stop / Take % and auto-replace-after-exit toggle
 
 **Platform architecture**
 - Shared SQLite database: `data/leibot.db`
 - Yahoo Finance now; IBKR upgrade path later
 - Responsive UI: desktop for analysis, mobile for quick daily checks
+- In-app scheduler (weekdays after US close for prices + paper update; Sunday universe refresh)
 
 **Private Order Request API V0 (Admin → Local Agent)**
 - Admin creates internal PAPER Order Requests (no IBKR / no brokerage orders)
@@ -76,6 +87,7 @@ Built for single-name analysis and large-universe ranking on one shared database
 - yFinance (Yahoo Finance data API)
 - Matplotlib (Chart generation)
 - Gunicorn (Production WSGI server)
+- APScheduler (in-container jobs)
 
 **Frontend**
 - HTML5
@@ -83,21 +95,24 @@ Built for single-name analysis and large-universe ranking on one shared database
 - JavaScript (Auto-scroll, dynamic content)
 
 **Infrastructure & Deployment**
-- AWS EC2 (Ubuntu server)
-- Nginx (Reverse proxy & static file serving)
-- Let's Encrypt + Certbot (HTTPS, auto-renewal)
+- AWS EC2 (Ubuntu)
+- Docker Compose (`docker-compose.yml` + `docker-compose.prod.yml`)
+- Nginx reverse proxy → `127.0.0.1:8001`
+- Let's Encrypt + Certbot (HTTPS)
+- Persistent data: host `./data` → container `/app/data`
+- Secrets only on server: `/etc/leibot/prod.env` (never commit)
 - GitHub (Version control)
 
 📁 Project Structure
 ```
 Online-Stock-Tracker/
 │
-├── app.py               # Flask application entry point
-├── requirements.txt     # Python dependencies
-├── Procfile             # Production server configuration (Gunicorn)
+├── app.py                  # Flask application entry point
+├── paper_trading.py        # AI Paper Trading (simulation)
+├── docker-compose.prod.yml # Production overlay (data mount + env_file)
+├── requirements.txt
 ├── templates/
-│   └── index.html       # Main UI template with responsive design
-├── static/              # Static assets (CSS, images, dynamically generated charts)
+├── scripts/                # Deploy / ops helpers
 └── README.md
 ```
 
@@ -183,33 +198,24 @@ Architecture:
 
 🔐 Production Deployment Notes
 
-**Deployment Architecture**
-- **Server**: AWS EC2 (Ubuntu)
-- **Application Server**: Gunicorn (multi-worker WSGI server)
-- **Web Server**: Nginx (reverse proxy, static file serving, SSL termination)
-- **SSL**: Let's Encrypt certificates with automatic renewal via Certbot
-- **Process Management**: Systemd service for Gunicorn
+**Live:** https://stock.lwsoc.com (Docker container `stock_web_prod` on EC2)
 
-**Key Production Features**
-- HTTPS/SSL encryption for secure data transmission
-- Automatic SSL certificate renewal (no downtime)
-- Optimized static file serving through Nginx
-- Automatic chart cleanup to manage disk space
-- Error handling and graceful degradation
-- Responsive design for all device types
-
-This deployment follows real-world production best practices, ensuring reliability, security, and performance.
+- Compose: `docker compose -f docker-compose.yml -f docker-compose.prod.yml`
+- Gunicorn `--timeout 600` (long Yahoo refresh jobs)
+- Nginx terminates SSL; proxies to `127.0.0.1:8001`
+- App data persists under `/var/www/leibot/data`
+- Secrets in `/etc/leibot/prod.env` only (not in git)
 
 📊 Data Source
 
 - **Stock Data**: Yahoo Finance via yFinance Python library
 - **Chart Period**: 1-year historical price data
-- **Update Frequency**: Real-time data fetched on each request
+- **Update Frequency**: Real-time data fetched on each request; scheduled weekday close refresh in production
 - **Data Availability**: Subject to Yahoo Finance API availability
 
 📌 Disclaimer
 
-Stock data is provided by Yahoo Finance via yFinance. This tool is for educational and informational purposes only and does not constitute financial advice. Always conduct your own research and consult with a qualified financial advisor before making investment decisions.
+Stock data is provided by Yahoo Finance via yFinance. This tool is for educational and informational purposes only and does not constitute financial advice. Paper trading is simulation only. Always conduct your own research and consult with a qualified financial advisor before making investment decisions.
 
 🙌 Author
 

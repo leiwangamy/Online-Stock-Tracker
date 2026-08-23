@@ -1,117 +1,90 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-    <title>Stock Tracker</title>
-    <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            font-family: Arial, sans-serif;
-            background-color: #f9f9f9;
-            color: #333;
-        }
+{% extends "base.html" %}
+{% block title %}{{ _("Stock Tracker") }}{% endblock %}
+{% block head %}
+<style>
+    /* Page-local tracker styles only — do not override site nav/base. */
+    body.ready #tracker-loading { display: none; }
+    body:not(.ready) #tracker-content { visibility: hidden; }
 
-    body.ready #loading { display: none; }
-    body:not(.ready) #content { display: none; }
+    #tracker-loading {
+      position: fixed;
+      inset: 0;
+      top: 52px; /* keep topnav visible */
+      background: rgba(248, 250, 252, 0.92);
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      z-index: 40;
+    }
 
-        #loading {
-            position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-            background: black;
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 2em;
-            z-index: 9999;
-        }
-
-    h1 { 
-      text-align: center; 
-      color: #0066cc; 
+    .tracker-page h1 {
+      text-align: center;
+      color: #0066cc;
       font-size: 1.8em;
       margin: 15px 0;
     }
 
-        .timestamp {
-            text-align: center;
-       font-size: 1.1em;
-       font-weight: 600;
-       color: #333;
-       margin: 15px auto;
-       padding: 10px 15px;
-       background-color: #f0f7ff;
-       border-left: 4px solid #007acc;
-       border-radius: 4px;
-       max-width: 900px;
-       line-height: 1.6;
-        }
+    .tracker-page .timestamp {
+      text-align: center;
+      font-size: 1.1em;
+      font-weight: 600;
+      color: #333;
+      margin: 15px auto;
+      padding: 10px 15px;
+      background-color: #f0f7ff;
+      border-left: 4px solid #007acc;
+      border-radius: 4px;
+      max-width: 900px;
+      line-height: 1.6;
+    }
 
-        img {
-            width: 100%;
+    .tracker-page img {
+      width: 100%;
       max-width: 1000px;
-            height: auto;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            margin-top: 20px;
+      height: auto;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      margin-top: 20px;
       display: block;
       margin-left: auto;
       margin-right: auto;
     }
 
-    /* Responsive: stack charts vertically on mobile */
     @media (max-width: 768px) {
-      img {
-        max-width: 100%;
-      }
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 30px;
-        }
-
-        th, td {
-            padding: 8px;
-            text-align: right;
-            border-bottom: 1px solid #ddd;
-        }
-
-        th {
-            background-color: #007acc;
-            color: white;
-        }
-
-    tr:hover { background-color: #eef; }
-    
-    /* Comparison table styling */
-    .comparison-table {
-      overflow-x: auto;
-    }
-    
-    .comparison-table th:first-child,
-    .comparison-table td:first-child {
-      position: sticky;
-      left: 0;
-      z-index: 5;
-      background-color: inherit;
-    }
-    
-    .comparison-table thead th:first-child {
-      z-index: 10;
+      .tracker-page img { max-width: 100%; }
     }
 
-        .summary {
-            margin-top: 30px;
-            padding: 10px;
-            background-color: #eef6ff;
-            border-left: 5px solid #007acc;
+    .tracker-page table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 30px;
     }
 
-    .stock-form {
+    .tracker-page th, .tracker-page td {
+      padding: 8px;
+      text-align: right;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .tracker-page th {
+      background-color: #007acc;
+      color: white;
+    }
+
+    .tracker-page tr:hover { background-color: #eef; }
+
+    .tracker-page .comparison-table { overflow-x: auto; }
+
+    .tracker-page .summary {
+      margin-top: 30px;
+      padding: 10px;
+      background-color: #eef6ff;
+      border-left: 5px solid #007acc;
+    }
+
+    .tracker-page .stock-form {
       margin: 20px auto;
       max-width: 900px;
       padding: 20px;
@@ -120,7 +93,7 @@
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
 
-    .stock-group {
+    .tracker-page .stock-group {
       margin-bottom: 25px;
       padding: 15px;
       background-color: #f9f9f9;
@@ -128,10 +101,10 @@
       border-left: 4px solid #007acc;
     }
 
-    .stock-group.usd { border-left-color: #0066cc; }
-    .stock-group.cad { border-left-color: #cc0000; }
+    .tracker-page .stock-group.usd { border-left-color: #0066cc; }
+    .tracker-page .stock-group.cad { border-left-color: #cc0000; }
 
-    .stock-group label.title {
+    .tracker-page .stock-group label.title {
       display: block;
       margin-bottom: 8px;
       font-weight: bold;
@@ -139,7 +112,7 @@
       font-size: 1.1em;
     }
 
-    .stock-group input[type="text"] {
+    .tracker-page .stock-group input[type="text"] {
       width: 100%;
       padding: 10px;
       font-size: 16px;
@@ -148,7 +121,7 @@
       box-sizing: border-box;
     }
 
-    .examples {
+    .tracker-page .examples {
       margin-top: 12px;
       padding: 10px;
       background: #fff;
@@ -157,9 +130,9 @@
       font-size: 0.95em;
     }
 
-    .examples strong { color: #007acc; }
+    .tracker-page .examples strong { color: #007acc; }
 
-    .pill {
+    .tracker-page .pill {
       display: inline-block;
       padding: 6px 10px;
       border: 1px solid #ddd;
@@ -170,9 +143,9 @@
       user-select: none;
     }
 
-    .pill input { margin-right: 6px; cursor: pointer; }
+    .tracker-page .pill input { margin-right: 6px; cursor: pointer; }
 
-    .stock-form button {
+    .tracker-page .stock-form button {
       padding: 12px 30px;
       font-size: 16px;
       background-color: #007acc;
@@ -185,9 +158,9 @@
       font-weight: bold;
     }
 
-    .stock-form button:hover { background-color: #005fa3; }
+    .tracker-page .stock-form button:hover { background-color: #005fa3; }
 
-    .error {
+    .tracker-page .error {
       color: #d62728;
       background-color: #ffe6e6;
       padding: 15px;
@@ -196,37 +169,26 @@
       max-width: 900px;
     }
 
-     .hint {
-       color: #777;
-       font-size: 0.9em;
-       margin-top: 6px;
-     }
+    .tracker-page .hint {
+      color: #777;
+      font-size: 0.9em;
+      margin-top: 6px;
+    }
 
-     #chart-section {
-       margin-top: 30px;
-       padding: 20px;
-       background-color: #fafafa;
-       border-radius: 8px;
-       border: 1px solid #e0e0e0;
-     }
+    .tracker-page #chart-section {
+      margin-top: 30px;
+      padding: 20px;
+      background-color: #fafafa;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="tracker-page">
+    <div id="tracker-loading">Loading stock data...</div>
 
-     html {
-       scroll-behavior: smooth;
-        }
-    </style>
-</head>
-
-<body>
-    <nav style="background:#e8eef5;border-bottom:1px solid #e5e7eb;padding:12px 16px;text-align:center;font-weight:600;">
-      <a href="/" style="color:#334155;text-decoration:none;margin:0 6px;">Home</a> |
-      <a href="/tracker" style="color:#0066cc;text-decoration:none;margin:0 6px;">Stock Tracker</a> |
-      <a href="/dashboard" style="color:#334155;text-decoration:none;margin:0 6px;">Market Dashboard</a> |
-      <a href="/watchlist" style="color:#334155;text-decoration:none;margin:0 6px;">Watchlist</a> |
-      <a href="/settings" style="color:#334155;text-decoration:none;margin:0 6px;">Settings</a>
-    </nav>
-    <div id="loading">Loading stock data...</div>
-
-    <div id="content">
+    <div id="tracker-content">
     <h1>📈 Stock Price Tracker</h1>
 
     <!-- Rules Section at Top -->
@@ -654,42 +616,37 @@
         </table>
     {% endif %}
     </div>
+</div>
 
-    <script>
-      window.addEventListener("load", function () {
-        document.body.classList.add("ready");
-      });
+<script>
+  window.addEventListener("load", function () {
+    document.body.classList.add("ready");
+  });
 
-     // Auto-scroll to chart section after form submission
-     document.addEventListener("DOMContentLoaded", function() {
-       const chartSection = document.getElementById("chart-section");
-       if (chartSection) {
-         // Smooth scroll to chart section
-         setTimeout(function() {
-           chartSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-         }, 100);
-       }
-     });
+  document.addEventListener("DOMContentLoaded", function() {
+    const chartSection = document.getElementById("chart-section");
+    if (chartSection) {
+      setTimeout(function() {
+        chartSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
+  });
 
-     // Also handle form submission to scroll after page reloads
-     const form = document.querySelector('form');
-     if (form) {
-       form.addEventListener('submit', function() {
-         // Store that we should scroll after page loads
-         sessionStorage.setItem('scrollToChart', 'true');
-       });
-     }
+  const form = document.querySelector('.tracker-page form');
+  if (form) {
+    form.addEventListener('submit', function() {
+      sessionStorage.setItem('scrollToChart', 'true');
+    });
+  }
 
-     // Check if we should scroll after page load
-     if (sessionStorage.getItem('scrollToChart') === 'true') {
-       sessionStorage.removeItem('scrollToChart');
-       setTimeout(function() {
-         const chartSection = document.getElementById("chart-section");
-         if (chartSection) {
-           chartSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-         }
-       }, 500); // Wait a bit for chart to load
-     }
-    </script>
-</body>
-</html>
+  if (sessionStorage.getItem('scrollToChart') === 'true') {
+    sessionStorage.removeItem('scrollToChart');
+    setTimeout(function() {
+      const chartSection = document.getElementById("chart-section");
+      if (chartSection) {
+        chartSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 500);
+  }
+</script>
+{% endblock %}

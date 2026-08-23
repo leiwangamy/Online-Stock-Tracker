@@ -858,7 +858,7 @@ def refresh_all_prices():
     try:
         from update_jobs import job_refresh_prices
 
-        result = job_refresh_prices(max_workers=4)
+        result = job_refresh_prices(max_workers=2)
         flash(
             ngettext_format(
                 "All pools refreshed: ok {ok} / errors {errors} (universe {universe}) · "
@@ -931,6 +931,11 @@ def settings():
                 raise ValueError(gettext("Take Profit % must be between 0.5 and 100"))
             set_setting("paper_stop_loss_pct", stop_pct)
             set_setting("paper_take_profit_pct", take_pct)
+            # Checkbox: absent from POST when unchecked.
+            set_setting(
+                "paper_auto_replace_on_exit",
+                "1" if request.form.get("paper_auto_replace_on_exit") else "0",
+            )
             try:
                 from paper_trading import sync_portfolio_limits_from_settings
 
@@ -981,6 +986,10 @@ def settings():
         schedule_price_minute=int(settings_data.get("schedule_price_minute", 15)),
         paper_stop_loss_pct=float(settings_data.get("paper_stop_loss_pct", 5.0)),
         paper_take_profit_pct=float(settings_data.get("paper_take_profit_pct", 10.0)),
+        paper_auto_replace_on_exit=str(
+            settings_data.get("paper_auto_replace_on_exit", "1")
+        ).strip().lower()
+        not in ("0", "false", "off", "no", ""),
         scheduler=sched,
     )
 
@@ -1994,12 +2003,14 @@ def ai_trading():
                 )
             elif action == "daily_update":
                 result = run_daily_update(refresh_candidates=True)
+                auto_n = len(result.get("auto_created") or [])
                 flash(
                     ngettext_format(
-                        "Daily paper update done: closed {c}, marked {m}, candidates {n}",
+                        "Daily paper update done: closed {c}, marked {m}, candidates {n}, auto-bought {a}",
                         c=len(result.get("closed") or []),
                         m=result.get("marked"),
                         n=result.get("candidates"),
+                        a=auto_n,
                     ),
                     "ok",
                 )

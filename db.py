@@ -43,6 +43,8 @@ DEFAULT_SETTINGS = {
     "paper_reserve_cash": 500.0,
     "paper_stop_loss_pct": 5.0,  # percent; stop = entry × (1 - pct/100)
     "paper_take_profit_pct": 10.0,
+    # After Stop/Take: auto-buy top unused AI-ranked names (1:1 with exits).
+    "paper_auto_replace_on_exit": "1",
     # AI Discovery pool visibility (unique events). No Top-N by default.
     "ai_discovery_min_event_score": 70.0,
 }

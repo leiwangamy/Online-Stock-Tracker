@@ -462,7 +462,7 @@
         });
         if (head.cells.length < spanSum * 0.6) return;
 
-        var key = "colw5:" + table.id;   // v5: Market Data dual-header + 63D columns
+        var key = "colw6:" + table.id;   // v6: no colspan not-found rows; unique wl ids
         var saved = {};
         try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) {}
         var ths = Array.prototype.slice.call(head.cells);

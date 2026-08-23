@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 8001
 
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:8001", "app:app"]
+CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:8001", "--timeout", "600", "--graceful-timeout", "30", "app:app"]

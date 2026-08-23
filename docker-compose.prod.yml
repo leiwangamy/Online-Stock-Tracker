@@ -1,0 +1,31 @@
+# LeiBot production overlay — use on EC2 after resource upgrade.
+# Does NOT replace the live stack until explicitly applied.
+#
+# Secrets live only on the server:
+#   /etc/leibot/prod.env  (chmod 600; never commit)
+#
+# Example (after git checkout on server):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+version: "3.9"
+
+services:
+  stock_web_prod:
+    container_name: stock_web_prod
+    build: .
+    restart: always
+    env_file:
+      - /etc/leibot/prod.env
+    environment:
+      - TZ=America/Los_Angeles
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      # Persist SQLite / caches across rebuilds
+      - ./data:/app/data
+    networks:
+      - shared_net
+
+networks:
+  shared_net:
+    external: true

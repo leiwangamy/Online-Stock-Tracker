@@ -224,11 +224,12 @@ def job_paper_trading_daily() -> dict:
 
     out = run_daily_update(refresh_candidates=True)
     log.info(
-        "Paper done: day=%s closed=%s marked=%s candidates=%s errors=%s",
+        "Paper done: day=%s closed=%s marked=%s candidates=%s auto_bought=%s errors=%s",
         out.get("day"),
         len(out.get("closed") or []),
         out.get("marked"),
         out.get("candidates"),
+        len(out.get("auto_created") or []),
         len(out.get("errors") or []),
     )
     return out

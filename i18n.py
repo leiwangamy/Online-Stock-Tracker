@@ -1644,6 +1644,14 @@ ZH: dict[str, str] = {
         '交易候选 ★ — 在候选分析中标记（与我的自选分开）。仅为研究标记，不会自动创建纸上订单。',
     'Daily paper update done: closed {c}, marked {m}, candidates {n}':
         '每日模拟更新完成：平仓 {c}，标记 {m}，候选 {n}',
+    'Daily paper update done: closed {c}, marked {m}, candidates {n}, auto-bought {a}':
+        '每日模拟更新完成：平仓 {c}，标记 {m}，候选 {n}，自动买入 {a}',
+    'After Stop/Take: auto-buy the highest-ranked AI name not yet used in this experiment (one new position per exit).':
+        '止损/止盈后：自动买入本实验尚未用过、AI 排名最高的股票（每平仓 1 只买入 1 只）。',
+    'Create Paper Orders is manual for the initial book. After Stop/Take, unused top-ranked names can auto-fill (see Settings).':
+        '首次建仓需手动“创建模拟订单”。止损/止盈后可用未用过的高排名股票自动补仓（见设置）。',
+    'Ranked by AI Score; Priority Buy ⭐ only reorders allocation. Create Paper Orders is manual for the initial book. After Stop/Take, unused top-ranked names can auto-fill (see Settings). Rising Now / 5D are timing references only.':
+        '按 AI Score 排序；优先买入 ⭐ 只影响建议仓位顺序。首次建仓需手动创建模拟订单。止损/止盈后可自动补入尚未用过的高排名标的（见设置）。Rising Now / 5D 仅作时机参考。',
     'Priority marked: {tickers}':
         '已标记优先：{tickers}',
     'Priority cleared: {ticker}':

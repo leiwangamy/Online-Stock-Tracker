@@ -105,12 +105,12 @@
       margin: 0;
     }
     /* Two-level header: group row + column row (both sticky within .wl-panel). */
-    #wl-table {
+    table[id^="wl-table"] {
       border-collapse: separate;
       border-spacing: 0;
       min-width: max-content;
     }
-    #wl-table thead tr.group-row th {
+    table[id^="wl-table"] thead tr.group-row th {
       position: sticky;
       top: 0;
       z-index: 20;
@@ -126,45 +126,55 @@
       padding-bottom: 6px;
       box-shadow: 0 -20px 0 0 #e8eef5, 0 1px 0 var(--border);
     }
-    #wl-table thead tr.col-row th {
+    table[id^="wl-table"] thead tr.col-row th {
       position: sticky;
       top: 28px;
       z-index: 20;
       background: #f8fafc;
       box-shadow: 0 -2px 0 0 #f8fafc, 0 1px 0 var(--border);
     }
-    #wl-table th.col-ticker, #wl-table td.col-ticker { min-width: 200px; }
-    #wl-table thead tr.group-row th.freeze-col {
+    table[id^="wl-table"] th.col-ticker, table[id^="wl-table"] td.col-ticker { min-width: 200px; }
+    table[id^="wl-table"] thead tr.group-row th.freeze-col {
       z-index: 31;
       background-color: #e8eef5 !important;
       left: 0;
       overflow: hidden;
     }
-    #wl-table thead tr.col-row th.freeze-col {
+    table[id^="wl-table"] thead tr.col-row th.freeze-col {
       z-index: 30;
       background-color: #f8fafc !important;
       overflow: hidden;
     }
-    #wl-table tbody td.freeze-col {
+    table[id^="wl-table"] tbody td.freeze-col {
       z-index: 5;
       background-color: #ffffff !important;
       overflow: hidden;
     }
-    #wl-table td.freeze-col .name-sub {
+    table[id^="wl-table"] td.freeze-col .name-sub {
       width: auto;
       max-width: 100%;
     }
-    #wl-table thead tr.group-row th.freeze-col.freeze-edge {
+    table[id^="wl-table"] thead tr.group-row th.freeze-col.freeze-edge {
       box-shadow:
         -40px 0 0 0 #e8eef5,
         0 -20px 0 0 #e8eef5,
         2px 0 6px rgba(15, 23, 42, 0.14),
         0 1px 0 var(--border);
     }
-    #wl-table th.col-pools, #wl-table td.col-pools { min-width: 110px; }
-    #wl-table th.col-ai, #wl-table td.col-ai { min-width: 88px; }
+    table[id^="wl-table"] th.col-pools, table[id^="wl-table"] td.col-pools,
+    [id^="wl-table"] th.col-pools, [id^="wl-table"] td.col-pools { min-width: 110px; }
+    table[id^="wl-table"] th.col-industry, table[id^="wl-table"] td.col-industry,
+    [id^="wl-table"] th.col-industry, [id^="wl-table"] td.col-industry {
+      min-width: 120px;
+      max-width: 200px;
+      white-space: normal;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    table[id^="wl-table"] th.col-ai, table[id^="wl-table"] td.col-ai,
+    [id^="wl-table"] th.col-ai, [id^="wl-table"] td.col-ai { min-width: 88px; }
 
-    #wl-table th.col-knife, #wl-table td.col-knife { min-width: 72px; max-width: 88px; cursor: default; }
+    table[id^="wl-table"] th.col-knife, table[id^="wl-table"] td.col-knife { min-width: 72px; max-width: 88px; cursor: default; }
     .knife-cell {
       display: flex;
       flex-direction: column;
@@ -202,10 +212,10 @@
       white-space: nowrap;
     }
 
-    #wl-table th.col-fund, #wl-table td.col-fund { min-width: 140px; }
-    #wl-table th.col-news, #wl-table td.col-news { min-width: 120px; }
-    #wl-table th.col-alert, #wl-table td.col-alert { min-width: 88px; }
-    #wl-table th.col-alert-status, #wl-table td.col-alert-status { min-width: 72px; text-align: center; }
+    table[id^="wl-table"] th.col-fund, table[id^="wl-table"] td.col-fund { min-width: 140px; }
+    table[id^="wl-table"] th.col-news, table[id^="wl-table"] td.col-news { min-width: 120px; }
+    table[id^="wl-table"] th.col-alert, table[id^="wl-table"] td.col-alert { min-width: 88px; }
+    table[id^="wl-table"] th.col-alert-status, table[id^="wl-table"] td.col-alert-status { min-width: 72px; text-align: center; }
     .alert-dot {
       display: inline-block;
       margin-right: 6px;
@@ -295,8 +305,8 @@
     .clv-sub { font-size: 0.68rem; color: #94a3b8; line-height: 1.1; }
     .clv-flag { font-size: 0.65rem; color: #b45309; font-weight: 600; }
     td.clv-warn { background: #fffbeb; }
-    #wl-table th, #wl-table td { white-space: nowrap; }
-    #wl-table td.col-est { white-space: normal; vertical-align: middle; }
+    table[id^="wl-table"] th, table[id^="wl-table"] td { white-space: nowrap; }
+    table[id^="wl-table"] td.col-est { white-space: normal; vertical-align: middle; }
     .est-bbb {
       display: inline-flex; flex-direction: column; align-items: stretch;
       gap: 2px; line-height: 1.15; cursor: help; min-width: 132px;
@@ -357,12 +367,17 @@
   {% else %}—{% endif %}
 {% endmacro %}
 
-{% macro wl_table(rows, sma_period, show_alert=False, show_valuation=False, can_edit_alert=False) %}
+{% macro wl_table(rows, sma_period, show_alert=False, show_valuation=False, can_edit_alert=False, table_id='wl-table') %}
   {% if not rows %}
     <p class="empty">{{ _("No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)") }}</p>
   {% else %}
+  {% if show_valuation %}
+    {% set nf_extra = 30 if show_alert else 26 %}
+  {% else %}
+    {% set nf_extra = 27 if show_alert else 23 %}
+  {% endif %}
   <div class="panel wl-panel">
-    <table class="data" id="wl-table">
+    <table class="data" id="{{ table_id }}">
       <thead>
         <tr class="group-row">
           <th class="col-ticker freeze-col freeze-edge"></th>
@@ -378,7 +393,7 @@
         <tr class="col-row">
           <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _("Stock") }}</th>
           <th class="sortable col-pools" data-col="1" data-type="text" title="{{ _('Index pools: S&P500 / Nasdaq100 / …; MANUAL if not in a pool') }}">{{ _("Pool") }}</th>
-          <th class="sortable" data-col="2" data-type="text" title="{{ _('Industry (from universe)') }}">{{ _("Industry") }}</th>
+          <th class="sortable col-industry" data-col="2" data-type="text" title="{{ _('Industry (from universe)') }}">{{ _("Industry") }}</th>
           <th class="sortable num" data-col="3" data-type="num" title="{{ _('Market Cap') }}">{{ _("Market Cap") }}</th>
 
           <th class="sortable col-ai" data-col="4" data-type="num" title="{{ _('AI Score V1 = opportunity − risk. Uses public MOS T; excludes Admin Est.Value / real MOS and 63D Position.') }}">AI</th>
@@ -454,10 +469,17 @@
             {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
           </td>
           {% if row.not_found %}
-            <td colspan="{% if show_valuation %}{% if show_alert %}30{% else %}26{% endif %}{% else %}{% if show_alert %}27{% else %}23{% endif %}{% endif %}" class="empty">{{ _("Ticker not found (bad symbol or delisted).") }}</td>
+            {# One <td> per column (no colspan) so table-layout:fixed / colgroup stay aligned. #}
+            {% for i in range(nf_extra) %}
+              {% if i == 1 %}
+            <td class="empty col-industry" style="text-align:left;white-space:normal">{{ _("Ticker not found (bad symbol or delisted).") }}</td>
+              {% else %}
+            <td class="empty">—</td>
+              {% endif %}
+            {% endfor %}
           {% else %}
             <td class="pools col-pools" data-sort="{{ row.pools }}">{{ row.pools }}</td>
-            <td data-sort="{{ (row.industry or '')|lower }}">{% if row.industry %}{{ row.industry }}{% else %}—{% endif %}</td>
+            <td class="col-industry" data-sort="{{ (row.industry or '')|lower }}">{% if row.industry %}{{ row.industry }}{% else %}—{% endif %}</td>
             <td class="num" data-sort="{{ row.market_cap if row.market_cap is not none else '' }}">{{ fmt_money(row.market_cap) }}</td>
 
             {% set a = row.ai %}
@@ -672,13 +694,7 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     <p class="empty">{{ _("No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)") }}</p>
   {% else %}
   <div class="panel wl-panel">
-    <table class="data" id="wl-table">
-      <thead>
-        <tr class="col-row">
-          <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _("Stock") }}</th>
-          <th class="sortable num" data-col="1" data-type="num">{{ _("Price") }}</th>
-          <th class="sortable num" data-col="2" data-type="num">{{ _("Day %") }}</th>
-          <th class="sortable num" data-col="3" data-type="num" title="{{ _('Up days in the latest 5 trading days (Close > prior close)') }}">{{ _("Up Days 5D") }}</th>
+    <table class="data" id="wl-table-rising">
           <th class="sortable num" data-col="4" data-type="num" title="{{ _('(Current close / close 5 trading days ago − 1) × 100') }}">{{ _("5D Return") }}</th>
           <th class="sortable num" data-col="5" data-type="num" title="{{ _('(Price−Low)/(High−Low)×100; observational only') }}">{{ _("63D Position") }}</th>
           <th class="sortable col-ai" data-col="6" data-type="num" title="{{ _('AI Score V1 = opportunity − risk. Uses public MOS T; excludes Admin Est.Value / real MOS and 63D Position.') }}">AI</th>
@@ -728,7 +744,7 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     <p class="empty">{{ _("No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)") }}</p>
   {% else %}
   <div class="panel wl-panel">
-    <table class="data" id="wl-table">
+    <table class="data" id="wl-table-ms">
       <thead>
         <tr class="col-row">
           <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _("Stock") }}</th>
@@ -1033,7 +1049,7 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     <p class="hint" style="margin:0 0 12px">{{ _f("Temp list holds up to {max} tickers (extras ignored); cleared when the browser closes. Now {n} / {max}.", max=max_temp, n=temp_tickers|length) }}</p>
   {% endif %}
 
-  {{ wl_table(rows, sma_period, show_alert=show_alert|default(False), show_valuation=show_valuation|default(False), can_edit_alert=can_edit_mine|default(False)) }}
+  {{ wl_table(rows, sma_period, show_alert=show_alert|default(False), show_valuation=show_valuation|default(False), can_edit_alert=can_edit_mine|default(False), table_id='wl-table-' + (tab|default('main'))) }}
 
   <script>
     (function () {
@@ -1065,7 +1081,7 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
 
   <script>
     (function () {
-      var table = document.getElementById("wl-table");
+      var table = document.querySelector("table.data[id^='wl-table']");
       if (!table) return;
       var tbody = table.tBodies[0];
       function cellValue(row, idx, type) {

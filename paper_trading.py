@@ -632,6 +632,37 @@ def _score_universe_rows() -> list[dict[str, Any]]:
     return scored
 
 
+def _ai_auto_eligible_ranked() -> list[dict[str, Any]]:
+    """
+    Full Auto-eligible universe, ranked for trading:
+      price-location OR → Knife AUTO BLOCK → Priority then AI Score.
+    Not truncated to TOP_N (caller decides how many to keep / buy).
+    """
+    from knife_risk import knife_auto_blocked
+
+    thr = _ai_auto_thresholds()
+    scored = _score_universe_rows()
+    eligible: list[dict[str, Any]] = []
+    for r in scored:
+        hits = ai_auto_price_location_hits(r, thresholds=thr)
+        if not hits:
+            continue
+        r["_auto_price_hits"] = hits
+        k = r.get("knife") or {}
+        score = k.get("score") if isinstance(k, dict) else None
+        if knife_auto_blocked(score):
+            continue
+        eligible.append(r)
+    eligible.sort(
+        key=lambda x: (
+            -int(x.get("is_priority") or 0),
+            -float(x.get("ai_score") or 0),
+            x.get("ticker") or "",
+        )
+    )
+    return eligible
+
+
 def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> list[dict[str, Any]]:
     """
     Build AI Auto Trading candidates (max TOP_N — not a fill target).
@@ -642,37 +673,11 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
       → Knife Risk AUTO BLOCK (unchanged, independent hard gate)
       → rank by AI Score; take up to TOP_N (0 → NO TRADE / empty list)
     """
-    from knife_risk import KNIFE_AUTO_BLOCK_THRESHOLD, knife_auto_blocked
-
     cfg = _cfg()
     day = as_of_date or trading_day_pt()
     thr = _ai_auto_thresholds()
-    scored = _score_universe_rows()
-    # Price-location OR (Auto-only), then Knife Risk. Do not backfill weaker names.
-    eligible: list[dict[str, Any]] = []
-    price_blocked_n = 0
-    knife_blocked_n = 0
-    for r in scored:
-        hits = ai_auto_price_location_hits(r, thresholds=thr)
-        if not hits:
-            price_blocked_n += 1
-            continue
-        r["_auto_price_hits"] = hits
-        k = r.get("knife") or {}
-        score = k.get("score") if isinstance(k, dict) else None
-        if knife_auto_blocked(score):
-            knife_blocked_n += 1
-            continue
-        eligible.append(r)
+    eligible = _ai_auto_eligible_ranked()
     top = eligible[:TOP_N]
-    # Within selected names, Priority only affects allocation order (not AI Score / not membership).
-    top.sort(
-        key=lambda x: (
-            -int(x.get("is_priority") or 0),
-            -float(x.get("ai_score") or 0),
-            x.get("ticker") or "",
-        )
-    )
     port = ensure_portfolio()
     invested = sum_open_invested()
     remaining_limit = max(0.0, float(port["trading_limit"]) - invested)
@@ -1138,7 +1143,7 @@ def create_paper_orders_from_candidates(
 ) -> dict[str, Any]:
     """
     Create simulated open positions from today's candidates with suggested_shares > 0.
-    Does NOT auto-run — must be invoked explicitly (admin).
+    Normally admin-invoked; also used by auto-replace after Stop/Take exits.
     """
     day = as_of_date or get_setting("paper_candidates_as_of") or trading_day_pt()
     cands = list_candidates(day)
@@ -1297,6 +1302,239 @@ def create_paper_orders_from_candidates(
     except Exception:
         log.exception("equity snapshot after create_orders failed")
     return {"created": created, "skipped": skipped, "cash": cash, "invested": invested}
+
+
+def _ever_traded_tickers() -> set[str]:
+    """Tickers that already appear in paper_trades (open or closed) this experiment."""
+    init_db()
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT UPPER(ticker) AS t FROM paper_trades WHERE ticker IS NOT NULL"
+        ).fetchall()
+    return {str(r["t"]).upper() for r in rows if r["t"]}
+
+
+def _open_auto_replace_position(
+    research_row: dict[str, Any],
+    *,
+    as_of_date: str,
+    target_usd: float,
+    rank_at_entry: int = 0,
+) -> dict[str, Any]:
+    """Open one paper position from a research/eligible row using target_usd sizing."""
+    cfg = _cfg()
+    t = str(research_row.get("ticker") or "").upper()
+    if not t:
+        raise ValueError("ticker required")
+    price = float(research_row["price"])
+    if price <= 0:
+        raise ValueError("invalid price")
+    shares, cost, mode = size_position(price, float(target_usd))
+    if shares <= 0 or cost <= 0:
+        raise ValueError("allocation too small")
+
+    port = ensure_portfolio()
+    cash = float(port["cash"])
+    trading_limit = float(port["trading_limit"])
+    invested = sum_open_invested()
+    if cost > cash + 1e-6:
+        raise ValueError(f"insufficient cash: need ${cost:.2f}, cash ${cash:.2f}")
+    if invested + cost > trading_limit + 1e-6:
+        raise ValueError(
+            f"trading limit reached: invested ${invested:.2f}, "
+            f"need ${cost:.2f}, limit ${trading_limit:.2f}"
+        )
+
+    stop_pct = float(cfg["stop_loss_pct"])
+    take_pct = float(cfg["take_profit_pct"])
+    auto_stop, auto_take = stop_take_prices(price, stop_pct, take_pct)
+    ov = get_level_overrides([t]).get(t)
+    row_levels = {
+        "stop_price": auto_stop,
+        "take_profit_price": auto_take,
+        "price": price,
+    }
+    apply_level_override_to_row(
+        row_levels, ov, default_stop=auto_stop, default_take=auto_take
+    )
+    stop = float(row_levels["stop_price"])
+    take = float(row_levels["take_profit_price"])
+    if price > 0:
+        stop_pct = round((price - stop) / price * 100.0, 4)
+        take_pct = round((take - price) / price * 100.0, 4)
+    level_err = validate_long_levels(price, stop, take)
+    if level_err:
+        raise ValueError(level_err)
+
+    knife = research_row.get("knife") if isinstance(research_row.get("knife"), dict) else {}
+    now = _utc_now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO paper_trades (
+              ticker, name, status, entry_date, entry_price, shares, shares_mode,
+              cost, stop_price, take_profit_price, stop_pct, take_profit_pct,
+              ai_score_entry, mos_t_entry, financial_entry, news_entry,
+              range_63d_pos_entry, financial_ok_entry, financial_known_entry,
+              news_tone_entry, source_at_entry,
+              is_priority, rank_at_entry, current_price, market_value,
+              unrealized_pnl, unrealized_pnl_pct, ai_score_current,
+              created_at, updated_at
+            ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+            """,
+            (
+                t,
+                research_row.get("name") or "",
+                as_of_date,
+                price,
+                shares,
+                mode,
+                cost,
+                stop,
+                take,
+                stop_pct,
+                take_pct,
+                research_row.get("ai_score"),
+                research_row.get("mos_t"),
+                research_row.get("financial_label"),
+                research_row.get("news_label"),
+                research_row.get("range_63d_pos"),
+                research_row.get("financial_ok"),
+                research_row.get("financial_known"),
+                research_row.get("news_tone"),
+                research_row.get("source_codes") or "",
+                int(research_row.get("is_priority") or 0),
+                int(rank_at_entry or 0),
+                price,
+                cost,
+                research_row.get("ai_score"),
+                now,
+                now,
+            ),
+        )
+        conn.execute(
+            "UPDATE paper_portfolio SET cash = ?, updated_at = ? WHERE id = 1",
+            (round(cash - cost, 4), now),
+        )
+    clear_level_overrides([t])
+    return {
+        "ticker": t,
+        "shares": shares,
+        "cost": cost,
+        "entry_price": price,
+        "ai_score": research_row.get("ai_score"),
+        "knife_score": knife.get("score"),
+        "via": "auto_replace",
+    }
+
+
+def auto_replace_exits_with_top_unused(
+    *,
+    max_new: int,
+    as_of_date: str | None = None,
+) -> dict[str, Any]:
+    """
+    After Stop/Take exits: buy up to max_new names from the live AI ranking
+    that have never been used in this paper experiment (not in paper_trades).
+    Sizes each fill with the first ladder slot ($300) capped by cash / trading room.
+    """
+    n = max(0, int(max_new or 0))
+    if n <= 0:
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+    enabled_raw = get_setting("paper_auto_replace_on_exit", "1")
+    enabled = str(enabled_raw if enabled_raw is not None else "1").strip().lower() not in (
+        "0",
+        "false",
+        "off",
+        "no",
+        "",
+    )
+    if not enabled:
+        return {"created": [], "skipped": [], "picks": [], "disabled": True}
+
+    day = as_of_date or trading_day_pt()
+    # Keep Top-10 UI candidates fresh; pick replacements from full eligible rank.
+    try:
+        build_candidates(as_of_date=day, persist=True)
+    except Exception:
+        log.exception("candidate rebuild before auto-replace failed")
+
+    used = _ever_traded_tickers()
+    open_tickers = {t["ticker"].upper() for t in list_open_trades()}
+    eligible = _ai_auto_eligible_ranked()
+    pick_rows: list[dict[str, Any]] = []
+    for r in eligible:
+        t = str(r.get("ticker") or "").upper()
+        if not t or t in used or t in open_tickers:
+            continue
+        try:
+            if float(r.get("price") or 0) <= 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        pick_rows.append(r)
+        if len(pick_rows) >= n:
+            break
+
+    if not pick_rows:
+        log.info(
+            "Auto-replace: no unused eligible names (need=%s used=%s open=%s eligible=%s)",
+            n,
+            len(used),
+            len(open_tickers),
+            len(eligible),
+        )
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    slot_usd = float(ALLOC_LADDER[0]) if ALLOC_LADDER else 300.0
+    for i, r in enumerate(pick_rows):
+        t = str(r.get("ticker") or "").upper()
+        port = ensure_portfolio()
+        cash = float(port["cash"])
+        trading_limit = float(port["trading_limit"])
+        invested = sum_open_invested()
+        room = max(0.0, trading_limit - invested)
+        target = min(slot_usd, room, cash)
+        if target < 1.0:
+            skipped.append(
+                {
+                    "ticker": t,
+                    "reason": "no_room",
+                    "detail": f"cash ${cash:.2f}, room ${room:.2f}",
+                }
+            )
+            break
+        try:
+            created.append(
+                _open_auto_replace_position(
+                    r,
+                    as_of_date=day,
+                    target_usd=target,
+                    rank_at_entry=i + 1,
+                )
+            )
+            used.add(t)
+            open_tickers.add(t)
+        except Exception as exc:
+            log.warning("Auto-replace skip %s: %s", t, exc)
+            skipped.append({"ticker": t, "reason": "open_failed", "detail": str(exc)})
+
+    picks = [c["ticker"] for c in created]
+    if created:
+        log.info("Auto-replace after exits: bought %s", ",".join(picks))
+        set_setting("paper_last_order_at", _utc_now_iso())
+        try:
+            save_equity_snapshot(as_of_date=day)
+        except Exception:
+            log.exception("equity snapshot after auto-replace failed")
+    return {
+        "created": created,
+        "skipped": skipped,
+        "picks": picks,
+        "disabled": False,
+    }
 
 
 def manual_buy_candidate(
@@ -2201,6 +2439,38 @@ def run_daily_update(*, refresh_candidates: bool = True) -> dict[str, Any]:
             log.exception("candidate rebuild failed")
             errors.append({"ticker": "*", "error": f"candidates: {exc}"})
 
+    auto_created: list[dict[str, Any]] = []
+    if closed:
+        try:
+            # Only Stop/Take from this daily pass free slots for unused Top names.
+            replaceable = [
+                c
+                for c in closed
+                if normalize_exit_reason(c.get("exit_reason")) in (EXIT_STOP, EXIT_TAKE)
+            ]
+            if replaceable:
+                rep = auto_replace_exits_with_top_unused(
+                    max_new=len(replaceable), as_of_date=day
+                )
+                auto_created = list(rep.get("created") or [])
+                if rep.get("disabled"):
+                    log.info("Auto-replace disabled in settings")
+                elif auto_created:
+                    log.info(
+                        "Auto-replace created %s after %s exits",
+                        len(auto_created),
+                        len(replaceable),
+                    )
+                # Candidates may have changed after new orders — optional light refresh
+                if auto_created and refresh_candidates:
+                    try:
+                        candidates = build_candidates(as_of_date=day, persist=True)
+                    except Exception:
+                        log.exception("candidate rebuild after auto-replace failed")
+        except Exception as exc:
+            log.exception("auto-replace after exits failed")
+            errors.append({"ticker": "*", "error": f"auto_replace: {exc}"})
+
     now = _utc_now_iso()
     set_setting("paper_last_daily_update", now)
     set_setting("paper_last_daily_update_day", day)
@@ -2215,6 +2485,7 @@ def run_daily_update(*, refresh_candidates: bool = True) -> dict[str, Any]:
         "closed": closed,
         "marked": marked,
         "candidates": len(candidates),
+        "auto_created": auto_created,
         "errors": errors,
         "updated_at": now,
         "snapshot": snap,
