@@ -190,12 +190,17 @@
       position: sticky;
       top: 0;
       z-index: 20;
-      background-color: #f8fafc !important;
+      background-color: #ffffff !important;
       background-image: none !important;
       /* Upward curtain fills the gap under the top scrollbar so row text cannot leak. */
       box-shadow:
-        0 -20px 0 0 #f8fafc,
+        0 -20px 0 0 #ffffff,
         0 1px 0 var(--border);
+    }
+    /* Body cells: uniform white (no grey striping / tinted row fills). */
+    table.data tbody td {
+      background-color: #ffffff !important;
+      background-image: none !important;
     }
     /* Only body cells — never reset thead th (would kill sticky headers). */
     table.data td:not(.freeze-col) {
@@ -226,18 +231,18 @@
     table.data thead th.freeze-col {
       left: 0;
       z-index: 30;
-      background-color: #f8fafc !important;
+      background-color: #ffffff !important;
       overflow: hidden;
       box-shadow:
-        -40px 0 0 0 #f8fafc,
-        0 -20px 0 0 #f8fafc,
+        -40px 0 0 0 #ffffff,
+        0 -20px 0 0 #ffffff,
         2px 0 6px rgba(15, 23, 42, 0.14),
         0 1px 0 var(--border);
     }
     table.data thead th.freeze-col.freeze-edge {
       box-shadow:
-        -40px 0 0 0 #f8fafc,
-        0 -20px 0 0 #f8fafc,
+        -40px 0 0 0 #ffffff,
+        0 -20px 0 0 #ffffff,
         2px 0 6px rgba(15, 23, 42, 0.14),
         0 1px 0 var(--border);
     }
