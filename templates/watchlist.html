@@ -101,6 +101,12 @@
       overflow-y: auto;
       padding: 0;
     }
+    @media (max-width: 768px), (pointer: coarse) {
+      .panel.wl-panel {
+        max-height: none !important;
+        overflow: visible !important;
+      }
+    }
     .panel.wl-panel > table {
       margin: 0;
     }
@@ -918,6 +924,31 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         </p>
         <p class="hint" style="text-align:left;margin:6px 0 0">
           {{ _("Not an oversold / price-location score. Does not use 63D Position, Dist. from SMA, Financial, or News. Hover Knife for component breakdown.") }}
+        </p>
+      </div>
+      <div class="legend-col">
+        <strong>{{ _("Rising Score (0–100) — independent of Knife Risk & AI Score") }}</strong>
+        <p class="hint" style="text-align:left;margin:0 0 6px">
+          <strong>{{ _("Rising Now entry (weak filter only):") }}</strong>
+          {{ _("Up Days ≥ 3/5 · 5D Return ≥ +3%. Means “currently rising” — not how strong the rise is.") }}
+        </p>
+        <ul style="columns:1">
+          <li>{{ _("Upside speed") }} <code>17</code> — {{ _("light 5D/3D rise, consecutive up days, upside acceleration (5D already used for entry)") }}</li>
+          <li>{{ _("Relative strength") }} <code>18</code> — {{ _("5D vs SPY (~10) + sector ETF (~8)") }}</li>
+          <li>{{ _("Uptrend persistence") }} <code>35</code> — {{ _("10D / 20D log-price slope still rising (primary engine)") }}</li>
+          <li>{{ _("Strong Up Count 20D") }} <code>12</code> — {{ _("days with daily return ≥ +1.5%") }}</li>
+          <li>{{ _("63D Position") }} <code>18</code> — {{ _("higher position in 63D range → higher Rising Score") }}</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:8px 0 0">
+          <strong>{{ _("Levels:") }}</strong>
+          🟢 MILD &lt;25 · 🟡 FIRM 25–44 · 🟠 STRONG 45–69 · 🔴 HOT ≥70
+        </p>
+        <p class="hint" style="text-align:left;margin:6px 0 0">
+          <strong>{{ _("Independence:") }}</strong>
+          {{ _("Rising Score ≠ 100 − Knife Risk. Same stock can be Rising 85 / Knife 15 (stable uptrend) or Rising 85 / Knife 70 (strong but volatile). Uses the same local daily_bars history as Knife — no separate download.") }}
+        </p>
+        <p class="hint" style="text-align:left;margin:6px 0 0">
+          {{ _("Does not remove Knife BLOCK / WATCH / PASS. High Rising Score can still be AUTO BLOCKED by Knife Risk. Shown on Research → Rising Now (sortable); hover Rising for component breakdown.") }}
         </p>
       </div>
       <div class="legend-col">

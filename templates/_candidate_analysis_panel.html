@@ -93,15 +93,18 @@
           {% else %}—{% endif %}
         </td>
         <td data-sort="{{ row.pools or '' }}">{{ row.pools or '—' }}</td>
-        <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">
-          {% if row.price is not none %}${{ '%.2f'|format(row.price) }}{% else %}—{% endif %}
+        {% set px = row.get('price') %}
+        <td class="num" data-sort="{{ px if px is not none else '' }}">
+          {% if px is not none %}${{ '%.2f'|format(px) }}{% else %}—{% endif %}
         </td>
-        <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
-            data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
-          {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+        {% set chg = row.get('change_pct') %}
+        <td class="num {% if chg is not none and chg < 0 %}down{% elif chg is not none and chg > 0 %}up{% endif %}"
+            data-sort="{{ chg if chg is not none else '' }}">
+          {% if chg is not none %}{{ '%+.2f'|format(chg) }}%{% else %}—{% endif %}
         </td>
-        <td class="num" data-sort="{{ row.range_63d_pos if row.range_63d_pos is not none else '' }}">
-          {% if row.range_63d_pos is not none %}{{ '%.1f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}
+        {% set pos63 = row.get('range_63d_pos') %}
+        <td class="num" data-sort="{{ pos63 if pos63 is not none else '' }}">
+          {% if pos63 is not none %}{{ '%.1f'|format(pos63) }}%{% else %}—{% endif %}
         </td>
         <td class="num" data-sort="{{ row.count20 if row.count20 is not none else '' }}">
           {{ row.count20_label or '—' }}
@@ -117,9 +120,10 @@
         <td class="num" data-sort="{{ row.up_days_5 if row.up_days_5 is not none else '' }}">
           {% if row.up_days_5 is not none %}{{ row.up_days_5 }}/5{% else %}—{% endif %}
         </td>
-        <td class="num {% if row.return_5d_pct is not none and row.return_5d_pct < 0 %}down{% elif row.return_5d_pct is not none and row.return_5d_pct > 0 %}up{% endif %}"
-            data-sort="{{ row.return_5d_pct if row.return_5d_pct is not none else '' }}">
-          {% if row.return_5d_pct is not none %}{{ '%+.2f'|format(row.return_5d_pct) }}%{% else %}—{% endif %}
+        {% set r5 = row.get('return_5d_pct') %}
+        <td class="num {% if r5 is not none and r5 < 0 %}down{% elif r5 is not none and r5 > 0 %}up{% endif %}"
+            data-sort="{{ r5 if r5 is not none else '' }}">
+          {% if r5 is not none %}{{ '%+.2f'|format(r5) }}%{% else %}—{% endif %}
         </td>
         <td class="num" data-sort="{{ row.financial_sort if row.financial_sort is not none else '' }}">
           {{ row.financial_label or '—' }}
@@ -150,11 +154,13 @@
             {% if k.auto_blocked %}<div class="knife-block">🚫 {{ _('Blocked') }}</div>{% endif %}
           {% else %}—{% endif %}
         </td>
-        <td class="num" data-sort="{{ row.mos_t if row.mos_t is not none else '' }}">
-          {% if row.mos_t is not none %}{{ '%+.1f'|format(row.mos_t) }}%{% else %}—{% endif %}
+        {% set most = row.get('mos_t') %}
+        <td class="num" data-sort="{{ most if most is not none else '' }}">
+          {% if most is not none %}{{ '%+.1f'|format(most) }}%{% else %}—{% endif %}
         </td>
-        <td class="num" data-sort="{{ row.target_ratio if row.target_ratio is not none else '' }}">
-          {% if row.target_ratio is not none %}{{ '%.2f'|format(row.target_ratio) }}{% else %}—{% endif %}
+        {% set tratio = row.get('target_ratio') %}
+        <td class="num" data-sort="{{ tratio if tratio is not none else '' }}">
+          {% if tratio is not none %}{{ '%.2f'|format(tratio) }}{% else %}—{% endif %}
         </td>
         <td>
           {% if can_manage %}

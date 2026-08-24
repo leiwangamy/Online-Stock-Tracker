@@ -176,6 +176,8 @@ def list_rising_now(
         # Prefer dashboard price/day%; fall back to last bar close.
         if row.get("price") is None and closes:
             row["price"] = float(closes[-1])
+        for _k in ("name", "change_pct", "range_63d_pos", "target_1y", "sma", "dist_pct"):
+            row.setdefault(_k, None)
         row["up_days_5"] = int(up_days)
         row["return_5d_pct"] = round(float(ret_pct), 2)
         row["price_source"] = "dashboard_cache" if ticker in dash else "daily_bars"

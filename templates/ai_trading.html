@@ -77,6 +77,14 @@
     padding: 0;
     -webkit-overflow-scrolling: touch;
   }
+  @media (max-width: 768px), (pointer: coarse) {
+    .panel,
+    .panel.disc-panel,
+    .panel.nh-panel {
+      max-height: none !important;
+      overflow: visible !important;
+    }
+  }
   .panel.disc-panel > table,
   .panel.nh-panel > table {
     margin: 0;
@@ -834,6 +842,22 @@
       <span>{{ _('Trades') }} {{ nt.trades if nt.trades is defined else 0 }}</span>
       <span>{{ _('Win Rate') }} {% if nt.win_rate is defined and nt.win_rate is not none %}{{ nt.win_rate }}%{% else %}—{% endif %}</span>
     </div>
+
+    {% if can_manage %}
+    <div class="actions" style="margin:0 0 12px">
+      <form method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="display:inline">
+        <input type="hidden" name="action" value="discovery_run">
+        <input type="hidden" name="create_orders" value="0">
+        <button class="btn primary" type="submit">{{ _('Harvest + Analyze only') }}</button>
+      </form>
+      <form method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="display:inline">
+        <input type="hidden" name="action" value="discovery_run">
+        <input type="hidden" name="create_orders" value="1">
+        <button class="btn" type="submit">{{ _('Run AI Discovery + Auto Orders') }}</button>
+      </form>
+      <span class="hint" style="align-self:center">{{ _('Refreshes Broad + Official Discovery (not AI Candidates).') }}</span>
+    </div>
+    {% endif %}
 
     <div class="disc-layer-tabs">
       <a class="tab {% if layer == 'broad' %}active{% endif %}"

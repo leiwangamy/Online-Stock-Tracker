@@ -862,12 +862,15 @@ def refresh_all_prices():
         flash(
             ngettext_format(
                 "All pools refreshed: ok {ok} / errors {errors} (universe {universe}) · "
-                "Watchlist ok {watchlist_ok} / errors {watchlist_errors}",
+                "Watchlist ok {watchlist_ok} / errors {watchlist_errors} · "
+                "Research Strong {strong} · Rising {rising}",
                 ok=result.get("ok"),
                 errors=result.get("errors"),
                 universe=result.get("universe"),
                 watchlist_ok=result.get("watchlist_ok"),
                 watchlist_errors=result.get("watchlist_errors"),
+                strong=result.get("strong_active", "—"),
+                rising=result.get("rising_count", "—"),
             ),
             "ok",
         )
@@ -1087,6 +1090,18 @@ def _pools_label(row: dict) -> str:
 def _enrich(row: dict) -> dict:
     row = dict(row)
     row["pools"] = _pools_label(row)
+    for _k in (
+        "name",
+        "price",
+        "change_pct",
+        "range_63d_pos",
+        "target_1y",
+        "sma",
+        "dist_pct",
+        "up_days_5",
+        "return_5d_pct",
+    ):
+        row.setdefault(_k, None)
     return row
 
 
@@ -2788,6 +2803,30 @@ def strong_stock_monitor():
             except Exception:
                 for r in active:
                     r.setdefault("knife", None)
+            try:
+                from rising_score import attach_rising_score
+
+                attach_rising_score(active, ensure_bench=False)
+            except Exception:
+                for r in active:
+                    r.setdefault("rising", None)
+            if tab == "rising_now":
+                # Rank by Rising Score (strength), then 5D return.
+                active.sort(
+                    key=lambda r: (
+                        -(
+                            (r.get("rising") or {}).get("score")
+                            if (r.get("rising") or {}).get("score") is not None
+                            else -1
+                        ),
+                        -(
+                            r.get("return_5d_pct")
+                            if r.get("return_5d_pct") is not None
+                            else float("-inf")
+                        ),
+                        r.get("ticker") or "",
+                    )
+                )
 
     strong_tab = tab if tab in ("daily", "ranking", "watchlist") else "meta"
     try:

@@ -25,12 +25,154 @@ TREND_FAST = 63
 TREND_SLOW = 252
 TREND_SLOPE_LOOKBACK = 21
 
+# Yahoo sometimes leaves Close on a mixed pre/post-split scale (e.g. MNST 2026-08-11).
+# Flag when SMA window still looks corrupted after repair.
+DATA_ERROR_NOTE_PREFIX = "DATA ERROR"
+# Max High/Low ratio inside the SMA window before we treat the series as bad scale.
+_SMA_WINDOW_MAX_SPAN = 1.65
+
 
 def _sma(series: pd.Series, period: int) -> float | None:
     clean = series.dropna()
     if len(clean) < period:
         return None
     return float(clean.iloc[-period:].mean())
+
+
+def apply_yahoo_split_factors(
+    closes: pd.Series, splits: pd.Series | None
+) -> pd.Series:
+    """
+    Re-base raw Close onto the latest share scale using Yahoo Stock Splits.
+    Walk newest → oldest; on a split day, subsequent (older) bars are divided
+    by the cumulative split factor.
+    """
+    out = closes.astype(float).copy()
+    if splits is None or len(splits) == 0:
+        return out
+    sp = splits.reindex(out.index).fillna(0.0).astype(float)
+    factor = 1.0
+    vals = out.to_numpy(dtype=float, copy=True)
+    for i in range(len(vals) - 1, -1, -1):
+        vals[i] = vals[i] / factor
+        s = float(sp.iloc[i] or 0.0)
+        if s > 0.0 and abs(s - 1.0) > 1e-9:
+            factor *= s
+    return pd.Series(vals, index=out.index, name=out.name)
+
+
+def repair_close_scale_jumps(closes: pd.Series) -> tuple[pd.Series, int]:
+    """
+    Fix residual ~2×/3×/4× day-to-day jumps left when Yahoo partially adjusts
+    some bars but not others. Walk newest → oldest so the current price scale wins.
+    """
+    if closes is None or len(closes) == 0:
+        return closes, 0
+    vals = closes.astype(float).to_numpy(copy=True)
+    fixes = 0
+    for i in range(len(vals) - 2, -1, -1):
+        newer = vals[i + 1]
+        cur = vals[i]
+        if newer <= 0 or cur <= 0 or not (newer == newer and cur == cur):
+            continue
+        r = cur / newer
+        if 1.75 <= r <= 2.4:
+            vals[i] = cur / 2.0
+            fixes += 1
+        elif 1.75 <= (1.0 / r) <= 2.4:
+            vals[i] = cur * 2.0
+            fixes += 1
+        elif 2.7 <= r <= 3.4:
+            vals[i] = cur / 3.0
+            fixes += 1
+        elif 2.7 <= (1.0 / r) <= 3.4:
+            vals[i] = cur * 3.0
+            fixes += 1
+        elif 3.6 <= r <= 4.5:
+            vals[i] = cur / 4.0
+            fixes += 1
+        elif 3.6 <= (1.0 / r) <= 4.5:
+            vals[i] = cur * 4.0
+            fixes += 1
+    return pd.Series(vals, index=closes.index, name=closes.name), fixes
+
+
+def assess_sma_window_quality(
+    closes: pd.Series, period: int
+) -> dict[str, Any]:
+    """
+    SMA of the last `period` closes must lie inside that window's High/Low.
+    A very wide High/Low span usually means mixed pre/post-split scales.
+    """
+    clean = closes.dropna()
+    if len(clean) < period:
+        return {
+            "ok": False,
+            "reason": "insufficient_bars",
+            "sma": None,
+            "low": None,
+            "high": None,
+            "span_ratio": None,
+        }
+    window = clean.iloc[-period:]
+    lo = float(window.min())
+    hi = float(window.max())
+    sma = float(window.mean())
+    span = (hi / lo) if lo > 0 else float("inf")
+    inside = (lo - 1e-6) <= sma <= (hi + 1e-6)
+    # "Far outside" High/Low, or impossible SMA, or split-scale mix.
+    if not inside:
+        reason = "sma_outside_high_low"
+        ok = False
+    elif span > _SMA_WINDOW_MAX_SPAN:
+        reason = "window_span_too_wide"
+        ok = False
+    else:
+        reason = "ok"
+        ok = True
+    return {
+        "ok": ok,
+        "reason": reason,
+        "sma": sma,
+        "low": lo,
+        "high": hi,
+        "span_ratio": round(span, 4) if span != float("inf") else None,
+    }
+
+
+def is_data_quality_error(row: dict[str, Any] | None) -> bool:
+    if not row:
+        return False
+    note = str(row.get("ai_note") or "")
+    return note.upper().startswith(DATA_ERROR_NOTE_PREFIX)
+
+
+def load_yahoo_daily_closes(
+    ticker: str,
+    *,
+    period: str = "2y",
+) -> tuple[pd.Series | None, pd.DataFrame | None, dict[str, Any]]:
+    """
+    Yahoo daily Close on the *current* share scale.
+
+    Uses auto_adjust=False + manual Stock Splits, then jump repair.
+    (auto_adjust=True alone is not reliable around some recent splits, e.g. MNST.)
+    """
+    meta: dict[str, Any] = {"jump_fixes": 0, "quality": None}
+    try:
+        t = yf.Ticker(ticker)
+        hist = t.history(period=period, auto_adjust=False, actions=True)
+    except Exception:
+        return None, None, meta
+    if hist is None or hist.empty or "Close" not in hist.columns:
+        return None, None, meta
+    closes = hist["Close"].dropna().astype(float)
+    splits = hist["Stock Splits"] if "Stock Splits" in hist.columns else None
+    closes = apply_yahoo_split_factors(closes, splits)
+    closes, fixes = repair_close_scale_jumps(closes)
+    closes = closes.dropna()
+    meta["jump_fixes"] = fixes
+    return closes, hist, meta
 
 
 # Window for "average daily move" (typical daily volatility), in trading days.
@@ -455,21 +597,38 @@ def fetch_metrics_for_ticker(
 ) -> dict[str, Any] | None:
     meta = meta or {}
     try:
-        t = yf.Ticker(ticker)
-        # 2y gives enough bars for SMA252 and its slope (needs >252 sessions).
-        hist = t.history(period="2y", auto_adjust=True)
-        if hist is None or hist.empty or "Close" not in hist:
+        closes, hist, load_meta = load_yahoo_daily_closes(ticker, period="2y")
+        if closes is None or hist is None or closes.empty:
             return None
-        closes = hist["Close"]
         price = float(closes.iloc[-1])
-        sma = _sma(closes, sma_period)
-        dist_pct = None if sma is None or sma == 0 else round((price / sma - 1) * 100, 2)
+        quality = assess_sma_window_quality(closes, sma_period)
+        load_meta["quality"] = quality
+        ai_note = None
+        if not quality["ok"]:
+            # Guard: do not feed corrupted SMA / Dist into Oversold / AI Score / trading.
+            ai_note = (
+                f"{DATA_ERROR_NOTE_PREFIX}: SMA{sma_period} vs recent High/Low "
+                f"({quality.get('reason')}; "
+                f"low={quality.get('low')}, high={quality.get('high')}, "
+                f"sma={None if quality.get('sma') is None else round(float(quality['sma']), 2)}, "
+                f"span={quality.get('span_ratio')})"
+            )
+            sma = None
+            dist_pct = None
+        else:
+            sma = _sma(closes, sma_period)
+            dist_pct = (
+                None if sma is None or sma == 0 else round((price / sma - 1) * 100, 2)
+            )
         rebound = _rebound_pct(closes, rebound_lookback)
         change_pct = _change_pct(closes)
         avg_move_pct = _avg_daily_move(closes)
         range_low, range_high, range_pos = _range_63d(closes)
         trend = _trend(closes)
-        avg_vol_20d, rvol = _volume_stats(hist["Volume"]) if "Volume" in hist else (None, None)
+        avg_vol_20d, rvol = (
+            _volume_stats(hist["Volume"]) if "Volume" in hist.columns else (None, None)
+        )
+        t = yf.Ticker(ticker)
         market_cap = _market_cap(t)
         earnings_date = _next_earnings_date(t)
         target_1y = _target_1y(t)
@@ -494,7 +653,7 @@ def fetch_metrics_for_ticker(
             "sma_period": sma_period,
             "earnings_date": earnings_date,
             "target_1y": target_1y,
-            "ai_note": None,  # reserved
+            "ai_note": ai_note,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
     except Exception:
@@ -1724,6 +1883,19 @@ def compute_ai_score(row: dict[str, Any]) -> dict[str, Any]:
 
     Uses public MOS T (analyst_target_proxy) only — never Admin Est.Value / real MOS.
     """
+    if is_data_quality_error(row):
+        return {
+            "final": None,
+            "opp": 0,
+            "risk": 0,
+            "parts": {},
+            "pen_fin_news": 0,
+            "pen_earnings": 0,
+            "earnings_days": None,
+            "detail": str(row.get("ai_note") or DATA_ERROR_NOTE_PREFIX),
+            "data_error": True,
+        }
+
     fund = row.get("fund")
     news = row.get("news")
 

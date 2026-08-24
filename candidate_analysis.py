@@ -245,6 +245,18 @@ def build_candidate_analysis(
     for t in tickers:
         base = dict(by_ticker[t])
         base["ticker"] = t
+        # Strong-only names may lack a dashboard_cache row — keep template fields defined.
+        for _k in (
+            "name",
+            "price",
+            "change_pct",
+            "range_63d_pos",
+            "target_1y",
+            "sma",
+            "dist_pct",
+            "pools",
+        ):
+            base.setdefault(_k, None)
         base["pools"] = _pools_label(base)
 
         in_oversold = t in oversold_s

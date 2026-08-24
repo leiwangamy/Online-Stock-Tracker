@@ -253,6 +253,46 @@ ZH: dict[str, str] = {
         "Knife Risk ≥ 45 会禁止 AI 自动交易 / 创建纸上订单（门槛可配置）。Watchlist 与研究中心仍显示该股。AI Score 不能覆盖此规则。",
     "Not an oversold / price-location score. Does not use 63D Position, Dist. from SMA, Financial, or News. Hover Knife for component breakdown.":
         "不是超卖 / 价格位置分数。不使用 63日位置、距 SMA 距离、财报或新闻。悬停 Knife 可看分项明细。",
+    "Rising Score (0–100) — independent of Knife Risk & AI Score":
+        "Rising Score（0–100）— 独立于 Knife Risk 与 AI Score",
+    "Rising Now entry (weak filter only):":
+        "Rising Now 入选（故意放宽）：",
+    "Up Days ≥ 3/5 · 5D Return ≥ +3%. Means “currently rising” — not how strong the rise is.":
+        "上涨日 ≥ 3/5 · 5日涨幅 ≥ +3%。只表示「正在上涨」，不表示上涨有多强。",
+    "Upside speed":
+        "上涨速度",
+    "light 5D/3D rise, consecutive up days, upside acceleration (5D already used for entry)":
+        "轻度 5日/3日涨幅、连续上涨日、上行加速（5日已用于入选，此处权重较轻）",
+    "Relative strength":
+        "相对强势",
+    "5D vs SPY (~10) + sector ETF (~8)":
+        "5日相对 SPY（约10）+ 行业 ETF（约8）",
+    "Uptrend persistence":
+        "上涨趋势持续性",
+    "10D / 20D log-price slope still rising (primary engine)":
+        "10日/20日对数价格斜率仍在上行（主要引擎）",
+    "Strong Up Count 20D":
+        "20日强势上涨日数",
+    "days with daily return ≥ +1.5%":
+        "单日涨幅 ≥ +1.5% 的交易日数",
+    "higher position in 63D range → higher Rising Score":
+        "63日区间位置越高 → Rising Score 越高",
+    "Independence:":
+        "独立性：",
+    "Rising Score ≠ 100 − Knife Risk. Same stock can be Rising 85 / Knife 15 (stable uptrend) or Rising 85 / Knife 70 (strong but volatile). Uses the same local daily_bars history as Knife — no separate download.":
+        "Rising Score ≠ 100 − Knife Risk。同一只股票可以是 Rising 85 / Knife 15（稳健上涨），也可以是 Rising 85 / Knife 70（强但波动大）。与 Knife 共用本地 daily_bars，不另下历史。",
+    "Does not remove Knife BLOCK / WATCH / PASS. High Rising Score can still be AUTO BLOCKED by Knife Risk. Shown on Research → Rising Now (sortable); hover Rising for component breakdown.":
+        "不取消 Knife 的 BLOCK / WATCH / PASS。高 Rising Score 仍可能因 Knife Risk 被自动拦截。显示于 Research → Rising Now（可排序）；悬停 Rising 可看分项。",
+    "Up Days ≥ 3/5 · 5D Return ≥ +3% (weak entry only). Rising Score 0–100 then ranks uptrend strength/persistence (Speed 17 · Rel 18 · 10D/20D Trend 35 · Strong Up 20D 12 · 63D Pos 18). Independent of Knife — not 100−Knife. High Rising can still be Knife-BLOCKED. Research only; no retention; not a Buy signal.":
+        "上涨日 ≥ 3/5 · 5日涨幅 ≥ +3%（入选故意放宽）。随后 Rising Score 0–100 衡量上涨强度/持续性（速度17 · 相对18 · 10/20日趋势35 · 20日强涨日12 · 63日位置18）。独立于 Knife，不是 100−Knife。高 Rising 仍可能被 Knife 拦截。仅研究用；无留存；非买入信号。",
+    "Rising Score":
+        "Rising Score",
+    "Weak entry filter only. Rising Score ranks how strong / persistent the rise is (independent of Knife Risk).":
+        "入选条件故意放宽。Rising Score 衡量上涨强度与持续性（独立于 Knife Risk）。",
+    "Rising Score 0–100 — strength & persistence of the uptrend (not 100−Knife).":
+        "Rising Score 0–100 — 上涨强度与持续性（不是 100−Knife）。",
+    "Knife Risk — falling speed + relative weakness. Independent of Rising Score.":
+        "Knife Risk — 下跌速度与相对弱势。独立于 Rising Score。",
     "Pool": "所属股池",
     "No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)":
         "暂无数据。（超卖/强势回调需先到 Market Dashboard 刷新行情；我的自选/临时会实时抓取。）",
@@ -637,6 +677,8 @@ ZH: dict[str, str] = {
         "运行 AI Discovery + 自动下单",
     "Harvest + Analyze only":
         "仅采集 + 分析",
+    "Refreshes Broad + Official Discovery (not AI Candidates).":
+        "刷新 Broad + Official Discovery（不是 AI Candidates）。",
     "Create Discovery Orders":
         "创建 Discovery 订单",
     "Major positive event summary (contract / FDA / guidance…)":
@@ -937,6 +979,11 @@ ZH: dict[str, str] = {
         '刷新行情失败：{exc}',
     'All pools refreshed: ok {ok} / errors {errors} (universe {universe}) · Watchlist ok {watchlist_ok} / errors {watchlist_errors}':
         '全部股池行情已刷新：成功 {ok} / 失败 {errors}（共 {universe} 只）· Watchlist 成功 {watchlist_ok} / 失败 {watchlist_errors}',
+    'All pools refreshed: ok {ok} / errors {errors} (universe {universe}) · '
+    'Watchlist ok {watchlist_ok} / errors {watchlist_errors} · '
+    'Research Strong {strong} · Rising {rising}':
+        '全部股池行情已刷新：成功 {ok} / 失败 {errors}（共 {universe} 只）· Watchlist 成功 {watchlist_ok} / 失败 {watchlist_errors} · '
+        'Research Strong {strong} · Rising {rising}',
     'All pools / Watchlist refresh failed: {exc}':
         '全部股池 / Watchlist 刷新失败：{exc}',
     'Saved: SMA={sma}, rebound lookback={rebound}. Auto: universe weekly {weekday} {uh:02d}:{um:02d} PT; prices weekdays {ph:02d}:{pm:02d} PT after US close. Restart app for in-app schedule; Windows tasks use install-time values.':

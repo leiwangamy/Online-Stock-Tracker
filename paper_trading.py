@@ -543,6 +543,7 @@ def _score_universe_rows() -> list[dict[str, Any]]:
         fund_qualifies_for_news,
         get_fund_cached_only,
         get_news_cached_only,
+        is_data_quality_error,
         make_news_skipped,
     )
 
@@ -554,6 +555,8 @@ def _score_universe_rows() -> list[dict[str, Any]]:
         for raw in rows:
             t = (raw.get("ticker") or "").upper()
             if not t:
+                continue
+            if is_data_quality_error(raw):
                 continue
             membership.setdefault(t, set()).add(source)
             if t not in by_ticker:
@@ -590,6 +593,8 @@ def _score_universe_rows() -> list[dict[str, Any]]:
         t = (r.get("ticker") or "").upper()
         if not t or r.get("price") is None:
             continue
+        if is_data_quality_error(r):
+            continue
         f = fund_map.get(t)
         r["fund"] = f
         if fund_qualifies_for_news(f):
@@ -598,6 +603,8 @@ def _score_universe_rows() -> list[dict[str, Any]]:
             r["news"] = make_news_skipped()
         r.update(compute_target_proxy_mos(r.get("price"), r.get("target_1y")))
         ai = compute_ai_score(r)
+        if ai.get("data_error") or ai.get("final") is None:
+            continue
         r["ai"] = ai
         r["ai_score"] = float(ai.get("final") or 0)
         r["is_priority"] = 1 if t in priority else 0

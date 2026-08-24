@@ -43,6 +43,12 @@
     padding: 0;
     max-height: 72vh;
   }
+  @media (max-width: 768px), (pointer: coarse) {
+    .panel.wl-panel {
+      max-height: none !important;
+      overflow: visible !important;
+    }
+  }
   .panel.wl-panel > table { margin: 0; }
   table.data {
     width: 100%;
@@ -193,24 +199,33 @@
   .knife-badge.high { color: #9a3412; background: #ffedd5; border-color: #fdba74; }
   .knife-badge.knife { color: #991b1b; background: #fee2e2; border-color: #f87171; }
   .knife-block {
-    display: inline-block;
-    margin-top: 2px;
-    font-size: 0.65rem;
+    font-size: 0.72rem;
+    color: #b91c1c;
     font-weight: 600;
-    color: #64748b;
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    border-radius: 999px;
-    padding: 0 6px;
-    line-height: 1.4;
+    margin-top: 2px;
   }
+  .rising-badge {
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid #86efac;
+    color: #166534;
+    background: #dcfce7;
+    white-space: nowrap;
+  }
+  .rising-badge.mild { color: #64748b; background: #f1f5f9; border-color: #cbd5e1; }
+  .rising-badge.firm { color: #1d4ed8; background: #dbeafe; border-color: #93c5fd; }
+  .rising-badge.strong { color: #166534; background: #dcfce7; border-color: #86efac; }
+  .rising-badge.hot { color: #9a3412; background: #ffedd5; border-color: #fdba74; }
   #ca-table .news.skipped { color: #94a3b8; font-weight: 600; font-style: italic; }
   table.data .pools { color: var(--muted); font-size: 0.82rem; }
 </style>
 {% endblock %}
 
 {% macro money(v) -%}
-  {%- if v is none -%}—{%- else -%}${{ '%.2f'|format(v) }}{%- endif -%}
+  {%- if v is none or v is undefined -%}—{%- else -%}${{ '%.2f'|format(v) }}{%- endif -%}
 {%- endmacro %}
 
 {% block content %}
@@ -241,7 +256,7 @@
       <p><strong>{{ _('Daily Strong Stocks') }}:</strong> {{ _('Stocks meeting the Strong Day Position threshold that day — research candidates for monitoring, not immediate Buy signals. Column lengths differ by day.') }}</p>
       <p><strong>{{ _('COUNT20 Ranking') }}:</strong> {{ _('Historical frequency over the latest 20 trading days. Research ranking only; not a Buy list. Current Position may be below the Strong Day threshold.') }}</p>
       <p><strong>{{ _('Strong Watchlist') }}:</strong> {{ _('COUNT ≥ threshold qualifies; retain N trading days after last qualify. For monitoring pullbacks — not automatic Buy. Renew resets retention.') }}</p>
-      <p><strong>{{ _('Rising Now') }}:</strong> {{ _('Up Days ≥ 3/5 · 5D Return ≥ +3%. Short-term momentum research group; not a Buy signal. No retention.') }}</p>
+      <p><strong>{{ _('Rising Now') }}:</strong> {{ _('Up Days ≥ 3/5 · 5D Return ≥ +3% (weak entry only). Rising Score 0–100 then ranks uptrend strength/persistence (Speed 17 · Rel 18 · 10D/20D Trend 35 · Strong Up 20D 12 · 63D Pos 18). Independent of Knife — not 100−Knife. High Rising can still be Knife-BLOCKED. Research only; no retention; not a Buy signal.') }}</p>
       <p><strong>{{ _('Multi-Signal') }}:</strong> {{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Overlap research screen only — not a Buy signal. Strong is a separate indicator.') }}</p>
       <p>{{ _('Workflow: Find strong stocks → Monitor → Wait for pullback → Reassess → Consider entry. Signal ≠ research decision ≠ trade decision. Nothing auto-selects for AI Trading.') }}</p>
     </div>
@@ -551,7 +566,7 @@
   {# ── Tab 4: Rising Now ── #}
   {% elif tab == 'rising_now' %}
     <div class="hero-line">{{ data.rising_headline or (_('Rising Now') ~ ': ' ~ (data.rising_rows|length)) }}</div>
-    <p class="hint">{{ data.rising_rules or _('Up Days ≥ 3/5 · 5D Return ≥ +3%') }} · {{ _('Dynamic daily group; no retention. Independent of Strong Day / COUNT20.') }}</p>
+    <p class="hint">{{ data.rising_rules or _('Up Days ≥ 3/5 · 5D Return ≥ +3%') }} · {{ _('Weak entry filter only. Rising Score ranks how strong / persistent the rise is (independent of Knife Risk).') }}</p>
     <div class="panel wl-panel">
       {% if not data.rising_rows %}
         <p class="meta" style="padding:12px">{{ _('No Rising Now stocks under the current rules.') }}</p>
@@ -565,7 +580,11 @@
             <th class="sortable num" data-col="3" data-type="num">{{ _('Up Days 5D') }}</th>
             <th class="sortable num" data-col="4" data-type="num">{{ _('5D Return') }}</th>
             <th class="sortable num" data-col="5" data-type="num">{{ _('63D Position') }}</th>
-            <th class="sortable num" data-col="6" data-type="num">AI</th>
+            <th class="sortable num" data-col="6" data-type="num"
+                title="{{ _('Rising Score 0–100 — strength & persistence of the uptrend (not 100−Knife).') }}">{{ _('Rising Score') }}</th>
+            <th class="sortable num" data-col="7" data-type="num"
+                title="{{ _('Knife Risk — falling speed + relative weakness. Independent of Rising Score.') }}">{{ _('Knife Risk') }}</th>
+            <th class="sortable num" data-col="8" data-type="num">AI</th>
           </tr>
         </thead>
         <tbody>
@@ -575,20 +594,43 @@
               <span class="sym">{{ row.ticker }}</span>
               {% if row.name %}<div class="name name-sub">{{ row.name }}</div>{% endif %}
             </td>
-            <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">{{ money(row.price) }}</td>
-            <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
-                data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
-              {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+            <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">{{ money(row.get('price')) }}</td>
+            {% set chg = row.get('change_pct') %}
+            <td class="num {% if chg is not none and chg < 0 %}down{% elif chg is not none and chg > 0 %}up{% endif %}"
+                data-sort="{{ chg if chg is not none else '' }}">
+              {% if chg is not none %}{{ '%+.2f'|format(chg) }}%{% else %}—{% endif %}
             </td>
             <td class="num" data-sort="{{ row.up_days_5 if row.up_days_5 is not none else '' }}">
               {% if row.up_days_5 is not none %}{{ row.up_days_5 }}/5{% else %}—{% endif %}
             </td>
-            <td class="num {% if row.return_5d_pct is not none and row.return_5d_pct < 0 %}down{% elif row.return_5d_pct is not none and row.return_5d_pct > 0 %}up{% endif %}"
-                data-sort="{{ row.return_5d_pct if row.return_5d_pct is not none else '' }}">
-              {% if row.return_5d_pct is not none %}{{ '%+.2f'|format(row.return_5d_pct) }}%{% else %}—{% endif %}
+            {% set r5 = row.get('return_5d_pct') %}
+            <td class="num {% if r5 is not none and r5 < 0 %}down{% elif r5 is not none and r5 > 0 %}up{% endif %}"
+                data-sort="{{ r5 if r5 is not none else '' }}">
+              {% if r5 is not none %}{{ '%+.2f'|format(r5) }}%{% else %}—{% endif %}
             </td>
-            <td class="num" data-sort="{{ row.range_63d_pos if row.range_63d_pos is not none else '' }}">
-              {% if row.range_63d_pos is not none %}{{ '%.1f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}
+            {% set pos63 = row.get('range_63d_pos') %}
+            <td class="num" data-sort="{{ pos63 if pos63 is not none else '' }}">
+              {% if pos63 is not none %}{{ '%.1f'|format(pos63) }}%{% else %}—{% endif %}
+            </td>
+            {% set rs = row.rising %}
+            <td class="num" data-sort="{{ rs.score if rs and rs.score is not none else '' }}"
+                {% if rs and rs.detail %}title="{{ rs.detail }}"{% endif %}>
+              {% if rs and rs.score is not none %}
+                {% set rcls = 'hot' if rs.level == 'HOT' else ('strong' if rs.level == 'STRONG' else ('firm' if rs.level == 'FIRM' else 'mild')) %}
+                <span class="rising-badge {{ rcls }}">{{ rs.score }}{% if rs.level %} {{ rs.level }}{% endif %}</span>
+              {% else %}—{% endif %}
+            </td>
+            {% set k = row.knife %}
+            <td class="num" data-sort="{{ k.score if k and k.score is not none else '' }}"
+                {% if k and k.detail %}title="{{ k.detail }}"{% endif %}>
+              {% if k and k.score is not none %}
+                {% set kcls = 'knife' if k.level == 'KNIFE' else ('high' if k.level == 'HIGH' else ('watch' if k.level == 'WATCH' else 'low')) %}
+                <span class="knife-badge {{ kcls }}">
+                  {% if k.level == 'KNIFE' %}🔴{% elif k.level == 'HIGH' %}🟠{% elif k.level == 'WATCH' %}🟡{% else %}🟢{% endif %}
+                  {{ k.score }} {{ k.level }}
+                </span>
+                {% if k.auto_blocked %}<div class="knife-block">🚫 {{ _('Blocked') }}</div>{% endif %}
+              {% else %}—{% endif %}
             </td>
             <td class="num" data-sort="{{ row.ai.final if row.ai else '' }}">
               {% if row.ai %}{{ row.ai.final }}{% else %}—{% endif %}
@@ -657,10 +699,11 @@
               <span class="sym">{{ row.ticker }}</span>
               {% if row.name %}<div class="name name-sub">{{ row.name }}</div>{% endif %}
             </td>
-            <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">{{ money(row.price) }}</td>
-            <td class="num {% if row.change_pct is not none and row.change_pct < 0 %}down{% elif row.change_pct is not none and row.change_pct > 0 %}up{% endif %}"
-                data-sort="{{ row.change_pct if row.change_pct is not none else '' }}">
-              {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+            <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">{{ money(row.get('price')) }}</td>
+            {% set chg = row.get('change_pct') %}
+            <td class="num {% if chg is not none and chg < 0 %}down{% elif chg is not none and chg > 0 %}up{% endif %}"
+                data-sort="{{ chg if chg is not none else '' }}">
+              {% if chg is not none %}{{ '%+.2f'|format(chg) }}%{% else %}—{% endif %}
             </td>
             <td class="num" data-sort="{{ row.match_count or 0 }}"><strong>{{ row.match_label or ((row.match_count or 0)|string + '/4') }}</strong></td>
             <td data-sort="{{ 1 if row.in_oversold else 0 }}">{% if row.in_oversold %}✓{% else %}—{% endif %}</td>
@@ -671,12 +714,14 @@
             <td class="num" data-sort="{{ row.up_days_5 if row.up_days_5 is not none else '' }}">
               {% if row.up_days_5 is not none %}{{ row.up_days_5 }}/5{% else %}—{% endif %}
             </td>
-            <td class="num {% if row.return_5d_pct is not none and row.return_5d_pct < 0 %}down{% elif row.return_5d_pct is not none and row.return_5d_pct > 0 %}up{% endif %}"
-                data-sort="{{ row.return_5d_pct if row.return_5d_pct is not none else '' }}">
-              {% if row.return_5d_pct is not none %}{{ '%+.2f'|format(row.return_5d_pct) }}%{% else %}—{% endif %}
+            {% set r5 = row.get('return_5d_pct') %}
+            <td class="num {% if r5 is not none and r5 < 0 %}down{% elif r5 is not none and r5 > 0 %}up{% endif %}"
+                data-sort="{{ r5 if r5 is not none else '' }}">
+              {% if r5 is not none %}{{ '%+.2f'|format(r5) }}%{% else %}—{% endif %}
             </td>
-            <td class="num" data-sort="{{ row.range_63d_pos if row.range_63d_pos is not none else '' }}">
-              {% if row.range_63d_pos is not none %}{{ '%.1f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}
+            {% set pos63 = row.get('range_63d_pos') %}
+            <td class="num" data-sort="{{ pos63 if pos63 is not none else '' }}">
+              {% if pos63 is not none %}{{ '%.1f'|format(pos63) }}%{% else %}—{% endif %}
             </td>
             <td class="num" data-sort="{{ row.ai.final if row.ai else '' }}">
               {% if row.ai %}{{ row.ai.final }}{% else %}—{% endif %}

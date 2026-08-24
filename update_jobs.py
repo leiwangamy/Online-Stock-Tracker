@@ -3,8 +3,9 @@ Scheduled data refresh jobs for LeiBot / Online-Stock-Tracker.
 
 Defaults:
   - Weekly: rebuild company names / index membership (Wikipedia)
-  - Weekday after US close (~13:15 Pacific): refresh Yahoo dashboard cache
-    AND Watchlist tickers (incl. MANUAL names not in index pools)
+  - Weekday after US close (~13:15 Pacific): refresh Yahoo dashboard cache,
+    Watchlist tickers (incl. MANUAL), Paper Trading daily, and Research
+    (Strong Monitor + daily_bars for Rising Now / Multi-Signal)
 
 CLI:
   python update_jobs.py --universe
@@ -134,7 +135,10 @@ def job_refresh_watchlist(*, max_workers: int = 4) -> dict:
 
 
 def job_refresh_prices(*, max_workers: int = 4) -> dict:
-    """Weekday EOD: Yahoo → full dashboard cache, then Watchlist (incl. MANUAL)."""
+    """
+    Weekday EOD: Yahoo → full dashboard cache, Watchlist (incl. MANUAL),
+    Paper Trading daily, then Research (Strong + daily_bars used by Rising Now).
+    """
     log = _setup_logging()
     now_pt = datetime.now(PRICE_TZ)
     log.info("Starting dashboard price refresh (PT %s)…", now_pt.strftime("%Y-%m-%d %H:%M %Z"))
@@ -171,24 +175,30 @@ def job_refresh_prices(*, max_workers: int = 4) -> dict:
     except Exception:
         log.exception("Paper trading daily update failed (non-fatal)")
         result["paper_error"] = 1
-    # Strong Stock Monitor incremental (COUNT20 / membership) — non-fatal
+    # Research: Strong Monitor (+ daily_bars → Rising Now / Multi-Signal)
     try:
-        strong = job_strong_monitor_update()
-        result["strong_active"] = strong.get("active_members")
-        result["strong_as_of"] = strong.get("as_of")
+        research = job_research_refresh()
+        result["research"] = research
+        result["strong_active"] = research.get("active_members")
+        result["strong_as_of"] = research.get("as_of")
+        result["rising_count"] = research.get("rising_count")
     except Exception:
-        log.exception("Strong Stock Monitor update failed (non-fatal)")
-        result["strong_error"] = 1
+        log.exception("Research (Strong/Rising) refresh failed (non-fatal)")
+        result["research_error"] = 1
     return result
 
 
-def job_strong_monitor_update(*, full: bool = False) -> dict:
+def job_research_refresh(*, full: bool | None = None) -> dict:
     """
-    Strong Stock Monitor: incremental recent history (or full 1y backfill).
-    Reconstructs COUNT20 + membership; no Financials/News filters.
+    Refresh Research Center data used by Strong / Rising / Multi-Signal.
+
+    - Upserts daily_bars + Strong Day / COUNT20 / membership
+    - Rising Now is derived from daily_bars (no separate Yahoo pass)
+    - If Strong was never initialized, runs a full 1y backfill automatically
     """
     log = _setup_logging()
     from db import get_setting
+    from rising_now import list_rising_now
     from strong_stocks import (
         STRONG_HISTORY_PERIOD,
         STRONG_META_AS_OF,
@@ -196,24 +206,48 @@ def job_strong_monitor_update(*, full: bool = False) -> dict:
         run_incremental_update,
     )
 
-    if not full and not (get_setting(STRONG_META_AS_OF, "") or ""):
-        log.info("Strong monitor skipped — run --strong-backfill once first")
-        return {"skipped": 1, "active_members": 0, "as_of": ""}
+    as_of = (get_setting(STRONG_META_AS_OF, "") or "").strip()
+    do_full = bool(full) if full is not None else (not as_of)
+    if do_full and not as_of:
+        log.info(
+            "Research first-time init: full Strong backfill (%s) — also fills Rising bars",
+            STRONG_HISTORY_PERIOD,
+        )
+    elif do_full:
+        log.info("Research refresh: full Strong backfill (%s)…", STRONG_HISTORY_PERIOD)
+    else:
+        log.info("Research refresh: Strong incremental (3mo)…")
 
-    log.info("Starting Strong Stock Monitor update (full=%s)…", full)
-    if full:
+    if do_full:
         out = run_backfill(period=STRONG_HISTORY_PERIOD)
     else:
         out = run_incremental_update(period="3mo")
+
+    try:
+        rising_n = len(list_rising_now())
+    except Exception:
+        log.exception("Rising Now count failed after Research refresh")
+        rising_n = 0
+    out["rising_count"] = rising_n
     log.info(
-        "Strong done: active=%s as_of=%s ok=%s errors=%s elapsed=%ss",
+        "Research done: strong_active=%s as_of=%s rising=%s ok=%s errors=%s elapsed=%ss",
         out.get("active_members"),
         out.get("as_of"),
+        rising_n,
         out.get("ok"),
         out.get("errors"),
         out.get("elapsed_sec"),
     )
     return out
+
+
+def job_strong_monitor_update(*, full: bool = False) -> dict:
+    """
+    Strong Stock Monitor: incremental recent history (or full 1y backfill).
+    Reconstructs COUNT20 + membership; no Financials/News filters.
+    Also refreshes daily_bars used by Rising Now.
+    """
+    return job_research_refresh(full=True if full else None)
 
 
 def job_paper_trading_daily() -> dict:
@@ -256,14 +290,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--strong",
         action="store_true",
-        help="Strong Stock Monitor incremental update (3mo history → COUNT20 / membership)",
+        help="Research refresh: Strong incremental (or full 1y if never initialized); fills Rising bars",
     )
     parser.add_argument(
         "--strong-backfill",
         action="store_true",
-        help="Strong Stock Monitor full ~1y historical backfill",
+        help="Research full ~1y Strong backfill (also fills Rising daily_bars)",
     )
-    parser.add_argument("--all", action="store_true", help="Universe then prices (+ Watchlist)")
+    parser.add_argument(
+        "--research",
+        action="store_true",
+        help="Same as --strong: refresh Research (Strong + Rising bars)",
+    )
+    parser.add_argument("--all", action="store_true", help="Universe then prices (+ Watchlist + Research)")
     args = parser.parse_args(argv)
 
     if not (
@@ -273,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         or args.paper
         or args.strong
         or args.strong_backfill
+        or args.research
         or args.all
     ):
         parser.print_help()
@@ -291,8 +331,8 @@ def main(argv: list[str] | None = None) -> int:
             job_paper_trading_daily()
         if args.strong_backfill:
             job_strong_monitor_update(full=True)
-        elif args.strong and not (args.all or args.prices):
-            # --prices already includes strong incremental; standalone --strong for manual runs
+        elif (args.strong or args.research) and not (args.all or args.prices):
+            # --prices already includes Research; standalone --strong/--research for manual runs
             job_strong_monitor_update(full=False)
         log.info("Finished OK")
         return 0

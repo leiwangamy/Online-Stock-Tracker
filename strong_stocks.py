@@ -267,12 +267,15 @@ def _download_chunk(tickers: list[str], period: str) -> dict[str, pd.Series]:
     out: dict[str, pd.Series] = {}
     if not tickers:
         return out
+    # Prefer shared split-repaired closes (auto_adjust=True alone can mix scales).
+    from market_data import load_yahoo_daily_closes
+
     if len(tickers) == 1:
         t = tickers[0]
         try:
-            hist = yf.Ticker(t).history(period=period, auto_adjust=True)
-            if hist is not None and not hist.empty and "Close" in hist.columns:
-                out[t] = hist["Close"].dropna()
+            closes, _hist, _meta = load_yahoo_daily_closes(t, period=period)
+            if closes is not None and not closes.empty:
+                out[t] = closes
         except Exception as exc:
             log.warning("history failed %s: %s", t, exc)
         return out
@@ -282,21 +285,52 @@ def _download_chunk(tickers: list[str], period: str) -> dict[str, pd.Series]:
             tickers,
             period=period,
             group_by="ticker",
-            auto_adjust=True,
+            auto_adjust=False,
+            actions=True,
             threads=True,
             progress=False,
         )
     except Exception as exc:
         log.warning("download chunk failed (%s names): %s", len(tickers), exc)
+        # Fall back per-ticker repaired path.
+        for t in tickers:
+            try:
+                closes, _h, _m = load_yahoo_daily_closes(t, period=period)
+                if closes is not None and len(closes) >= RANGE_63D_LOOKBACK:
+                    out[t] = closes
+            except Exception:
+                pass
         return out
 
     if data is None or data.empty:
         return out
 
     multi = isinstance(data.columns, pd.MultiIndex)
+    from market_data import apply_yahoo_split_factors, repair_close_scale_jumps
+
     for t in tickers:
         series = _extract_close_from_download(data, t, multi=multi)
-        if series is not None and len(series) >= RANGE_63D_LOOKBACK:
+        if series is None or len(series) < RANGE_63D_LOOKBACK:
+            # Per-name repair fetch if batch extract failed / too short.
+            try:
+                closes, _h, _m = load_yahoo_daily_closes(t, period=period)
+                if closes is not None and len(closes) >= RANGE_63D_LOOKBACK:
+                    out[t] = closes
+            except Exception:
+                pass
+            continue
+        splits = None
+        try:
+            if multi and "Stock Splits" in data[t].columns:
+                splits = data[t]["Stock Splits"]
+            elif (not multi) and "Stock Splits" in data.columns:
+                splits = data["Stock Splits"]
+        except Exception:
+            splits = None
+        series = apply_yahoo_split_factors(series, splits)
+        series, _fixes = repair_close_scale_jumps(series)
+        series = series.dropna()
+        if len(series) >= RANGE_63D_LOOKBACK:
             out[t] = series
     return out
 

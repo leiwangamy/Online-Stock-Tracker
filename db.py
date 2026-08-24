@@ -875,6 +875,11 @@ _POOLS_SELECT = (
     "FROM dashboard_cache d LEFT JOIN universe u ON u.ticker = d.ticker"
 )
 
+# Exclude Yahoo scale / SMA corruption flags from research pools + auto trading.
+_DATA_OK_SQL = (
+    " AND (d.ai_note IS NULL OR UPPER(d.ai_note) NOT LIKE 'DATA ERROR%') "
+)
+
 
 def list_setup(threshold: float = -10.0) -> list[dict[str, Any]]:
     """
@@ -884,6 +889,7 @@ def list_setup(threshold: float = -10.0) -> list[dict[str, Any]]:
     """
     sql = (
         f"{_POOLS_SELECT} WHERE d.dist_pct IS NOT NULL AND d.dist_pct < ? "
+        f"{_DATA_OK_SQL}"
         f"ORDER BY {_TREND_RANK_SQL}, d.dist_pct ASC, d.ticker"
     )
     init_db()
@@ -901,6 +907,7 @@ def list_low_target_ratio(max_ratio: float = 0.8) -> list[dict[str, Any]]:
     sql = (
         f"{_POOLS_SELECT} WHERE d.price IS NOT NULL AND d.target_1y IS NOT NULL "
         "AND d.target_1y > 0 AND (d.price / d.target_1y) < ? "
+        f"{_DATA_OK_SQL}"
         "ORDER BY (d.price / d.target_1y) ASC, d.ticker"
     )
     init_db()
@@ -916,6 +923,7 @@ def list_low_63d_pos(max_pos: float = 25.0) -> list[dict[str, Any]]:
     """
     sql = (
         f"{_POOLS_SELECT} WHERE d.range_63d_pos IS NOT NULL AND d.range_63d_pos < ? "
+        f"{_DATA_OK_SQL}"
         "ORDER BY d.range_63d_pos ASC, d.ticker"
     )
     init_db()
