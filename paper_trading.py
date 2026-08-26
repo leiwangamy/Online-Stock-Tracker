@@ -2789,11 +2789,19 @@ def run_daily_update(*, refresh_candidates: bool = True) -> dict[str, Any]:
         try:
             ohlc = _fetch_daily_ohlc(tr["ticker"])
             if not ohlc:
-                # Fall back to dashboard cache close only (no stop check without OHLC).
-                from db import get_dashboard_by_tickers
+                # Prefer live Yahoo; dashboard cache may be stale for days.
+                px = _fetch_live_price(tr["ticker"])
+                if px is None:
+                    from db import get_dashboard_by_tickers
 
-                cached = get_dashboard_by_tickers([tr["ticker"]]).get(tr["ticker"].upper())
-                px = float(cached["price"]) if cached and cached.get("price") is not None else None
+                    cached = get_dashboard_by_tickers([tr["ticker"]]).get(
+                        tr["ticker"].upper()
+                    )
+                    px = (
+                        float(cached["price"])
+                        if cached and cached.get("price") is not None
+                        else None
+                    )
                 if px is None:
                     errors.append({"ticker": tr["ticker"], "error": "no_price"})
                     continue
@@ -2928,6 +2936,7 @@ def run_daily_update(*, refresh_candidates: bool = True) -> dict[str, Any]:
 def soft_mark_open_positions() -> dict[str, Any]:
     """
     Light mark-to-market for open paper trades (P&L only).
+    Always prefers live Yahoo price — dashboard cache can be hours/days stale.
     Does not run Stop/Take closes — those stay on the daily OHLC pass.
     """
     ensure_portfolio()
@@ -2935,12 +2944,16 @@ def soft_mark_open_positions() -> dict[str, Any]:
     if not opens:
         return {"marked": 0, "errors": []}
 
-    tickers = sorted({(t.get("ticker") or "").upper() for t in opens if t.get("ticker")})
     from db import get_dashboard_by_tickers
 
+    tickers = sorted({(t.get("ticker") or "").upper() for t in opens if t.get("ticker")})
     cached = get_dashboard_by_tickers(tickers)
     price_map: dict[str, float] = {}
     for tkr in tickers:
+        live = _fetch_live_price(tkr)
+        if live is not None:
+            price_map[tkr] = live
+            continue
         row = cached.get(tkr) or {}
         px = row.get("price")
         if px is not None:
@@ -2948,33 +2961,6 @@ def soft_mark_open_positions() -> dict[str, Any]:
                 price_map[tkr] = float(px)
             except (TypeError, ValueError):
                 pass
-    missing = [t for t in tickers if t not in price_map]
-    if missing:
-        try:
-            from db import get_setting as _gs
-            from market_data import fetch_metrics_for_ticker
-
-            sma_period = int(_gs("sma_period", 25) or 25)
-            rebound_lookback = int(_gs("rebound_lookback", sma_period) or sma_period)
-            if rebound_lookback < 5:
-                rebound_lookback = sma_period
-            for tkr in missing:
-                try:
-                    m = (
-                        fetch_metrics_for_ticker(
-                            tkr,
-                            sma_period=sma_period,
-                            rebound_lookback=rebound_lookback,
-                        )
-                        or {}
-                    )
-                    px = m.get("price")
-                    if px is not None:
-                        price_map[tkr] = float(px)
-                except Exception:
-                    log.exception("soft mark fetch failed for %s", tkr)
-        except Exception:
-            log.exception("soft mark Yahoo import failed")
 
     marked = 0
     errors: list[dict[str, Any]] = []
