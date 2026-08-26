@@ -2432,7 +2432,7 @@ def ai_trading():
                 else:
                     flash(
                         ngettext_format(
-                            "No paper orders created · skipped {s}. Blocked names did not pass.",
+                            "No paper orders created · skipped {s}. Need READY/STABILIZING (STALE ok; DATA ERROR blocked).",
                             s=len(skipped),
                         ),
                         "warning",

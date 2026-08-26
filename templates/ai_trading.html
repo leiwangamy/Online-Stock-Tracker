@@ -428,8 +428,8 @@
     </form>
     <form method="post" action="{{ url_for('ai_trading', tab='buy') }}" style="display:inline" class="js-lei-confirm-form"
           data-confirm-title="{{ _('AI TRADING') }}"
-          data-confirm-message="{{ _('Allocate paper orders from READY + STABILIZING (top→bottom ladder)? Settings stop/take & capital still apply. Simulated only.') }}"
-          data-confirm-ok="{{ _('AI TRADING') }}">
+          data-confirm-message="{{ _('SIMULATE') }}"
+          data-confirm-ok="{{ _('SIMULATE') }}">
       <input type="hidden" name="action" value="create_orders">
       <button class="btn primary" type="submit">{{ _('AI TRADING') }}</button>
     </form>

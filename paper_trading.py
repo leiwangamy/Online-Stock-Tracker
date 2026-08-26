@@ -1331,18 +1331,52 @@ def create_paper_orders_from_ai_buy(
 
     day = as_of_date or trading_day_pt()
     snap = build_ai_buy_snapshot(persist=True)
-    trade_rows = [
-        r
-        for r in (snap.get("rows") or [])
-        if (r.get("buy_status") or "").upper() in AI_BUY_TRADE_STATUSES
-        and not is_data_quality_error(r)
-        and not r.get("data_block")
-        and (r.get("data_quality_status") or "PASS") == "PASS"
-    ]
+    # Eligible = READY / STABILIZING timing. STALE_DATA is a warning, not a hard block.
+    # Hard blocks: data_block / corrupt-scale DATA ERROR only.
+    trade_rows = []
+    for r in snap.get("rows") or []:
+        status = (r.get("buy_status") or "").upper()
+        if status == "HOLD":
+            status = (r.get("timing_status") or "").upper()
+        if status not in AI_BUY_TRADE_STATUSES:
+            continue
+        if r.get("data_block") or is_data_quality_error(r):
+            continue
+        dq = (r.get("data_quality_status") or "PASS").upper()
+        if dq in ("ERROR", "INSUFFICIENT_DATA", "DATA_BLOCK"):
+            continue
+        trade_rows.append(r)
 
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     open_tickers = {t["ticker"].upper() for t in list_open_trades()}
+
+    # If dashboard prices are stale, refresh trade-row tickers once before sizing.
+    try:
+        stale = [
+            str(r.get("ticker") or "").upper()
+            for r in trade_rows
+            if (r.get("data_quality_status") or "").upper() == "STALE_DATA"
+            and r.get("ticker")
+        ]
+        if stale:
+            from market_data import fetch_metrics_for_ticker
+
+            for tkr in stale[:12]:
+                try:
+                    m = fetch_metrics_for_ticker(tkr) or {}
+                    px = m.get("price")
+                    if px is None:
+                        continue
+                    for r in trade_rows:
+                        if (r.get("ticker") or "").upper() == tkr:
+                            r["price"] = float(px)
+                            if m.get("dist_pct") is not None:
+                                r["dist_pct"] = m.get("dist_pct")
+                except Exception:
+                    log.exception("pre-buy price refresh failed for %s", tkr)
+    except Exception:
+        log.exception("pre-buy stale refresh failed")
 
     for i, r in enumerate(trade_rows):
         t = str(r.get("ticker") or "").upper()

@@ -1537,6 +1537,8 @@ ZH: dict[str, str] = {
         'AI 交易',
     'AI TRADING':
         'AI TRADING',
+    'SIMULATE':
+        'SIMULATE',
     'Allocate paper orders from READY (top→bottom ladder)? Settings stop/take & capital still apply. Simulated only.':
         '按 READY 从上到下阶梯配股建模拟单？仍使用设置中的止损/止盈与资金上限。仅模拟。',
     'Allocate paper orders from READY + STABILIZING (top→bottom ladder)? Settings stop/take & capital still apply. Simulated only.':
@@ -1851,6 +1853,8 @@ ZH: dict[str, str] = {
         '已创建模拟订单：{n} · 跳过 {s}',
     'No paper orders created · skipped {s}. Blocked names did not pass.':
         '未创建任何模拟订单 · 跳过 {s}。被拦截的标的未通过。',
+    'No paper orders created · skipped {s}. Need READY/STABILIZING (STALE ok; DATA ERROR blocked).':
+        '未创建任何模拟订单 · 跳过 {s}。需要 READY/STABILIZING（STALE 可用；DATA ERROR 拦截）。',
     'Blocked — insufficient cash (cannot open): {detail}':
         '已拦截 — 现金不足（不能开仓）：{detail}',
     'Blocked — trading limit reached (cannot open): {detail}':
