@@ -21,6 +21,7 @@ def _group_condition(group: str, alias: str = "") -> str | None:
     p = f"{alias}." if alias else ""
     return {
         "core": f"({p}in_sp500 = 1 OR {p}in_ndx100 = 1)",
+        "ndx100": f"{p}in_ndx100 = 1",
         "sp400": f"{p}in_sp400 = 1",
         "sp600": f"{p}in_sp600 = 1",
         "tsx": f"{p}in_tsx = 1",
@@ -365,6 +366,127 @@ def init_db() -> None:
                 last_qualified_date TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            -- Sector Rotation daily history (one row per sector per trading date).
+            CREATE TABLE IF NOT EXISTS sector_rotation_history (
+                as_of_date TEXT NOT NULL,
+                sector TEXT NOT NULL,
+                etf TEXT,
+                rank INTEGER,
+                previous_rank INTEGER,
+                rank_change INTEGER,
+                rotation_score INTEGER,
+                previous_score INTEGER,
+                score_change REAL,
+                momentum TEXT,
+                return_5d REAL,
+                return_20d REAL,
+                relative_strength REAL,
+                rising_pct REAL,
+                strong_pct REAL,
+                n_stocks INTEGER,
+                n_rising INTEGER,
+                n_strong INTEGER,
+                sma25_trend TEXT,
+                sma25_slope REAL,
+                status TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (as_of_date, sector)
+            );
+            CREATE INDEX IF NOT EXISTS idx_sector_rotation_sector
+                ON sector_rotation_history(sector, as_of_date);
+
+            -- AI SELECT / AI BUY architecture (long-term approved + daily buy snapshot).
+            CREATE TABLE IF NOT EXISTS ai_approved (
+                ticker TEXT PRIMARY KEY,
+                status TEXT NOT NULL DEFAULT 'APPROVED',
+                approved_at TEXT,
+                approved_price REAL,
+                sources_json TEXT,
+                core_score INTEGER,
+                sector TEXT,
+                industry TEXT,
+                knife_score INTEGER,
+                ai_quality TEXT,
+                ai_reason TEXT,
+                buy_status TEXT,
+                review_flag INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_select_candidates (
+                as_of_date TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                rank INTEGER,
+                core_score INTEGER,
+                sources_json TEXT,
+                sector TEXT,
+                industry TEXT,
+                price REAL,
+                knife_score INTEGER,
+                select_status TEXT NOT NULL DEFAULT 'CANDIDATE',
+                meta_json TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (as_of_date, ticker)
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_buy_snapshots (
+                as_of_date TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                core_score INTEGER,
+                buy_score INTEGER,
+                price_score INTEGER,
+                recovery_score INTEGER,
+                dist_pct REAL,
+                price_zone TEXT,
+                knife_score INTEGER,
+                high_block INTEGER NOT NULL DEFAULT 0,
+                knife_block INTEGER NOT NULL DEFAULT 0,
+                news_block INTEGER NOT NULL DEFAULT 0,
+                buy_allowed INTEGER NOT NULL DEFAULT 0,
+                buy_status TEXT,
+                in_my_watchlist INTEGER NOT NULL DEFAULT 0,
+                ai_approved INTEGER NOT NULL DEFAULT 0,
+                reason TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (as_of_date, ticker)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_buy_status
+                ON ai_buy_snapshots(as_of_date, buy_status);
+
+            -- Core Universe Filter (deterministic PASS/FAIL long-term qualification).
+            CREATE TABLE IF NOT EXISTS core_universe_runs (
+                as_of_date TEXT PRIMARY KEY,
+                built_at TEXT NOT NULL,
+                funnel_json TEXT,
+                thresholds_json TEXT,
+                qualified_count INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS core_universe_results (
+                as_of_date TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                name TEXT,
+                sector TEXT,
+                industry TEXT,
+                market_cap REAL,
+                industry_mcap_rank INTEGER,
+                industry_mcap_percentile REAL,
+                avg_dollar_volume REAL,
+                avg_daily_move_63d REAL,
+                revenue_growth_pct REAL,
+                return_126d REAL,
+                return_252d REAL,
+                rs_126d REAL,
+                rs_252d REAL,
+                qualified INTEGER NOT NULL DEFAULT 0,
+                qualification_path TEXT,
+                failure_reasons_json TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (as_of_date, ticker)
+            );
+            CREATE INDEX IF NOT EXISTS idx_core_universe_qualified
+                ON core_universe_results(as_of_date, qualified);
             """
         )
         # Migrate older databases that predate the S&P400 / S&P600 columns.

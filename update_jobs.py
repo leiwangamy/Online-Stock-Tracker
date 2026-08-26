@@ -229,6 +229,50 @@ def job_research_refresh(*, full: bool | None = None) -> dict:
         log.exception("Rising Now count failed after Research refresh")
         rising_n = 0
     out["rising_count"] = rising_n
+    try:
+        from sector_rotation import job_sector_rotation_update
+
+        rot = job_sector_rotation_update(force=False)
+        out["sector_rotation"] = rot
+        log.info(
+            "Sector Rotation: sectors=%s as_of=%s",
+            rot.get("sectors"),
+            rot.get("as_of"),
+        )
+    except Exception:
+        log.exception("Sector Rotation update failed after Research refresh")
+        out["sector_rotation"] = {"ok": False}
+
+    # Core Universe Filter (deterministic) + light AI BUY snapshot.
+    try:
+        from core_universe import run_core_universe_filter
+
+        core = run_core_universe_filter(persist=True)
+        out["core_universe_qualified"] = core.get("qualified_count", 0)
+        out["core_universe_funnel"] = core.get("funnel")
+        log.info(
+            "Core Universe Filter: qualified=%s funnel=%s",
+            out["core_universe_qualified"],
+            core.get("funnel"),
+        )
+    except Exception:
+        log.exception("Core Universe Filter failed after Research (non-fatal)")
+        out["core_universe_qualified"] = None
+    try:
+        from ai_buy import build_ai_buy_snapshot
+
+        buy = build_ai_buy_snapshot(persist=True)
+        out["ai_buy_universe"] = buy.get("universe_count", 0)
+        out["ai_buy_ready"] = (buy.get("counts") or {}).get("READY", 0)
+        log.info(
+            "AI BUY snapshot: universe=%s READY=%s",
+            out["ai_buy_universe"],
+            out["ai_buy_ready"],
+        )
+    except Exception:
+        log.exception("AI BUY refresh failed after Research (non-fatal)")
+        out["ai_buy_universe"] = None
+
     log.info(
         "Research done: strong_active=%s as_of=%s rising=%s ok=%s errors=%s elapsed=%ss",
         out.get("active_members"),

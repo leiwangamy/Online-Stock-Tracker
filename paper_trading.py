@@ -1311,6 +1311,125 @@ def create_paper_orders_from_candidates(
     return {"created": created, "skipped": skipped, "cash": cash, "invested": invested}
 
 
+# AI BUY statuses eligible for paper allocation / auto-replace after exits.
+AI_BUY_TRADE_STATUSES = frozenset({"READY", "STABILIZING"})
+
+
+def create_paper_orders_from_ai_buy(
+    *, as_of_date: str | None = None
+) -> dict[str, Any]:
+    """
+    Create simulated open positions from AI BUY READY + STABILIZING names.
+
+    Same ladder as legacy Create Paper Orders: ALLOC_LADDER top→bottom,
+    cash / trading-limit gates, Settings stop/take % (or Admin level overrides).
+    Does not place real brokerage orders.
+    """
+    from ai_buy import build_ai_buy_snapshot
+    from market_data import is_data_quality_error
+
+    day = as_of_date or trading_day_pt()
+    snap = build_ai_buy_snapshot(persist=True)
+    trade_rows = [
+        r
+        for r in (snap.get("rows") or [])
+        if (r.get("buy_status") or "").upper() in AI_BUY_TRADE_STATUSES
+        and not is_data_quality_error(r)
+        and not r.get("data_block")
+        and (r.get("data_quality_status") or "PASS") == "PASS"
+    ]
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    open_tickers = {t["ticker"].upper() for t in list_open_trades()}
+
+    for i, r in enumerate(trade_rows):
+        t = str(r.get("ticker") or "").upper()
+        if not t:
+            continue
+        target = ALLOC_LADDER[i] if i < len(ALLOC_LADDER) else 0.0
+        if t in open_tickers:
+            skipped.append({"ticker": t, "reason": "already_open"})
+            continue
+        if target <= 0:
+            skipped.append({"ticker": t, "reason": "no_allocation"})
+            continue
+        price = r.get("price")
+        try:
+            price_f = float(price) if price is not None else 0.0
+        except (TypeError, ValueError):
+            price_f = 0.0
+        if price_f <= 0:
+            skipped.append(
+                {"ticker": t, "reason": "no_allocation", "detail": "no price"}
+            )
+            continue
+
+        row = dict(r)
+        row["price"] = price_f
+        # Prefer buy_score as entry score; fall back to core/ai if present.
+        if row.get("ai_score") is None:
+            row["ai_score"] = row.get("buy_score")
+        src = row.get("sources")
+        if isinstance(src, (list, tuple)):
+            row["source_codes"] = "+".join(str(x) for x in src if x)
+        elif not row.get("source_codes"):
+            row["source_codes"] = "AI_BUY"
+
+        try:
+            out = _open_auto_replace_position(
+                row,
+                as_of_date=day,
+                target_usd=float(target),
+                rank_at_entry=i + 1,
+            )
+            out["via"] = "ai_buy"
+            out["buy_status"] = (r.get("buy_status") or "").upper()
+            created.append(out)
+            open_tickers.add(t)
+        except ValueError as e:
+            msg = str(e)
+            low = msg.lower()
+            if "insufficient cash" in low:
+                reason = "insufficient_cash"
+            elif "trading limit" in low:
+                reason = "trading_limit"
+            elif "stop" in low or "take" in low or "long" in low:
+                reason = "invalid_levels"
+            else:
+                reason = "no_allocation"
+            skipped.append({"ticker": t, "reason": reason, "detail": msg})
+
+    now = _utc_now_iso()
+    set_setting("paper_last_order_at", now)
+    port = ensure_portfolio()
+    cash = float(port["cash"])
+    invested = sum_open_invested()
+    try:
+        save_equity_snapshot(as_of_date=day)
+    except Exception:
+        log.exception("equity snapshot after ai_buy create_orders failed")
+    return {
+        "created": created,
+        "skipped": skipped,
+        "cash": cash,
+        "invested": invested,
+        "universe_count": snap.get("universe_count", 0),
+        "pool_count": snap.get("pool_count", 0),
+        "counts": snap.get("counts") or {},
+        "ready_count": sum(
+            1
+            for r in trade_rows
+            if (r.get("buy_status") or "").upper() == "READY"
+        ),
+        "stabilizing_count": sum(
+            1
+            for r in trade_rows
+            if (r.get("buy_status") or "").upper() == "STABILIZING"
+        ),
+    }
+
+
 def _ever_traded_tickers() -> set[str]:
     """Tickers that already appear in paper_trades (open or closed) this experiment."""
     init_db()
@@ -1441,9 +1560,9 @@ def auto_replace_exits_with_top_unused(
     as_of_date: str | None = None,
 ) -> dict[str, Any]:
     """
-    After Stop/Take exits: buy up to max_new names from the live AI ranking
-    that have never been used in this paper experiment (not in paper_trades).
-    Sizes each fill with the first ladder slot ($300) capped by cash / trading room.
+    After Stop/Take exits: buy up to max_new names from AI BUY
+    READY + STABILIZING (not currently open). Previously closed tickers may
+    re-enter if they qualify again — slots are refilled top→bottom.
     """
     n = max(0, int(max_new or 0))
     if n <= 0:
@@ -1460,19 +1579,27 @@ def auto_replace_exits_with_top_unused(
         return {"created": [], "skipped": [], "picks": [], "disabled": True}
 
     day = as_of_date or trading_day_pt()
-    # Keep Top-10 UI candidates fresh; pick replacements from full eligible rank.
-    try:
-        build_candidates(as_of_date=day, persist=True)
-    except Exception:
-        log.exception("candidate rebuild before auto-replace failed")
+    from ai_buy import build_ai_buy_snapshot
+    from market_data import is_data_quality_error
 
-    used = _ever_traded_tickers()
+    try:
+        snap = build_ai_buy_snapshot(persist=True)
+    except Exception:
+        log.exception("AI BUY rebuild before auto-replace failed")
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+
     open_tickers = {t["ticker"].upper() for t in list_open_trades()}
-    eligible = _ai_auto_eligible_ranked()
     pick_rows: list[dict[str, Any]] = []
-    for r in eligible:
+    for r in snap.get("rows") or []:
+        st = (r.get("buy_status") or "").upper()
+        if st not in AI_BUY_TRADE_STATUSES:
+            continue
+        if is_data_quality_error(r) or r.get("data_block"):
+            continue
+        if (r.get("data_quality_status") or "PASS") != "PASS":
+            continue
         t = str(r.get("ticker") or "").upper()
-        if not t or t in used or t in open_tickers:
+        if not t or t in open_tickers:
             continue
         try:
             if float(r.get("price") or 0) <= 0:
@@ -1485,11 +1612,10 @@ def auto_replace_exits_with_top_unused(
 
     if not pick_rows:
         log.info(
-            "Auto-replace: no unused eligible names (need=%s used=%s open=%s eligible=%s)",
+            "Auto-replace: no READY/STABILIZING names (need=%s open=%s alert=%s)",
             n,
-            len(used),
             len(open_tickers),
-            len(eligible),
+            snap.get("universe_count"),
         )
         return {"created": [], "skipped": [], "picks": [], "disabled": False}
 
@@ -1513,16 +1639,24 @@ def auto_replace_exits_with_top_unused(
                 }
             )
             break
+        row = dict(r)
+        if row.get("ai_score") is None:
+            row["ai_score"] = row.get("buy_score")
+        src = row.get("sources")
+        if isinstance(src, (list, tuple)):
+            row["source_codes"] = "+".join(str(x) for x in src if x)
+        elif not row.get("source_codes"):
+            row["source_codes"] = "AI_BUY"
         try:
-            created.append(
-                _open_auto_replace_position(
-                    r,
-                    as_of_date=day,
-                    target_usd=target,
-                    rank_at_entry=i + 1,
-                )
+            out = _open_auto_replace_position(
+                row,
+                as_of_date=day,
+                target_usd=target,
+                rank_at_entry=i + 1,
             )
-            used.add(t)
+            out["via"] = "ai_buy_auto_replace"
+            out["buy_status"] = (r.get("buy_status") or "").upper()
+            created.append(out)
             open_tickers.add(t)
         except Exception as exc:
             log.warning("Auto-replace skip %s: %s", t, exc)

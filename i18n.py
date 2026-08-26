@@ -28,10 +28,224 @@ ZH: dict[str, str] = {
     "Risk penalties: severe financial −0~15, volume dump −0~5, high vol/low liquidity −0~5, near earnings −0~15. News is not double-counted in risk (only ±5 News Score). Hover AI for breakdown. Green≥70 / yellow 40–69 / red <40. 63D Position and Admin-only Intrinsic Value / real MOS are excluded from AI Score V1.":
         "风险扣分：严重财务 −0~15、放量下跌 −0~5、高波动/低流动性 −0~5、临近财报 −0~15。新闻不在风险中重复扣分（仅 ±5 新闻得分）。悬停 AI 看明细。绿≥70 / 黄40–69 / 红<40。63日位置与管理员估值/真实 MOS 不计入 AI Score V1。",
     "Research": "研究中心",
+    "AI BUY": "AI 买入",
+    "AI Approved": "AI 批准池",
+    "AI SELECT": "AI 筛选",
+    "Core Universe": "核心宇宙",
+    "Nasdaq-100 Alerts": "纳斯达克100 提醒",
+    "Same rules as My Watchlist. Auto: 🟡 WATCH = 5% below SMA · 🟢 DEEP = 10% below SMA":
+        "规则与「我的自选」相同。自动：🟡 WATCH = SMA 下方 5% · 🟢 DEEP = SMA 下方 10%",
+    "Research zones only — never auto-buy. Manual alerts are stored per ticker (shared with My Watchlist if the same name appears in both).":
+        "仅研究区间，永不自动买入。Manual Alert 按代码存储（若同代码也在我的自选，共用同一提醒）。",
+    "Sign in as Admin to edit Manual Alert on Nasdaq-100.": "请以管理员登录后编辑 Nasdaq-100 的 Manual Alert。",
+    "AI Discovery": "AI 发现",
+    "Showing qualified names not already in My Watchlist or Nasdaq-100.": "仅显示尚未出现在「我的自选」或 Nasdaq-100 中的合格股票。",
+    "Numeric pass": "数值通过",
+    "Overlap hidden": "重叠已隐藏",
+    "APPROVAL": "批准",
+    "APPROVAL under each ticker → AI Approved (same as Core Universe).":
+        "每只股票下方有 APPROVAL → 加入 AI 批准池（与 Core Universe 相同）。",
+    "APPROVAL column is next to Stock (left side).":
+        "APPROVAL 列在股票代码右侧（左侧可见，无需滚到最右）。",
+    "Owner": "Owner",
+    "Admin: APPROVAL → AI Approved": "管理员：批准 → AI 批准池",
+    "In AI Approved": "已在 AI 批准池",
+    "KEEP": "保留",
+    "REMOVE": "移除",
+    "Keep in AI Approved despite filter fail": "尽管筛选失败，仍保留在 AI 批准池",
+    "Added {ticker} → AI APPROVED / Core Watch": "已将 {ticker} 加入 AI 批准池 / Core Watch",
+    "In My Watchlist": "已在我的自选",
+    "Admin: add to My Watchlist": "管理员：加入我的自选",
+    "PASS/FAIL — Admin only": "通过/失败 — 仅管理员",
+    "Failure reason codes — Admin only": "失败原因代码 — 仅管理员",
+    "Core Universe table columns": "Core Universe 表列说明",
+    "Stock 252D return − SPY 252D return (%)": "股票252日收益 − SPY252日收益（%）",
+    "qualification path": "资格路径",
+    "PASS/FAIL and failure codes — Admin only": "通过/失败与失败代码 — 仅管理员",
+    "Admin: add ticker to My Watchlist (same on AI Discovery)": "管理员：加入我的自选（AI Discovery 相同）",
+    "Focus list excludes My Watchlist and Nasdaq-100 (complementary pool)": "焦点列表排除「我的自选」与 Nasdaq-100（互补池）",
+    "Refresh AI BUY": "刷新 AI 买入",
+    "Refresh AI SELECT": "刷新 AI 筛选",
+    "Open AI BUY": "打开 AI 买入",
+    "Open AI SELECT": "打开 AI 筛选",
+    "Approve": "批准",
+    "Reject": "拒绝",
+    "Remove from AI Approved": "移出 AI 批准池",
+    "Remove from AI Approved?": "确认移出 AI 批准池？",
+    "SELECT STRENGTH. WAIT FOR PRICE. BUY RECOVERY.": "先选强股，再等价格，确认回稳后考虑买入。",
+    "MY WATCHLIST ∪ NASDAQ-100 → SMA ALERT → BUY TIMING":
+        "我的自选 ∪ Nasdaq-100 → SMA 提醒 → 买入时机",
+    "MY ∪ NDX100 ∪ AI APPROVED → SMA ALERT → BUY TIMING":
+        "我的自选 ∪ NDX100 ∪ AI 批准池 → SMA 提醒 → 买入时机",
+    "Buy candidates = My Watchlist and Nasdaq-100 names currently marked 🟡 WATCH / 🟢 ALERT / 🟢 DEEP (same SMA Alert rules as Watchlist). Dist SMA25 + Recovery decide READY / STABILIZING / APPROACHING …":
+        "买入候选 =「我的自选」与 Nasdaq-100 中当前标有 🟡 WATCH / 🟢 ALERT / 🟢 DEEP 的股票（规则与 Watchlist 相同）。Dist SMA25 + 回稳决定 READY / STABILIZING / APPROACHING …",
+    "Buy candidates = My Watchlist + Nasdaq-100 + AI Approved names currently marked 🟡 WATCH / 🟢 ALERT / 🟢 DEEP (same SMA Alert rules). Dist SMA25 + Recovery decide READY / STABILIZING / APPROACHING …":
+        "买入候选 =「我的自选」+ Nasdaq-100 + AI 批准池 中当前标有 🟡 WATCH / 🟢 ALERT / 🟢 DEEP 的股票（同一套 SMA Alert）。Dist SMA25 + 回稳决定 READY / STABILIZING / APPROACHING …",
+    "Observation pool (MY∪NDX)": "观察池（我的∪NDX）",
+    "Observation pool (MY∪NDX∪AI)": "观察池（我的∪NDX∪AI）",
+    "AI Approved Alerts": "AI 批准池提醒",
+    "Research zones only — never auto-buy. Manual alerts are stored per ticker (shared across My Watchlist / Nasdaq-100 / AI Approved).":
+        "仅研究区间，永不自动买入。Manual Alert 按代码存储（我的自选 / Nasdaq-100 / AI 批准池共用）。",
+    "Sign in as Admin to edit Manual Alert on AI Approved.": "请以管理员登录后编辑 AI 批准池的 Manual Alert。",
+    "Alert-marked (buy list)": "已标 Alert（买入列表）",
+    "BUY ALERT": "买入提醒",
+    "WATCH": "WATCH",
+    "APPROACHING": "APPROACHING",
+    "Default focus: READY → STABILIZING → WATCH. PRICE = opportunity · BLOCK = permission.":
+        "默认关注：READY → STABILIZING → WATCH。价格=机会 · 阻断=许可。",
+    "Default focus: READY → STABILIZING → APPROACHING. PRICE = opportunity · BLOCK = permission.":
+        "默认关注：READY → STABILIZING → APPROACHING。价格=机会 · 阻断=许可。",
+    "Default Focus = READY → STABILIZING → APPROACHING. BLOCKED / HOLD live under Other.":
+        "默认 Focus = READY → STABILIZING → APPROACHING。BLOCKED / HOLD 在 Other 下拉中。",
+    "NEXT CANDIDATES = READY → STABILIZING → APPROACHING. BLOCKED / HOLD live under Other.":
+        "NEXT CANDIDATES = READY → STABILIZING → APPROACHING。BLOCKED / HOLD 在 Other 下拉中。",
+    "NEXT CANDIDATES": "NEXT CANDIDATES",
+    "CANDIDATES": "CANDIDATES",
+    "CANDIDATES = full today’s AI BUY list (including open holdings). Use READY / STABILIZING / Other to narrow.":
+        "CANDIDATES = 当日 AI BUY 完整列表（含已持仓）。可用 READY / STABILIZING / Other 筛选。",
+    "CANDIDATES = today’s AI BUY list including HOLDING; BLOCKED hidden (see Other).":
+        "CANDIDATES = 当日 AI BUY 列表（含 HOLDING）；默认隐藏 BLOCKED（见 Other）。",
+    "READY = 0 while those names are open as HOLDING — new READY appears after Refresh when timing qualifies.":
+        "READY 为 0 是因为已买入股票现为 HOLDING；刷新后若时机达标会出现新的 READY。",
+    "HOLD = already have an open paper position (still listed; not a new buy candidate for allocation).":
+        "HOLD = 已有模拟持仓（仍显示在列表中；配股时不再作为新买入候选）。",
+    "HOLD = already have an open paper position (not a new buy candidate).":
+        "HOLD = 已有模拟持仓（不是新的买入候选）。",
+    "open paper position": "已有模拟持仓",
+    "open position": "已持仓",
+    "Other": "其他",
+    "All statuses": "全部状态",
+    "BLOCKED / HOLD / WAIT and other statuses": "BLOCKED / HOLD / WAIT 等其他状态",
+    "Show": "显示",
+    "Focus": "关注",
+    "CHECK DATA": "数据检查",
+    "Validate Market Data": "校验行情数据",
+    "Market Data Validation": "行情数据校验",
+    "Universe checked": "已检查数量",
+    "ERROR tickers": "ERROR 股票",
+    "DATA": "DATA",
+    "DATA QUALITY — not trading risk. ERROR = hard BUY block.":
+        "数据质量（不是交易风险）。ERROR = 硬性禁止买入。",
+    "DATA ERROR is a hard BUY block (not a score penalty). SMA25_D = 25 trading-day SMA from daily closes.":
+        "DATA ERROR 是硬性买入阻断（不是扣分）。SMA25_D = 25 个交易日收盘价简单均线。",
+    "DATA CHECK {ticker}: {status}": "数据检查 {ticker}：{status}",
+    "DATA CHECK {ticker}: {status} — BUY BLOCKED": "数据检查 {ticker}：{status} — 禁止买入",
+    "Market Data Validation: checked {n} · PASS {p} · WARN {w} · ERROR {e} · INSUFF {i} · STALE {s}":
+        "行情校验：已查 {n} · PASS {p} · WARN {w} · ERROR {e} · 不足 {i} · 过期 {s}",
+    "HOLD": "HOLD",
+    "HOLDING": "HOLDING",
+    "was": "原",
+    "HOLDING = open position. Colored label = timing if not held.":
+        "HOLDING = 已持仓。彩色标签 = 若未持仓时的时机状态。",
+    "HOLDING = already have an open paper position (still listed; not allocated again).":
+        "HOLDING = 已有模拟持仓（仍显示；配股时不再重复买入）。",
+    "BLOCKED / WAIT / REVIEW and other statuses": "BLOCKED / WAIT / REVIEW 等其他状态",
+    "WAIT": "WAIT",
+    "REVIEW": "REVIEW",
+    "No Alert-marked names yet. Open My Watchlist or Nasdaq-100 — only 🟡/🟢 Alert stocks enter AI BUY.":
+        "暂无已标 Alert 的股票。请打开「我的自选」或 Nasdaq-100 — 仅 🟡/🟢 Alert 进入 AI BUY。",
+    "No Alert-marked names yet. Open My Watchlist, Nasdaq-100, or AI Approved — only 🟡/🟢 Alert stocks enter AI BUY.":
+        "暂无已标 Alert 的股票。请打开「我的自选」、Nasdaq-100 或 AI 批准池 — 仅 🟡/🟢 Alert 进入 AI BUY。",
+    "WL Alert": "自选 Alert",
+    "Watchlist SMA Alert": "Watchlist SMA 提醒",
+    "Default focus: READY → STABILIZING → ALERT. PRICE = opportunity · BLOCK = permission.":
+        "默认关注：READY → STABILIZING → ALERT。价格=机会 · 阻断=许可。",
+    "AI BUY refreshed: Alert-marked {n} (pool {p}) · READY {r}":
+        "AI BUY 已刷新：已标 Alert {n}（观察池 {p}）· READY {r}",
+    "Legacy Top-10": "旧版 Top-10",
+    "Deprecated: Top-10 is not the primary BUY engine. Use AI BUY.": "已弃用：Top-10 不再是主买入引擎，请使用 AI BUY。",
+    "Approved/Watch Universe": "批准/自选宇宙",
+    "AI APPROVED: NO": "未 AI 批准",
+    "Core": "Core",
+    "BUY": "BUY",
+    "Price Score": "价格分",
+    "Recovery": "回稳",
+    "Buy Status": "买入状态",
+    "AI SELECT & AI BUY (source of truth)": "AI SELECT 与 AI BUY（架构真源）",
+    "Legacy AI Score V1 below is a research feature column — not the AI BUY decision engine.": "下方旧 AI Score V1 仅为研究特征列，不是 AI BUY 决策引擎。",
+    "No auto real orders in V1 — READY is for Owner / paper decision.": "V1 不自动真实下单 — READY 供 Owner / 模拟决策。",
+    "Default focus: READY → STABILIZING → ALERT. CORE SCORE ≠ BUY SCORE. PRICE = opportunity · BLOCK = permission.": "默认关注：READY → STABILIZING → ALERT。CORE ≠ BUY。价格=机会 · 阻断=许可。",
+    "AI BUY universe is empty. Approve stocks via AI SELECT, or add My Watchlist names.": "AI BUY 宇宙为空。请通过 AI SELECT 批准，或加入我的自选。",
+    "Approved {ticker} → AI APPROVED": "已批准 {ticker} → AI 批准池",
+    "Rejected {ticker}": "已拒绝 {ticker}",
+    "Removed {ticker} from AI APPROVED": "已将 {ticker} 移出 AI 批准池",
+    "AI SELECT refreshed: {n} candidates": "AI SELECT 已刷新：{n} 个候选",
+    "AI BUY refreshed: universe {n} · READY {r}": "AI BUY 已刷新：宇宙 {n} · READY {r}",
+    "PRICE = opportunity · BLOCK = permission": "价格决定机会 · 阻断决定许可",
+    "AI Discovery is a SELECT source, not a direct BUY engine.": "AI Discovery 是 SELECT 来源，不是直接买入引擎。",
+    "long-term pool": "长期池",
+    "Blocks override": "阻断优先",
+    "Price + Recovery": "价格 + 回稳",
+    "same ticker, membership flags": "同一代码，成员标记",
+    "Sector Rotation": "板块轮动",
+    "Refresh Rotation": "刷新板块轮动",
+    "LEADING": "领先",
+    "ROTATING IN": "轮入",
+    "WEAKENING": "走弱",
+    "FALLING": "下跌",
+    "Rising %": "Rising %",
+    "Strong %": "Strong %",
+    "Relative Strength": "相对强弱",
+    "SMA25 Trend": "SMA25 趋势",
+    "Rotation Score": "轮动得分",
+    "Sector 20D − SPY 20D": "板块 20日 − SPY 20日",
+    "Score History": "得分历史",
+    "Line": "梯队",
+    "Research context: where market strength is rotating — not a Buy signal.":
+        "研究语境：资金在哪些板块变强/变弱 — 不是买入信号。",
+    "Which sectors are becoming stronger or weaker. Uses sector ETFs for returns / RS vs SPY / SMA25, and Rising % + Strong % from constituents. Research context only — not a Buy signal.":
+        "哪些板块正在变强或变弱。用行业 ETF 算收益 / 相对 SPY / SMA25，并用成分股算 Rising % 与 Strong %。仅作研究语境，不是买入信号。",
+    "Which GICS sectors are becoming stronger/weaker (research only). ETF 5D/20D + RS vs SPY + SMA25 slope; Rising % = Rising Now share of sector stocks (e.g. 25/80); Strong % = Strong Watchlist share. Rotation Score = 30% trend · 25% RS · 20% Rising · 15% Strong · 10% SMA25. Status uses score + direction (LEADING / RISING / NEUTRAL / WEAKENING / FALLING) with daily history for Score Δ / Rank Δ. Not a Buy signal; does not change Rising/Strong/Knife.":
+        "哪些 GICS 板块正在变强/变弱（仅研究）。行业 ETF 的 5日/20日 + 相对 SPY + SMA25 斜率；Rising % = 板块内符合 Rising Now 的占比（如 25/80）；Strong % = Strong Watchlist 占比。Rotation Score = 趋势30% · RS25% · Rising20% · Strong15% · SMA2510%。Status 看得分与方向（LEADING / RISING / NEUTRAL / WEAKENING / FALLING），并用日快照看 Score Δ / Rank Δ。不是买入信号；不改 Rising/Strong/Knife。",
+    "Sector Rotation (Research) — market-context layer":
+        "板块轮动（研究）— 市场语境层",
+    "Answers: which GICS sectors are becoming stronger or weaker. Not a Buy/Sell signal. Does not place orders or change Rising / Strong / Knife rules.":
+        "回答：哪些 GICS 板块正在变强或变弱。不是买卖信号。不下单，也不改 Rising / Strong / Knife 规则。",
+    "Universe":
+        "范围",
+    "11 GICS sectors via existing sector→ETF map (XLK / XLF / XLV / …)":
+        "11 个 GICS 板块，复用现有 sector→ETF 映射（XLK / XLF / XLV / …）",
+    "5D / 20D Return":
+        "5日 / 20日收益",
+    "sector ETF representative returns":
+        "以行业 ETF 为代表收益",
+    "share of sector stocks that currently qualify under Rising Now (Up Days ≥ 3/5 · 5D ≥ +3%); fraction = Rising count / sector count":
+        "板块内当前符合 Rising Now（上涨日 ≥ 3/5 · 5日 ≥ +3%）的股票占比；分数 = Rising 只数 / 板块股票数",
+    "share of sector stocks on Strong Watchlist (reuse existing Strong membership)":
+        "板块内在 Strong Watchlist 上的股票占比（复用现有 Strong 成员）",
+    "Sector 20D − SPY 20D":
+        "板块 20日 − SPY 20日",
+    "UP / FLAT / DOWN from SMA25 slope (not merely price above SMA)":
+        "由 SMA25 斜率判定 UP / FLAT / DOWN（不是简单看现价是否在 SMA 上方）",
+    "Rotation Score 0–100:":
+        "轮动得分 0–100：",
+    "30% 5D/20D trend · 25% RS vs SPY · 20% Rising % · 15% Strong % · 10% SMA25 trend":
+        "30% 5日/20日趋势 · 25% 相对 SPY · 20% Rising % · 15% Strong % · 10% SMA25 趋势",
+    "Status (score + direction):":
+        "状态（得分 + 方向）：",
+    "also tracks Score Δ / Rank Δ and ACCELERATING / STABLE / DECELERATING from daily history":
+        "并用日历史跟踪 Score Δ / Rank Δ，以及 ACCELERATING / STABLE / DECELERATING",
+    "Daily snapshots saved (not overwritten). Owner can Refresh Rotation on Research → Sector Rotation. Detail page shows constituents with LEADER / SECOND LINE / THIRD LINE / WEAK (informational only).":
+        "每日快照会保存（不覆盖历史）。Owner 可在 Research → Sector Rotation 手动刷新。详情页显示成分股及 LEADER / SECOND LINE / THIRD LINE / WEAK（仅信息分类）。",
+    "No Sector Rotation data yet — click Refresh Rotation (Owner).":
+        "暂无板块轮动数据 — 请 Owner 点击「刷新板块轮动」。",
+    "Sector Rotation updated: {n} sectors (as of {day})":
+        "板块轮动已更新：{n} 个板块（截至 {day}）",
+    "Sector Rotation failed to load. Try Refresh Rotation.":
+        "板块轮动加载失败。请尝试「刷新板块轮动」。",
+    "Line classes are informational (LEADER / SECOND LINE / THIRD LINE / WEAK) — not trade signals. Prefer SECOND LINE for rotation follow-through research.":
+        "梯队仅为信息分类（LEADER / SECOND LINE / THIRD LINE / WEAK），不是交易信号。研究轮动跟随时可优先看 SECOND LINE。",
+    "No stocks mapped to this sector in dashboard cache.":
+        "当前看板缓存中没有映射到该板块的股票。",
+    "5D %": "5日 %",
+    "20D %": "20日 %",
+    "Dist. SMA25": "距 SMA25",
     "Added: {tickers}": "已添加：{tickers}",
     "Already on list: {tickers}": "已在列表中：{tickers}",
     "Invalid: {tickers}": "无效代码：{tickers}",
     "No tickers to add": "没有可添加的股票代码",
+    "Live data refreshed for: {tickers}": "已拉取实时数据：{tickers}",
+    "DATA ERROR": "数据异常",
     "Sign in to save {n} ticker(s) to My Watchlist": "请登录以将 {n} 只股票保存到「我的自选」",
     "Strong Stock Monitor": "研究中心",  # legacy msgid
     "Settings": "设置",
@@ -463,7 +677,7 @@ ZH: dict[str, str] = {
     "AI Trading Watchlist — Top 10":
         "AI Trading Watchlist — Top 10",
     "AI Discovery":
-        "AI Discovery",
+        "AI 发现",
     "AI Discovery Pool":
         "AI Discovery 候选池",
     "Broad Discovery + Official 5×5 Radar":
@@ -626,6 +840,14 @@ ZH: dict[str, str] = {
         "Official 5×5 已在同一池中 — 用 TAB 分开查看。共享去重后，双标签事件可能两边都出现。",
     "No Broad Discovery rows yet. Run Harvest + Analyze only (combined Broad + Official). Official rows are under the right tab.":
         "暂无 Broad Discovery。请运行 Harvest + Analyze only（Broad + Official 合并采集）。Official 在右侧 TAB。",
+    "No Broad Discovery rows yet. Click RUN AI DISCOVERY at the top (Broad + Official). Official rows are under the right tab.":
+        "暂无 Broad Discovery。请点顶部 RUN AI DISCOVERY（Broad + Official）。Official 在右侧 TAB。",
+    "RUN AI DISCOVERY":
+        "运行 AI DISCOVERY",
+    "Harvest + analyze Broad + Official Discovery only — no auto orders.":
+        "仅采集并分析 Broad + Official Discovery — 不下自动单。",
+    "Use RUN AI DISCOVERY at the top (next to Download). Discovery does not auto-create paper orders.":
+        "请使用顶部「运行 AI DISCOVERY」（在 Download 旁）。Discovery 不会自动创建纸上订单。",
     "No Official 5×5 Radar rows at the current minimum Event Score.":
         "当前最低 Event Score 下无 Official 5×5 Radar 行。",
     "Unresolved":
@@ -1313,6 +1535,14 @@ ZH: dict[str, str] = {
     # AI Paper Trading
     'AI Trading':
         'AI 交易',
+    'AI TRADING':
+        'AI TRADING',
+    'Allocate paper orders from READY (top→bottom ladder)? Settings stop/take & capital still apply. Simulated only.':
+        '按 READY 从上到下阶梯配股建模拟单？仍使用设置中的止损/止盈与资金上限。仅模拟。',
+    'Allocate paper orders from READY + STABILIZING (top→bottom ladder)? Settings stop/take & capital still apply. Simulated only.':
+        '按 READY + STABILIZING 从上到下阶梯配股建模拟单？仍使用设置中的止损/止盈与资金上限。仅模拟。',
+    'Refresh AI BUY and allocate READY top→bottom (paper only). Settings stop/take & capital still apply.':
+        '刷新 AI BUY，并对 READY 从上到下配股建模拟单。仍使用设置中的止损/止盈与资金上限。',
     'AI Paper Trading':
         'AI 模拟交易',
     'Simulation only — no real brokerage orders':
@@ -1913,4 +2143,34 @@ def tab_description(key: str, *, mine_list_label: str = "", can_edit_mine: bool 
         else:
             src = ZH["desc_mine_owner"] if can_edit_mine else ZH["desc_mine_public"]
         return src.format(list=label)
+    if key == "ai_approved":
+        return (
+            "长期观察池（Owner 从 Core Universe / Discovery 批准）。Alert 规则与「我的自选」相同（Auto SMA×0.95 / 0.90；可设 Manual）。仅研究提醒，不自动下单。"
+            if lang == "zh"
+            else "Long-term observation pool (Owner ADD from Core Universe / Discovery). Same alert rules as My Watchlist (Auto SMA×0.95 / 0.90; Manual override). Research only — never auto-buy."
+        )
+    if key == "core_universe":
+        return (
+            "Core Universe：数值 PASS 后，只展示不在「我的自选」与 Nasdaq-100 中的股票（互补观察池）。"
+            if lang == "zh"
+            else "Core Universe: after numeric PASS, show only names not already in My Watchlist or Nasdaq-100 (complementary pool)."
+        )
+    if key == "ndx100":
+        return (
+            "Nasdaq-100 独立观察池。Alert 规则与「我的自选」相同（Auto SMA×0.95 / 0.90；可设 Manual）。仅研究提醒，不自动下单。"
+            if lang == "zh"
+            else "Independent Nasdaq-100 observation pool. Same alert rules as My Watchlist (Auto SMA×0.95 / 0.90; Manual override). Research only — never auto-buy."
+        )
+    if key == "ai_select":
+        return (
+            "已弃用：请使用 Core Universe Filter。"
+            if lang == "zh"
+            else "Deprecated: use Core Universe Filter."
+        )
+    if key == "ai_discovery":
+        return (
+            "发现提名来源。提名 ≠ 入选；须通过 Core Universe Filter。"
+            if lang == "zh"
+            else "Discovery nomination source. Nomination ≠ qualification — must pass Core Universe Filter."
+        )
     return ""

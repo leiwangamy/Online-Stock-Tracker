@@ -102,7 +102,8 @@ def assess_sma_window_quality(
 ) -> dict[str, Any]:
     """
     SMA of the last `period` closes must lie inside that window's High/Low.
-    A very wide High/Low span usually means mixed pre/post-split scales.
+    Flag DATA ERROR only when the window looks like mixed pre/post-split scales
+    (discontinuous jump), not merely a wide but continuous volatile range.
     """
     clean = closes.dropna()
     if len(clean) < period:
@@ -120,11 +121,18 @@ def assess_sma_window_quality(
     sma = float(window.mean())
     span = (hi / lo) if lo > 0 else float("inf")
     inside = (lo - 1e-6) <= sma <= (hi + 1e-6)
-    # "Far outside" High/Low, or impossible SMA, or split-scale mix.
+    # Detect overnight scale jumps (~2x / ~4x), not gradual volatility.
+    has_scale_jump = False
+    vals = [float(x) for x in window.tolist() if float(x) > 0]
+    for i in range(1, len(vals)):
+        r = vals[i] / vals[i - 1]
+        if r >= 1.8 or r <= (1.0 / 1.8):
+            has_scale_jump = True
+            break
     if not inside:
         reason = "sma_outside_high_low"
         ok = False
-    elif span > _SMA_WINDOW_MAX_SPAN:
+    elif span > _SMA_WINDOW_MAX_SPAN and has_scale_jump:
         reason = "window_span_too_wide"
         ok = False
     else:
@@ -144,7 +152,50 @@ def is_data_quality_error(row: dict[str, Any] | None) -> bool:
     if not row:
         return False
     note = str(row.get("ai_note") or "")
-    return note.upper().startswith(DATA_ERROR_NOTE_PREFIX)
+    if note.upper().startswith(DATA_ERROR_NOTE_PREFIX):
+        return True
+    return row_has_corrupt_price_scale(row)
+
+
+def row_has_corrupt_price_scale(row: dict[str, Any] | None) -> bool:
+    """
+    Detect stale/mixed-scale dashboard rows (classic MNST-style):
+    63D High is ~2× current price, Position claims near-lows, SMA still elevated.
+    Live Yahoo fetch+repair is usually fine; cached rows can lag.
+    """
+    if not row:
+        return False
+    try:
+        price = float(row.get("price") or 0)
+    except (TypeError, ValueError):
+        return False
+    if price <= 0:
+        return False
+    hi = row.get("range_63d_high")
+    lo = row.get("range_63d_low")
+    pos = row.get("range_63d_pos")
+    sma = row.get("sma")
+    try:
+        if hi is None or lo is None:
+            return False
+        hi_f = float(hi)
+        lo_f = float(lo)
+        if lo_f <= 0 or hi_f / lo_f < 1.75:
+            return False
+        pos_f = float(pos) if pos is not None else None
+        # High on wrong share scale while price sits near the low of that span.
+        if pos_f is not None and pos_f <= 25.0 and hi_f / price >= 1.75:
+            return True
+        if (
+            pos_f is not None
+            and pos_f <= 20.0
+            and sma is not None
+            and float(sma) / price >= 1.25
+        ):
+            return True
+    except (TypeError, ValueError):
+        return False
+    return False
 
 
 def load_yahoo_daily_closes(
@@ -617,9 +668,10 @@ def fetch_metrics_for_ticker(
             dist_pct = None
         else:
             sma = _sma(closes, sma_period)
-            dist_pct = (
-                None if sma is None or sma == 0 else round((price / sma - 1) * 100, 2)
-            )
+            # Canonical Dist: (price − SMA) / SMA × 100  (= price/sma − 1)
+            from market_data_validator import dist_sma_pct
+
+            dist_pct = dist_sma_pct(price, sma) if sma else None
         rebound = _rebound_pct(closes, rebound_lookback)
         change_pct = _change_pct(closes)
         avg_move_pct = _avg_daily_move(closes)
@@ -632,7 +684,7 @@ def fetch_metrics_for_ticker(
         market_cap = _market_cap(t)
         earnings_date = _next_earnings_date(t)
         target_1y = _target_1y(t)
-        return {
+        row = {
             "ticker": ticker,
             "name": meta.get("name") or "",
             "industry": meta.get("industry") or "",
@@ -644,6 +696,8 @@ def fetch_metrics_for_ticker(
             "range_63d_high": range_high,
             "range_63d_pos": range_pos,
             "sma": None if sma is None else round(sma, 2),
+            # SMA25_D alias — same daily trading-day SMA stored in `sma`
+            "sma25_d": None if sma is None else round(sma, 2),
             "dist_pct": dist_pct,
             "rebound_pct": rebound,
             "trend": trend,
@@ -656,6 +710,21 @@ def fetch_metrics_for_ticker(
             "ai_note": ai_note,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
+        try:
+            from market_data_validator import attach_data_quality_to_row
+
+            attach_data_quality_to_row(row, closes=closes)
+            if row.get("data_block") and not row.get("ai_note"):
+                reasons = row.get("data_quality_reason") or ["validation_failed"]
+                row["ai_note"] = (
+                    f"{DATA_ERROR_NOTE_PREFIX}: " + "; ".join(str(x) for x in reasons[:4])
+                )
+                row["sma"] = None
+                row["sma25_d"] = None
+                row["dist_pct"] = None
+        except Exception:
+            pass
+        return row
     except Exception:
         return None
 
@@ -708,6 +777,62 @@ def refresh_dashboard_cache(
         "universe": len(universe),
         "group": group,
     }
+
+
+def refresh_dashboard_for_tickers(
+    tickers: list[str],
+    *,
+    max_workers: int = 8,
+) -> dict[str, Any]:
+    """Force-refresh dashboard_cache for specific tickers (split/scale repair)."""
+    from db import list_universe as _lu
+
+    want = []
+    seen: set[str] = set()
+    for t in tickers:
+        u = (t or "").strip().upper()
+        if u and u not in seen:
+            seen.add(u)
+            want.append(u)
+    if not want:
+        return {"ok": 0, "errors": 0, "tickers": []}
+
+    meta_by = {r["ticker"]: r for r in (_lu() or []) if r.get("ticker")}
+    sma_period = int(get_setting("sma_period", 25))
+    rebound_lookback = int(get_setting("rebound_lookback", sma_period))
+    if rebound_lookback < 5:
+        rebound_lookback = sma_period
+
+    rows: list[dict[str, Any]] = []
+    errors = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(
+                fetch_metrics_for_ticker,
+                t,
+                sma_period=sma_period,
+                rebound_lookback=rebound_lookback,
+                meta=meta_by.get(t) or {"ticker": t},
+            ): t
+            for t in want
+        }
+        for fut in as_completed(futures):
+            result = fut.result()
+            if result is None:
+                errors += 1
+            else:
+                # Stamp DATA ERROR on residual inconsistent rows.
+                if row_has_corrupt_price_scale(result) and not result.get("ai_note"):
+                    result["ai_note"] = (
+                        f"{DATA_ERROR_NOTE_PREFIX}: inconsistent 63D range vs price/SMA "
+                        f"(possible mixed share scale)"
+                    )
+                    result["sma"] = None
+                    result["dist_pct"] = None
+                rows.append(result)
+    if rows:
+        save_dashboard_rows(rows)
+    return {"ok": len(rows), "errors": errors, "tickers": want}
 
 
 # ---------------------------------------------------------------------------
@@ -1299,6 +1424,10 @@ def _fundamentals_from_info(info: dict[str, Any], cf: dict[str, Any] | None = No
         "code": code,
         "flow": flow,
         "detail": "\n".join(detail_lines),
+        # Numeric fields for Core Universe Filter (fractions, e.g. 0.069 = 6.9%).
+        # None = missing — never treat as 0 growth.
+        "revenue_growth_yoy": float(rev) if rev is not None else None,
+        "earnings_growth_yoy": float(eps) if eps is not None else None,
     }
 
 

@@ -17,6 +17,33 @@
   .summary-grid .v { font-weight: 700; color: #0f172a; }
   .summary-grid .v.up { color: var(--up); }
   .summary-grid .v.down { color: var(--down); }
+  .buy-status-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin: 0 0 12px;
+  }
+  .buy-status-bar .btn.active {
+    background: var(--accent, #2563eb); color: #fff; border-color: var(--accent, #2563eb);
+  }
+  .buy-status-bar .btn.active .buy-st { color: #fff; }
+  .buy-status-bar select {
+    font: inherit; padding: 6px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel); color: inherit;
+  }
+  .buy-st {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .buy-st.ready { color: #16a34a; }
+  .buy-st.holding { color: #92400e; }
+  .buy-st.stabilizing { color: #ea580c; }
+  .buy-st.approaching { color: #ca8a04; }
+  .buy-st.blocked { color: #dc2626; }
+  .buy-st.wait { color: #2563eb; }
+  .buy-st.review { color: #b45309; }
+  .summary-grid .k.st-ready { color: #16a34a; font-weight: 700; }
+  .summary-grid .k.st-holding { color: #92400e; font-weight: 700; }
+  .summary-grid .k.st-stabilizing { color: #ea580c; font-weight: 700; }
+  .summary-grid .k.st-approaching { color: #ca8a04; font-weight: 700; }
   .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
   .tab {
     display: inline-block; padding: 8px 16px; border-radius: 999px;
@@ -387,34 +414,63 @@
   </div>
 
   <div class="tabs">
-    <a class="tab {% if tab == 'today' %}active{% endif %}" href="{{ url_for('ai_trading', tab='today') }}">{{ _('Today') }}</a>
+    <a class="tab {% if tab == 'buy' %}active{% endif %}" href="{{ url_for('ai_trading', tab='buy') }}">{{ _('AI BUY') }}</a>
     <a class="tab {% if tab == 'discovery' %}active{% endif %}" href="{{ url_for('ai_trading', tab='discovery') }}">{{ _('AI Discovery') }} ({{ discovery_count if discovery_count is defined else (discovery_rows|length if discovery_rows is defined else 0) }})</a>
     <a class="tab {% if tab == 'open' %}active{% endif %}" href="{{ url_for('ai_trading', tab='open') }}">{{ _('Open Positions') }} ({{ opens|length }})</a>
     <a class="tab {% if tab == 'history' %}active{% endif %}" href="{{ url_for('ai_trading', tab='history') }}">{{ _('Trade History') }} ({{ history|length }})</a>
   </div>
 
-  {% if can_manage %}
+  {% if can_manage and tab == 'buy' %}
   <div class="actions">
-    <form method="post" action="{{ url_for('ai_trading', tab=tab) }}" style="display:inline">
-      <input type="hidden" name="action" value="refresh_candidates">
-      <button class="btn" type="submit">{{ _('Refresh AI Candidates') }}</button>
+    <form method="post" action="{{ url_for('ai_trading', tab='buy') }}" style="display:inline">
+      <input type="hidden" name="action" value="refresh_ai_buy">
+      <button class="btn" type="submit">{{ _('Refresh AI BUY') }}</button>
     </form>
-    <p class="hint" style="margin:8px 0 0">{{ _('Knife Risk ≥ 45 blocks Auto Trading (configurable). Watchlist / Research still show the name.') }}</p>
-    <form method="post" action="{{ url_for('ai_trading', tab=tab) }}" style="display:inline" class="js-lei-confirm-form"
-          data-confirm-title="{{ _('Create Paper Orders') }}"
-          data-confirm-message="{{ _('Create paper orders from suggested allocations? This is simulated only.') }}"
-          data-confirm-ok="{{ _('Create orders') }}">
+    <form method="post" action="{{ url_for('ai_trading', tab='buy') }}" style="display:inline" class="js-lei-confirm-form"
+          data-confirm-title="{{ _('AI TRADING') }}"
+          data-confirm-message="{{ _('Allocate paper orders from READY + STABILIZING (top→bottom ladder)? Settings stop/take & capital still apply. Simulated only.') }}"
+          data-confirm-ok="{{ _('AI TRADING') }}">
       <input type="hidden" name="action" value="create_orders">
-      <button class="btn primary" type="submit">{{ _('Create Paper Orders') }}</button>
+      <button class="btn primary" type="submit">{{ _('AI TRADING') }}</button>
     </form>
-    <form method="post" action="{{ url_for('ai_trading', tab=tab) }}" style="display:inline">
-      <input type="hidden" name="action" value="daily_update">
-      <button class="btn" type="submit">{{ _('Run daily paper update') }}</button>
+    <form method="post" action="{{ url_for('ai_trading', tab='buy') }}" style="display:inline;margin-left:4px">
+      <input type="hidden" name="action" value="check_data">
+      <input type="hidden" name="live" value="1">
+      <input type="text" name="ticker" placeholder="{{ _('CHECK DATA') }} — TICKER"
+             style="width:7.5rem;padding:6px 8px;font:inherit;border:1px solid var(--border);border-radius:8px"
+             required>
+      <button class="btn" type="submit">{{ _('CHECK DATA') }}</button>
+    </form>
+    <form method="post" action="{{ url_for('ai_trading', tab='buy') }}" style="display:inline">
+      <input type="hidden" name="action" value="validate_market_data_batch">
+      <button class="btn" type="submit">{{ _('Validate Market Data') }}</button>
     </form>
     <a class="btn" href="{{ url_for('ai_trading_export_xlsx') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
-    <button type="button" class="btn" id="btn-reset-ai-trading"
+    <button type="button" class="btn btn-reset-ai-trading"
             style="border-color:#dc2626;color:#b91c1c">{{ _('RESET AI TRADING') }}</button>
   </div>
+  {% elif can_manage and tab == 'discovery' %}
+  <div class="actions">
+    <form method="post" action="{{ url_for('ai_trading', tab='discovery') }}" style="display:inline">
+      <input type="hidden" name="action" value="discovery_run">
+      <input type="hidden" name="create_orders" value="0">
+      <button class="btn primary" type="submit">{{ _('RUN AI DISCOVERY') }}</button>
+    </form>
+    <a class="btn" href="{{ url_for('ai_trading_export_xlsx') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
+    <button type="button" class="btn btn-reset-ai-trading"
+            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET AI TRADING') }}</button>
+    <span class="hint" style="align-self:center">{{ _('Harvest + analyze Broad + Official Discovery only — no auto orders.') }}</span>
+  </div>
+  {% elif can_manage %}
+  <div class="actions">
+    <a class="btn" href="{{ url_for('ai_trading_export_xlsx') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
+    <button type="button" class="btn btn-reset-ai-trading"
+            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET AI TRADING') }}</button>
+  </div>
+  {% endif %}
+
+  {# Shared reset modal — only one id in DOM #}
+  {% if can_manage %}
   <div id="reset-ai-trading-modal" class="lei-modal danger" hidden aria-hidden="true">
     <div class="lei-modal-backdrop" data-reset-close></div>
     <div class="lei-modal-card" role="dialog" aria-modal="true" aria-labelledby="reset-ai-title">
@@ -424,13 +480,13 @@
         <p style="margin:0 0 8px">{{ _('This will permanently clear the current AI Trading experiment, including:') }}</p>
         <p style="margin:0 0 8px"><code>Positions · Orders · Trade History · Priority Buy · Trading P&amp;L and Statistics</code></p>
         <p style="margin:0 0 8px">{{ _('It will NOT delete:') }}</p>
-        <p style="margin:0 0 8px"><code>AI Discovery · Saved News ★ · My Watchlist · Research · Settings</code></p>
+        <p style="margin:0 0 8px"><code>AI Discovery · Saved News ★ · My Watchlist · Research · Settings · AI Approved</code></p>
         <p style="margin:0">{{ _('Download Excel first if you want to keep a copy of this trading experiment.') }}</p>
       </div>
       <div class="lei-modal-actions">
         <button type="button" class="btn lei-modal-cancel" data-reset-close>{{ _('Cancel') }}</button>
         <a class="btn" href="{{ url_for('ai_trading_export_xlsx') }}">{{ _('Download Excel') }}</a>
-        <form method="post" action="{{ url_for('ai_trading', tab='today') }}" style="display:inline;margin:0">
+        <form method="post" action="{{ url_for('ai_trading', tab='buy') }}" style="display:inline;margin:0">
           <input type="hidden" name="action" value="reset_ai_trading">
           <button class="btn primary lei-modal-ok" type="submit">{{ _('RESET AI TRADING') }}</button>
         </form>
@@ -439,9 +495,8 @@
   </div>
   <script>
   (function () {
-    var btn = document.getElementById("btn-reset-ai-trading");
     var modal = document.getElementById("reset-ai-trading-modal");
-    if (!btn || !modal) return;
+    if (!modal) return;
     function open() {
       modal.hidden = false;
       modal.setAttribute("aria-hidden", "false");
@@ -452,7 +507,9 @@
       modal.setAttribute("aria-hidden", "true");
       document.body.style.overflow = "";
     }
-    btn.addEventListener("click", open);
+    document.querySelectorAll(".btn-reset-ai-trading").forEach(function (btn) {
+      btn.addEventListener("click", open);
+    });
     modal.querySelectorAll("[data-reset-close]").forEach(function (el) {
       el.addEventListener("click", close);
     });
@@ -467,227 +524,259 @@
   </p>
   {% endif %}
 
-  {% if tab == 'today' %}
-    {% set chs = discovery_channel_stats or {} %}
-    {% set cc = chs.channel_counts or {} %}
+  {% if tab == 'buy' %}
+    {% set bv = ai_buy_view or {} %}
+    {% set bc = bv.counts or {} %}
     <div class="paper-banner" style="margin-bottom:12px">
-      <strong>{{ _('Discovery Radar') }}</strong> —
-      {{ _('Broad Discovery') }}: <code>{{ cc.broad if cc.broad is defined else '—' }}</code>
-      · Official 5×5:
-      USAspending <code>{{ cc.usaspending if cc.usaspending is defined else '—' }}</code>
-      · DoD <code>{{ cc.dod if cc.dod is defined else '—' }}</code>
-      · SEC <code>{{ cc.sec if cc.sec is defined else '—' }}</code>
-      · FDA <code>{{ cc.fda if cc.fda is defined else '—' }}</code>
-      · {{ _('Gov Disclosure') }} <code>{{ cc.gov_transactions if cc.gov_transactions is defined else '—' }}</code>
-      · {{ _('Pool') }} <code>{{ discovery_count if discovery_count is defined else 0 }}</code>
-      <a href="{{ url_for('ai_trading', tab='discovery') }}" style="margin-left:8px">{{ _('Open AI Discovery') }} →</a>
+      <strong>{{ _('AI BUY') }}</strong> —
+      {{ _('MY ∪ NDX100 ∪ AI APPROVED → SMA ALERT → BUY TIMING') }}
+      <span class="hint" style="margin-left:8px">{{ _('No auto real orders in V1 — READY is for Owner / paper decision.') }}</span>
     </div>
-
-    <h2 class="section">{{ _('AI Trading Watchlist — up to Top 10') }}</h2>
-    <div class="disc-guide-wrap" style="margin-bottom:10px">
-      <div class="disc-toolbar" id="trade-guide-toolbar">
-        <button type="button" class="btn disc-tab-btn" data-panel="trade-guide-panel">{{ _('Trade Guide') }}</button>
-      </div>
-      <div id="trade-guide-panel" class="disc-panel-slot" hidden>
-        <p style="margin:0 0 8px"><strong>{{ _('Auto entry parameters') }}</strong></p>
-        <p class="hint" style="margin:0 0 8px;text-align:left">
-          {{ _('Price-location: ANY ONE of the three (OR). Knife is a separate hard block.') }}
-        </p>
-        <ul style="margin:0 0 10px;padding-left:1.15rem">
-          <li>{{ _('Dist. from SMA25') }} ≤ <code>{{ '%.0f'|format(ai_auto_sma25_dist) }}%</code></li>
-          <li><strong>{{ _('or') }}</strong> {{ _('Target Ratio') }} ≤ <code>{{ '%.0f'|format(ai_auto_target_ratio * 100) }}%</code></li>
-          <li><strong>{{ _('or') }}</strong> {{ _('63D Position') }} ≤ <code>{{ '%.0f'|format(ai_auto_63d_pos) }}%</code></li>
-          <li><strong>{{ _('then') }}</strong> {{ _('Knife Risk AUTO BLOCK') }} ≥ <code>{{ ai_auto_knife_block }}</code></li>
-          <li>{{ _('Max slots') }} ≤ <code>10</code> · {{ _('no backfill') }}</li>
-        </ul>
-        <p style="margin:0 0 6px"><strong>{{ _('Research Watchlist unchanged:') }}</strong></p>
-        <p class="hint" style="margin:0 0 8px;text-align:left">
-          Dist &lt; <code>−10%</code> · Target &lt; <code>80%</code> · 63D &lt; <code>25%</code>
-          · {{ _('0 pass → NO TRADE') }}
-        </p>
-        <p class="hint" style="margin:0;text-align:left">
-          {{ _('Ranked by AI Score; Priority Buy ⭐ only reorders allocation. Create Paper Orders is manual for the initial book. After Stop/Take, unused top-ranked names can auto-fill (see Settings). Rising Now / 5D are timing references only.') }}
-        </p>
-      </div>
-    </div>
-
-    {% if can_manage %}
-    <form class="temp-form" method="post" action="{{ url_for('ai_trading', tab='today') }}">
-      <input type="hidden" name="action" value="add_priority">
-      <input type="text" name="priority_tickers" placeholder="{{ _('Add Priority Buy tickers, e.g. AMD, SHOP.TO') }}" required>
-      <button class="btn" type="submit">{{ _('Mark Priority Buy ⭐') }}</button>
-    </form>
-    {% if priority %}
-    <p class="hint" style="margin-top:0">{{ _('Priority Buy list:') }}
-      {% for t in priority %}
-        <form method="post" action="{{ url_for('ai_trading', tab='today') }}" style="display:inline;margin:0 6px 4px 0">
-          <input type="hidden" name="action" value="clear_priority">
-          <input type="hidden" name="ticker" value="{{ t }}">
-          <button class="btn" type="submit" style="padding:2px 8px;font-size:0.85rem" title="{{ _('Clear Priority Buy') }}">⭐ {{ t }} ×</button>
-        </form>
-      {% endfor %}
+    <p class="hint" style="margin:0 0 10px;text-align:left">
+      {{ _('Buy candidates = My Watchlist + Nasdaq-100 + AI Approved names currently marked 🟡 WATCH / 🟢 ALERT / 🟢 DEEP (same SMA Alert rules). Dist SMA25 + Recovery decide READY / STABILIZING / APPROACHING …') }}
     </p>
+    <div class="summary-grid">
+      <div class="cell"><span class="k">{{ _('Observation pool (MY∪NDX∪AI)') }}</span><span class="v">{{ bv.pool_count if bv.pool_count is not none else '—' }}</span></div>
+      <div class="cell"><span class="k">{{ _('Alert-marked (buy list)') }}</span><span class="v">{{ bv.universe_count or 0 }}</span></div>
+      <div class="cell"><span class="k st-ready">🟢 {{ _('READY') }}</span><span class="v">{{ bc.READY or 0 }}</span></div>
+      <div class="cell"><span class="k st-stabilizing">🟡 {{ _('STABILIZING') }}</span><span class="v">{{ bc.STABILIZING or 0 }}</span></div>
+      <div class="cell"><span class="k st-approaching">🟡 {{ _('APPROACHING') }}</span><span class="v">{{ bc.APPROACHING or bc.WATCH or bc.ALERT or 0 }}</span></div>
+    </div>
+    <div class="buy-status-bar" id="ai-buy-status-bar">
+      <span class="hint" style="margin:0">{{ _('Show') }}:</span>
+      <button type="button" class="btn active" data-buy-filter="candidates">{{ _('CANDIDATES') }}</button>
+      <button type="button" class="btn" data-buy-filter="READY"><span class="buy-st ready">🟢 {{ _('READY') }}</span></button>
+      <button type="button" class="btn" data-buy-filter="HOLD"><span class="buy-st holding">💼 {{ _('HOLDING') }} ({{ bc.HOLD or 0 }})</span></button>
+      <button type="button" class="btn" data-buy-filter="STABILIZING"><span class="buy-st stabilizing">🟡 {{ _('STABILIZING') }}</span></button>
+      <button type="button" class="btn" data-buy-filter="APPROACHING"><span class="buy-st approaching">🟡 {{ _('APPROACHING') }}</span></button>
+      <label class="hint" style="margin:0;display:inline-flex;align-items:center;gap:6px">
+        {{ _('Other') }}
+        <select id="ai-buy-other-filter" title="{{ _('BLOCKED / WAIT / REVIEW and other statuses') }}">
+          <option value="">—</option>
+          <option value="BLOCKED">🔴 {{ _('BLOCKED') }} ({{ bc.BLOCKED or 0 }})</option>
+          <option value="WAIT">🟦 {{ _('WAIT') }} ({{ bc.WAIT or 0 }})</option>
+          <option value="REVIEW">⚠ {{ _('REVIEW') }} ({{ bc.REVIEW or 0 }})</option>
+          <option value="all">{{ _('All statuses') }}</option>
+        </select>
+      </label>
+      <span class="hint" id="ai-buy-filter-count" style="margin:0"></span>
+    </div>
+    <p class="hint" style="margin:0 0 10px;text-align:left">
+      {{ _('CANDIDATES = today’s AI BUY list including HOLDING; BLOCKED hidden (see Other).') }}
+      · {{ _('HOLDING = already have an open paper position (still listed; not allocated again).') }}
+      · {{ _('READY = 0 while those names are open as HOLDING — new READY appears after Refresh when timing qualifies.') }}
+      · {{ _('DATA ERROR is a hard BUY block (not a score penalty). SMA25_D = 25 trading-day SMA from daily closes.') }}
+      {% if bv.as_of %} · {{ _('As of') }} {{ bv.as_of }}{% endif %}
+    </p>
+    {% if can_manage and mdv_batch_report %}
+    {% set mc = mdv_batch_report.counts or {} %}
+    <div class="paper-banner" style="margin-bottom:10px;background:#f8fafc;border-color:#cbd5e1;color:#0f172a">
+      <strong>{{ _('Market Data Validation') }}</strong> —
+      {{ _('Universe checked') }}: <code>{{ mdv_batch_report.checked }}</code>
+      · PASS <code>{{ mc.PASS or 0 }}</code>
+      · WARNING <code>{{ mc.WARNING or 0 }}</code>
+      · ERROR <code>{{ mc.ERROR or 0 }}</code>
+      · INSUFFICIENT <code>{{ mc.INSUFFICIENT_DATA or 0 }}</code>
+      · STALE <code>{{ mc.STALE_DATA or 0 }}</code>
+      {% if mdv_batch_report.errors %}
+      <div class="hint" style="margin:6px 0 0;text-align:left">
+        {{ _('ERROR tickers') }}:
+        {% for e in mdv_batch_report.errors[:12] %}
+          <code>{{ e.ticker }}</code>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+        {% if mdv_batch_report.errors|length > 12 %}…{% endif %}
+      </div>
+      {% endif %}
+    </div>
     {% endif %}
+    {% if can_manage and mdv_last_report %}
+    <details class="panel" style="margin:0 0 12px;padding:10px 12px" {% if request.args.get('data_check') %}open{% endif %}>
+      <summary style="cursor:pointer;font-weight:700">{{ _('DATA CHECK') }}{% if mdv_last_ticker %}: {{ mdv_last_ticker }}{% endif %}</summary>
+      <pre style="white-space:pre-wrap;font-size:0.82rem;margin:8px 0 0">{{ mdv_last_report }}</pre>
+    </details>
     {% endif %}
-
-    <div class="panel">
-      {% if not candidates %}
-        <p class="hint" style="font-weight:700;color:#9a3412">{{ _('NO TRADE') }}</p>
-        <p class="hint">{{ _('No names passed Auto price-location + Knife gates. Research filters are unchanged — wait for a better price, or refresh AI Candidates after prices update.') }}</p>
-      {% else %}
-      <p class="hint" style="margin-top:0">{{ candidates|length }} / {{ _('max') }} 10 · {{ _('quality over fill') }}</p>
-      <table class="data" id="ai-cand-table">
+    {% set buy_rows = bv.rows or [] %}
+    {% if not buy_rows %}
+      <p class="empty">{{ _('No Alert-marked names yet. Open My Watchlist, Nasdaq-100, or AI Approved — only 🟡/🟢 Alert stocks enter AI BUY.') }}
+        <a href="{{ url_for('watchlist', tab='mine') }}">{{ _('My Watchlist') }}</a> ·
+        <a href="{{ url_for('watchlist', tab='ndx100') }}">{{ _('Nasdaq-100') }}</a> ·
+        <a href="{{ url_for('watchlist', tab='ai_approved') }}">{{ _('AI Approved') }}</a>
+      </p>
+    {% else %}
+    <div class="panel wl-panel">
+      <table class="data" id="ai-buy-table">
         <thead>
-          <tr>
-            <th>#</th>
-            <th class="freeze-col freeze-edge">{{ _('Symbol') }}</th>
-            <th>{{ _('Company') }}</th>
-            <th class="num">{{ _('Price') }}</th>
-            <th class="num">{{ _('Day %') }}</th>
-            <th class="num">{{ _('AI Score') }}</th>
-            <th class="num">{{ _('Knife Risk') }}</th>
-            <th>{{ _('Financial') }}</th>
-            <th class="num">{{ _('63D Position') }}</th>
-            <th class="num">{{ _('Target Ratio') }}</th>
-            <th class="num">{{ _('MOS T') }}</th>
-            <th class="num">{{ _('Strong COUNT20') }}</th>
-            <th>{{ _('Rising Now') }}</th>
-            <th class="num">{{ _('Up Days 5D') }}</th>
-            <th class="num">{{ _('5D Return') }}</th>
-            <th>{{ _('News') }}</th>
-            <th>{{ _('Source') }}</th>
-            <th title="{{ _('Priority Buy ⭐ — Admin flag: earlier suggested allocation on Create Paper Orders. Does not change AI Score.') }}">{{ _('Priority Buy') }}</th>
-            <th class="num">{{ _('Suggested Allocation') }}</th>
-            <th class="num">{{ _('Shares') }}</th>
-            <th class="num" title="{{ _('Stop Loss — AUTO from Settings %; Admin can override. Reset restores AUTO.') }}">{{ _('Stop Loss') }}</th>
-            <th class="num" title="{{ _('Take Profit — AUTO from Settings %; Admin can override. Reset restores AUTO.') }}">{{ _('Take Profit') }}</th>
-            <th class="num" title="{{ _('R/R = Reward% ÷ Risk% (Take Profit % / Stop Loss %). Example: +10% / 5% = 2.0. Higher usually means more reward per unit of risk.') }}">R/R</th>
-            {% if can_manage %}
-            <th class="num" title="{{ _('Manual buy $ — enter dollars to buy or add. Cash and trading limit still apply.') }}">{{ _('Buy $') }}</th>
-            <th class="num" title="{{ _('Manual buy shares — optional; overrides Buy $ if both set.') }}">{{ _('Buy sh') }}</th>
-            <th></th>
-            {% endif %}
+          <tr class="col-row">
+            <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _('Ticker') }}</th>
+            <th data-col="1" title="{{ _('DATA QUALITY — not trading risk. ERROR = hard BUY block.') }}">{{ _('DATA') }}</th>
+            <th data-col="2">{{ _('Source') }}</th>
+            <th data-col="3">{{ _('WL Alert') }}</th>
+            <th class="num sortable" data-col="4" data-type="num">{{ _('Price') }}</th>
+            <th class="num sortable" data-col="5" data-type="num">{{ _('BUY') }}</th>
+            <th class="num sortable" data-col="6" data-type="num">{{ _('Dist SMA25') }}</th>
+            <th class="num sortable" data-col="7" data-type="num">{{ _('Price Score') }}</th>
+            <th class="num sortable" data-col="8" data-type="num">{{ _('Recovery') }}</th>
+            <th class="num sortable" data-col="9" data-type="num">{{ _('Knife') }}</th>
+            <th data-col="10">{{ _('News') }}</th>
+            <th data-col="11">{{ _('Buy Status') }}</th>
+            <th data-col="12">{{ _('Reason') }}</th>
           </tr>
         </thead>
         <tbody>
-          {% for c in candidates %}
-          <tr data-ticker="{{ c.ticker }}"
-              data-price="{% if c.price is not none %}{{ c.price }}{% endif %}"
-              data-stop-pct="{{ c.stop_pct if c.stop_pct is not none else stop_pct }}"
-              data-take-pct="{{ c.take_profit_pct if c.take_profit_pct is not none else take_pct }}"
-              data-default-stop="{% if c.default_stop is not none %}{{ c.default_stop }}{% endif %}"
-              data-default-take="{% if c.default_take is not none %}{{ c.default_take }}{% endif %}">
-            <td>{{ c.rank }}</td>
-            <td class="freeze-col freeze-edge"><strong>{{ c.ticker }}</strong></td>
-            <td>{{ c.name or '—' }}</td>
-            <td class="num js-entry">{{ money(c.price) }}</td>
-            <td class="num {% if c.change_pct is not none and c.change_pct < 0 %}down{% elif c.change_pct is not none and c.change_pct > 0 %}up{% endif %}">
-              {% if c.change_pct is not none %}{{ '%+.2f'|format(c.change_pct) }}%{% else %}—{% endif %}
+          {% for r in buy_rows %}
+          {% set st = (r.buy_status or 'WAIT')|upper %}
+          {% set dq = (r.data_quality_status or 'PASS')|upper %}
+          <tr data-buy-status="{{ st }}" data-data-quality="{{ dq }}">
+            <td class="col-ticker freeze-col freeze-edge" data-sort="{{ r.ticker }}">
+              <strong>{{ r.ticker }}</strong>
+              {% if r.wl_alert_emoji %}<span title="{{ _('Watchlist SMA Alert') }}">{{ r.wl_alert_emoji }}</span>{% endif %}
+              {% if r.name %}<div class="hint name-sub" style="text-align:left;margin:0">{{ r.name }}</div>{% endif %}
             </td>
-            <td class="num">{% if c.ai_score is not none %}{{ '%.0f'|format(c.ai_score) }}{% else %}—{% endif %}</td>
-            <td class="num" title="{{ _('Knife Risk — Auto pool excludes Knife ≥ threshold') }}">
-              {% if c.knife_score is not none %}
-                {{ '%.0f'|format(c.knife_score) }}{% if c.knife_level %} {{ c.knife_level }}{% endif %}
-              {% else %}—{% endif %}
-            </td>
-            <td>{{ c.financial_label or '—' }}</td>
-            <td class="num">{% if c.range_63d_pos is not none %}{{ '%.1f'|format(c.range_63d_pos) }}%{% else %}—{% endif %}</td>
-            <td class="num">
-              {% if c.price is not none and c.target_1y %}
-                {{ '%.2f'|format(c.price / c.target_1y) }}
-              {% else %}—{% endif %}
-            </td>
-            <td class="num">{% if c.mos_t is not none %}{{ '%+.1f'|format(c.mos_t) }}%{% else %}—{% endif %}</td>
-            <td class="num">{{ c.count20_label or '—' }}</td>
-            <td>{% if c.in_rising %}✓{% else %}—{% endif %}</td>
-            <td class="num">{% if c.up_days_5 is not none %}{{ c.up_days_5 }}/5{% else %}—{% endif %}</td>
-            <td class="num {% if c.return_5d_pct is not none and c.return_5d_pct < 0 %}down{% elif c.return_5d_pct is not none and c.return_5d_pct > 0 %}up{% endif %}">
-              {% if c.return_5d_pct is not none %}{{ '%+.2f'|format(c.return_5d_pct) }}%{% else %}—{% endif %}
-            </td>
-            <td>{{ c.news_label or '—' }}</td>
-            <td style="white-space:nowrap;font-size:0.82rem">{{ c.source_label or '—' }}</td>
-            <td>{% if c.is_priority %}<span class="pri">⭐</span>{% else %}—{% endif %}</td>
-            <td class="num">{{ money(c.suggested_alloc) }}</td>
-            <td class="num">{% if c.suggested_shares %}{{ c.suggested_shares }}{% if c.shares_mode == 'fractional' %} <span class="hint">(frac)</span>{% endif %}{% else %}—{% endif %}</td>
-            <td class="num lvl-cell js-stop-cell">
-              {% if can_manage %}
-              <div class="lvl-wrap">
-                <input class="lvl-edit js-lvl {% if c.stop_source == 'manual' %}manual{% endif %}"
-                       type="number" step="0.01" min="0.01"
-                       data-field="stop" data-ticker="{{ c.ticker }}"
-                       value="{% if c.stop_price is not none %}{{ '%.2f'|format(c.stop_price) }}{% endif %}"
-                       title="{% if c.stop_source == 'manual' %}{{ _('Manual Stop — Admin override. Reset restores AUTO.') }}{% else %}{{ _('AUTO Stop = Entry × (1 − Stop%). Click to override (Admin).') }}{% endif %}">
-                <span class="lvl-mark js-stop-m" {% if c.stop_source != 'manual' %}hidden{% endif %} title="{{ _('Manual') }}">M</span>
-                <button type="button" class="lvl-reset js-lvl-reset" data-field="stop" data-ticker="{{ c.ticker }}"
-                        title="{{ _('Reset to AUTO') }}" {% if c.stop_source != 'manual' %}hidden{% endif %}>↺</button>
-              </div>
-              <span class="lvl-sub js-stop-risk">{% if c.stop_risk_pct is not none %}{{ _('Risk') }} {{ '%.1f'|format(c.stop_risk_pct) }}%{% endif %}</span>
-              {% else %}
-                {{ money(c.stop_price) }}{% if c.stop_source == 'manual' %} <span class="lvl-mark">M</span>{% endif %}
-                {% if c.stop_risk_pct is not none %}<span class="lvl-sub">{{ _('Risk') }} {{ '%.1f'|format(c.stop_risk_pct) }}%</span>{% endif %}
-              {% endif %}
-            </td>
-            <td class="num lvl-cell js-take-cell">
-              {% if can_manage %}
-              <div class="lvl-wrap">
-                <input class="lvl-edit js-lvl {% if c.take_source == 'manual' %}manual{% endif %}"
-                       type="number" step="0.01" min="0.01"
-                       data-field="take" data-ticker="{{ c.ticker }}"
-                       value="{% if c.take_profit_price is not none %}{{ '%.2f'|format(c.take_profit_price) }}{% endif %}"
-                       title="{% if c.take_source == 'manual' %}{{ _('Manual Take Profit — Admin override. Reset restores AUTO.') }}{% else %}{{ _('AUTO Take Profit = Entry × (1 + Take%). Click to override (Admin).') }}{% endif %}">
-                <span class="lvl-mark js-take-m" {% if c.take_source != 'manual' %}hidden{% endif %} title="{{ _('Manual') }}">M</span>
-                <button type="button" class="lvl-reset js-lvl-reset" data-field="take" data-ticker="{{ c.ticker }}"
-                        title="{{ _('Reset to AUTO') }}" {% if c.take_source != 'manual' %}hidden{% endif %}>↺</button>
-              </div>
-              <span class="lvl-sub js-take-reward">{% if c.reward_pct is not none %}{{ _('Reward') }} {{ '%.1f'|format(c.reward_pct) }}%{% endif %}</span>
-              {% else %}
-                {{ money(c.take_profit_price) }}{% if c.take_source == 'manual' %} <span class="lvl-mark">M</span>{% endif %}
-                {% if c.reward_pct is not none %}<span class="lvl-sub">{{ _('Reward') }} {{ '%.1f'|format(c.reward_pct) }}%</span>{% endif %}
-              {% endif %}
-            </td>
-            <td class="num rr-cell js-rr" title="{{ _('R/R = Reward% ÷ Risk%') }}">
-              {% if c.rr_ratio is not none %}{{ '%.1f'|format(c.rr_ratio) }}{% else %}—{% endif %}
-            </td>
-            {% if can_manage %}
-            <td class="num">
-              <input class="lvl-edit js-buy-amt" type="number" step="1" min="1"
-                     name="amount" form="buy-{{ c.ticker }}"
-                     placeholder="150"
-                     title="{{ _('Buy amount in $') }}"
-                     style="width:4.2rem">
-            </td>
-            <td class="num">
-              <input class="lvl-edit js-buy-sh" type="number"
-                     step="0.0001"
-                     min="0.0001"
-                     name="shares" form="buy-{{ c.ticker }}"
-                     placeholder="—"
-                     title="{{ _('Buy shares — fractional OK (optional; overrides Buy $ if both set)') }}"
-                     style="width:3.6rem">
+            <td data-sort="{{ dq }}"
+                title="{% if r.data_quality_detail %}SMA25_D={{ r.data_quality_detail.sma25_d }} · Dist={{ r.data_quality_detail.dist_sma25_stored }} · {{ r.data_quality_detail.price_timestamp }}{% endif %}{% if r.data_quality_reason %} · {{ r.data_quality_reason|join('; ') }}{% endif %}">
+              {% if dq == 'PASS' %}✅ {% elif dq == 'WARNING' or dq == 'STALE_DATA' %}⚠ {% else %}🔴 {% endif %}{{ dq }}
             </td>
             <td>
-              <form method="post" action="{{ url_for('ai_trading', tab='today') }}"
-                    id="buy-{{ c.ticker }}" class="js-manual-buy-form" style="display:inline">
-                <input type="hidden" name="action" value="manual_buy">
-                <input type="hidden" name="ticker" value="{{ c.ticker }}">
-                <button class="btn primary js-manual-buy" type="submit"
-                        data-ticker="{{ c.ticker }}"
-                        data-confirm-title="{{ _('Manual buy / add') }}"
-                        style="padding:2px 8px;font-size:0.75rem">{{ _('Buy') }}</button>
-              </form>
+              {% if r.sources %}{{ r.sources|join(', ') if r.sources is iterable and r.sources is not string else r.sources }}
+              {% elif r.in_my_watchlist and r.ai_approved and r.in_ndx100 %}MY+AI+NDX
+              {% elif r.in_my_watchlist and r.ai_approved %}MY+AI
+              {% elif r.in_my_watchlist and r.in_ndx100 %}MY+NDX
+              {% elif r.ai_approved and r.in_ndx100 %}AI+NDX
+              {% elif r.in_my_watchlist %}MY
+              {% elif r.ai_approved %}AI
+              {% elif r.in_ndx100 %}NDX
+              {% else %}—{% endif %}
             </td>
-            {% endif %}
+            <td data-sort="{{ r.wl_alert_state or '' }}">
+              {% if r.wl_alert_state %}
+                {{ r.wl_alert_emoji or '' }} {{ (r.wl_alert_state or '')|upper }}
+              {% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ r.price if r.price is not none else '' }}">
+              {% if r.price is not none %}${{ '%.2f'|format(r.price) }}{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ r.buy_score if r.buy_score is not none else '' }}">
+              {% if r.buy_score is not none %}{{ r.buy_score }}{% else %}—{% endif %}
+            </td>
+            <td class="num {% if r.dist_pct is not none and r.dist_pct < 0 %}up{% elif r.dist_pct is not none and r.dist_pct > 0 %}down{% endif %}"
+                data-sort="{{ r.dist_pct if r.dist_pct is not none else '' }}">
+              {% if r.dist_pct is not none %}{{ '%+.1f'|format(r.dist_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ r.price_score if r.price_score is not none else '' }}">
+              {% if r.price_score is not none %}{{ r.price_score }}{% else %}—{% endif %}
+              {% if r.price_zone %}<div class="hint" style="margin:0;font-size:0.7rem">{{ r.price_zone }}</div>{% endif %}
+            </td>
+            <td class="num" data-sort="{{ r.recovery_score if r.recovery_score is not none else '' }}">
+              {% if r.recovery_score is not none %}{{ r.recovery_score }}{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ r.knife_score if r.knife_score is not none else '' }}">
+              {% if r.knife_score is not none %}{{ r.knife_score }}{% else %}—{% endif %}
+            </td>
+            <td>{% if r.news_status %}{{ r.news_status }}{% else %}—{% endif %}</td>
+            <td>
+              {% if st == 'HOLD' %}
+                {% set was = (r.timing_status or '')|string|upper %}
+                {% if not was and (r.reason or '') %}
+                  {# fallback: parse was=STATUS from reason (Jinja loop set is scoped) #}
+                  {% set ns = namespace(was='') %}
+                  {% for part in (r.reason or '')|string|split(' · ') %}
+                    {% if part.startswith('was=') %}{% set ns.was = part[4:]|upper %}{% endif %}
+                  {% endfor %}
+                  {% set was = ns.was %}
+                {% endif %}
+                <span class="buy-st holding" title="{{ _('HOLDING = open position. Colored label = timing if not held.') }}">
+                  💼 {{ _('HOLDING') }}
+                </span>
+                {% if was == 'READY' %}
+                  <div class="buy-st ready" style="margin:2px 0 0;font-size:0.78rem">🟢 {{ _('was') }} {{ _('READY') }}</div>
+                {% elif was == 'STABILIZING' %}
+                  <div class="buy-st stabilizing" style="margin:2px 0 0;font-size:0.78rem">🟡 {{ _('was') }} {{ _('STABILIZING') }}</div>
+                {% elif was == 'APPROACHING' or was == 'WATCH' or was == 'ALERT' %}
+                  <div class="buy-st approaching" style="margin:2px 0 0;font-size:0.78rem">🟡 {{ _('was') }} {{ _('APPROACHING') if was == 'APPROACHING' else was }}</div>
+                {% elif was == 'BLOCKED' %}
+                  <div class="buy-st blocked" style="margin:2px 0 0;font-size:0.78rem">🔴 {{ _('was') }} {{ _('BLOCKED') }}</div>
+                {% elif was %}
+                  <div class="hint" style="margin:2px 0 0;font-size:0.78rem">{{ _('was') }} {{ was }}</div>
+                {% else %}
+                  <div class="hint" style="margin:2px 0 0;font-size:0.7rem">{{ _('open position') }}</div>
+                {% endif %}
+              {% elif st == 'READY' %}
+                <span class="buy-st ready">{{ r.status_emoji or '🟢' }} {{ _('READY') }}</span>
+              {% elif st == 'STABILIZING' %}
+                <span class="buy-st stabilizing">{{ r.status_emoji or '🟡' }} {{ _('STABILIZING') }}</span>
+              {% elif st == 'APPROACHING' or st == 'WATCH' or st == 'ALERT' %}
+                <span class="buy-st approaching">{{ r.status_emoji or '🟡' }} {{ _('APPROACHING') if st == 'APPROACHING' else st }}</span>
+              {% elif st == 'BLOCKED' %}
+                <span class="buy-st blocked">{{ r.status_emoji or '🔴' }} {{ _('BLOCKED') }}</span>
+              {% elif st == 'WAIT' %}
+                <span class="buy-st wait">{{ r.status_emoji or '🟦' }} {{ _('WAIT') }}</span>
+              {% elif st == 'REVIEW' %}
+                <span class="buy-st review">{{ r.status_emoji or '⚠' }} {{ _('REVIEW') }}</span>
+              {% else %}
+                <strong>{{ r.buy_status or '—' }}</strong>
+              {% endif %}
+            </td>
+            <td class="hint" style="text-align:left;white-space:normal;max-width:220px">{{ r.reason or '—' }}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
-      {% if can_manage %}
-      <p class="hint" style="margin-top:8px">{{ _('End columns Buy $ / Buy sh / Buy: enter dollars or shares, then Buy. Opens a new position or adds to an existing one. Cash and trading limit still apply; blocked names show a warning.') }}</p>
-      {% endif %}
-      {% endif %}
     </div>
+    <script>
+    (function () {
+      var bar = document.getElementById("ai-buy-status-bar");
+      var table = document.getElementById("ai-buy-table");
+      var other = document.getElementById("ai-buy-other-filter");
+      var countEl = document.getElementById("ai-buy-filter-count");
+      if (!bar || !table) return;
+      var mode = "candidates";
+      var CANDIDATES_HIDE = { BLOCKED: 1 };
+      function apply() {
+        var rows = table.tBodies[0] ? table.tBodies[0].rows : [];
+        var shown = 0;
+        for (var i = 0; i < rows.length; i++) {
+          var st = (rows[i].getAttribute("data-buy-status") || "").toUpperCase();
+          var ok = false;
+          if (mode === "all") {
+            ok = true;
+          } else if (mode === "candidates" || mode === "focus") {
+            // Full day’s list except BLOCKED (use Other → BLOCKED to inspect).
+            ok = !CANDIDATES_HIDE[st];
+          } else {
+            ok = st === mode;
+          }
+          rows[i].style.display = ok ? "" : "none";
+          if (ok) shown++;
+        }
+        if (countEl) countEl.textContent = shown + " / " + rows.length;
+      }
+      bar.querySelectorAll("[data-buy-filter]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          mode = btn.getAttribute("data-buy-filter") || "candidates";
+          bar.querySelectorAll("[data-buy-filter]").forEach(function (b) {
+            b.classList.toggle("active", b === btn);
+          });
+          if (other) other.value = "";
+          apply();
+        });
+      });
+      if (other) {
+        other.addEventListener("change", function () {
+          var v = other.value;
+          if (!v) return;
+          mode = v;
+          bar.querySelectorAll("[data-buy-filter]").forEach(function (b) {
+            b.classList.remove("active");
+          });
+          apply();
+        });
+      }
+      apply();
+    })();
+    </script>
+    {% endif %}
 
-    <h2 class="section">{{ _('Open Positions') }}</h2>
+    <h2 class="section" style="margin-top:22px">{{ _('Open Positions') }} ({{ opens|length }})</h2>
     {% if not opens %}
       <p class="hint">{{ _('No open paper positions.') }}</p>
     {% else %}
@@ -801,23 +890,8 @@
 
       {% if can_manage %}
       <div id="disc-panel-actions" class="disc-panel-slot" hidden>
-        <div class="actions" style="margin:0">
-          <form method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="display:inline">
-            <input type="hidden" name="action" value="discovery_run">
-            <input type="hidden" name="create_orders" value="1">
-            <button class="btn primary" type="submit">{{ _('Run AI Discovery + Auto Orders') }}</button>
-          </form>
-          <form method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="display:inline">
-            <input type="hidden" name="action" value="discovery_run">
-            <input type="hidden" name="create_orders" value="0">
-            <button class="btn" type="submit">{{ _('Harvest + Analyze only') }}</button>
-          </form>
-          <form method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="display:inline">
-            <input type="hidden" name="action" value="discovery_create_orders">
-            <button class="btn" type="submit">{{ _('Create Discovery Orders') }}</button>
-          </form>
-        </div>
-        <form class="temp-form" method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="margin-top:10px">
+        <p class="hint" style="margin:0 0 10px;text-align:left">{{ _('Use RUN AI DISCOVERY at the top (next to Download). Discovery does not auto-create paper orders.') }}</p>
+        <form class="temp-form" method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="margin:0">
           <input type="hidden" name="action" value="discovery_add_event">
           <input type="text" name="ticker" placeholder="{{ _('Ticker') }}" required style="max-width:100px">
           <input type="text" name="event_summary" placeholder="{{ _('Major positive event summary (contract / FDA / guidance…)') }}" required style="flex:1 1 200px">
@@ -843,22 +917,6 @@
       <span>{{ _('Win Rate') }} {% if nt.win_rate is defined and nt.win_rate is not none %}{{ nt.win_rate }}%{% else %}—{% endif %}</span>
     </div>
 
-    {% if can_manage %}
-    <div class="actions" style="margin:0 0 12px">
-      <form method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="display:inline">
-        <input type="hidden" name="action" value="discovery_run">
-        <input type="hidden" name="create_orders" value="0">
-        <button class="btn primary" type="submit">{{ _('Harvest + Analyze only') }}</button>
-      </form>
-      <form method="post" action="{{ url_for('ai_trading', tab='discovery', layer=layer) }}" style="display:inline">
-        <input type="hidden" name="action" value="discovery_run">
-        <input type="hidden" name="create_orders" value="1">
-        <button class="btn" type="submit">{{ _('Run AI Discovery + Auto Orders') }}</button>
-      </form>
-      <span class="hint" style="align-self:center">{{ _('Refreshes Broad + Official Discovery (not AI Candidates).') }}</span>
-    </div>
-    {% endif %}
-
     <div class="disc-layer-tabs">
       <a class="tab {% if layer == 'broad' %}active{% endif %}"
          href="{{ url_for('ai_trading', tab='discovery', layer='broad') }}">{{ _('BROAD DISCOVER') }} ({{ broad_n }})</a>
@@ -869,7 +927,7 @@
     <div class="panel disc-panel">
       {% if not layer_rows %}
         {% if layer == 'broad' %}
-        <p class="hint">{{ _('No Broad Discovery rows yet. Run Harvest + Analyze only (combined Broad + Official). Official rows are under the right tab.') }}</p>
+        <p class="hint">{{ _('No Broad Discovery rows yet. Click RUN AI DISCOVERY at the top (Broad + Official). Official rows are under the right tab.') }}</p>
         {% else %}
         <p class="hint">{{ _('No Official 5×5 Radar rows at the current minimum Event Score.') }}</p>
         {% endif %}

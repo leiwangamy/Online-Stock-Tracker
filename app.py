@@ -28,6 +28,7 @@ from db import (
     list_setup,
     list_low_target_ratio,
     list_low_63d_pos,
+    list_universe,
     set_setting,
     universe_count,
     upsert_alert_price,
@@ -43,6 +44,7 @@ from market_data import (
     get_fund_cached_only,
     get_news_cached_only,
     get_signals,
+    is_data_quality_error,
     make_news_skipped,
     refresh_dashboard_cache,
 )
@@ -1050,7 +1052,65 @@ def _consume_pending_mine_tickers() -> tuple[list[str], list[str]]:
             continue
         add_my_watchlist_ticker(u)
         added.append(u)
+    if added:
+        _force_refresh_mine_tickers(added)
     return added, existed
+
+
+def _force_refresh_mine_tickers(tickers: list[str]) -> list[str]:
+    """
+    Live-fetch Yahoo metrics for newly added My Watchlist names and upsert
+    into dashboard_cache so the next page load shows Price / SMA / AI immediately.
+    """
+    from db import save_dashboard_rows
+
+    clean: list[str] = []
+    seen: set[str] = set()
+    for t in tickers:
+        u = (t or "").strip().upper()
+        if u and u not in seen and validate_ticker_format(u):
+            seen.add(u)
+            clean.append(u)
+    if not clean:
+        return []
+    settings_data = get_all_settings()
+    sma = int(settings_data.get("sma_period", 25))
+    reb = int(settings_data.get("rebound_lookback", sma))
+    flags = get_universe_flags(clean)
+    refreshed: list[dict] = []
+    ok: list[str] = []
+    for t in clean:
+        meta = flags.get(t, {})
+        try:
+            metrics = fetch_metrics_for_ticker(
+                t, sma_period=sma, rebound_lookback=reb, meta=meta
+            )
+        except Exception:
+            app.logger.exception("force refresh failed for %s", t)
+            metrics = None
+        if not metrics:
+            continue
+        merged = dict(metrics)
+        merged.update(
+            {k: meta.get(k) for k in ("in_sp500", "in_ndx100", "in_sp400", "in_sp600", "in_tsx")}
+        )
+        merged["price_source"] = "live_yahoo"
+        refreshed.append(merged)
+        ok.append(t)
+    if refreshed:
+        try:
+            save_dashboard_rows(refreshed, replace_all=False)
+        except Exception:
+            app.logger.exception("save_dashboard_rows after mine add failed")
+    # Warm fund/news caches so AI Score has Financial + News on first paint.
+    try:
+        from market_data import ensure_fund_cache, ensure_news_cache
+
+        ensure_fund_cache(ok, max_workers=2, force=False)
+        ensure_news_cache(ok, max_workers=2, force=False)
+    except Exception:
+        app.logger.exception("fund/news warm after mine add failed")
+    return ok
 
 
 def _flash_mine_add_result(added: list[str], existed: list[str], invalid: list[str]) -> None:
@@ -1133,7 +1193,7 @@ def _rows_for_tickers(tickers: list[str]) -> list[dict]:
     for t in clean:
         row = cached.get(t)
         use_cache = False
-        if row and row.get("price") is not None:
+        if row and row.get("price") is not None and not is_data_quality_error(row):
             mos_px = resolve_watchlist_mos_price(row, stale_hours=stale_limit)
             use_cache = not mos_px.get("stale")
         if use_cache:
@@ -1228,12 +1288,14 @@ def watchlist():
             session["temp_watchlist"] = temp[:MAX_TEMP_TICKERS]
         elif action == "clear_temp":
             session.pop("temp_watchlist", None)
-        elif action in ("add_mine", "remove_mine"):
+        elif action in ("add_mine", "remove_mine", "approve_to_mine"):
             if not is_owner():
-                if action == "add_mine":
-                    queued = _queue_pending_mine_tickers(
-                        parse_ticker_input(request.form.get("mine_tickers", ""))
-                    )
+                raw_pending = (
+                    request.form.get("mine_tickers", "")
+                    or request.form.get("ticker", "")
+                )
+                if action in ("add_mine", "approve_to_mine"):
+                    queued = _queue_pending_mine_tickers(parse_ticker_input(raw_pending))
                     if queued:
                         flash(
                             ngettext_format(
@@ -1250,13 +1312,21 @@ def watchlist():
                     url_for("owner_login", next=url_for("watchlist", tab="mine"))
                 )
             try:
-                if action == "add_mine":
-                    raw_parts = parse_ticker_input(request.form.get("mine_tickers", ""))
+                if action in ("add_mine", "approve_to_mine"):
+                    raw = (
+                        request.form.get("mine_tickers", "")
+                        or request.form.get("ticker", "")
+                    )
+                    raw_parts = parse_ticker_input(raw)
+                    # Single-ticker APPROVAL may post without commas
+                    if not raw_parts and (request.form.get("ticker") or "").strip():
+                        raw_parts = [(request.form.get("ticker") or "").strip().upper()]
                     added: list[str] = []
                     existed: list[str] = []
                     invalid: list[str] = []
                     cur = set(get_my_watchlist())
                     for t in raw_parts:
+                        t = (t or "").strip().upper()
                         if not validate_ticker_token(t):
                             invalid.append(t)
                             continue
@@ -1266,14 +1336,57 @@ def watchlist():
                         add_my_watchlist_ticker(t)
                         cur.add(t)
                         added.append(t)
+                    if added:
+                        refreshed = _force_refresh_mine_tickers(added)
+                        if refreshed:
+                            flash(
+                                ngettext_format(
+                                    "Live data refreshed for: {tickers}",
+                                    tickers=", ".join(refreshed),
+                                ),
+                                "ok",
+                            )
                     _flash_mine_add_result(added, existed, invalid)
                 else:
                     remove_my_watchlist_ticker(request.form.get("ticker", ""))
                     flash(gettext("Removed from My Watchlist"), "ok")
             except ValueError as exc:
                 flash(str(exc), "warning")
-            return redirect(url_for("watchlist", tab="mine"))
-        return redirect(url_for("watchlist", tab=request.args.get("tab") or "temp"))
+            # APPROVAL always lands on My Watchlist so the add is visible.
+            if action == "approve_to_mine":
+                next_tab = "mine"
+            else:
+                next_tab = (
+                    request.form.get("next_tab") or request.args.get("tab") or "mine"
+                ).strip()
+            if next_tab not in (
+                "mine",
+                "ai_approved",
+                "core_universe",
+                "ndx100",
+                "ai_discovery",
+                "setup",
+                "low_target",
+                "low_63d",
+                "temp",
+            ):
+                next_tab = "mine"
+            return redirect(url_for("watchlist", tab=next_tab))
+        elif action in (
+            "approve_ai",
+            "reject_ai",
+            "remove_ai_approved",
+            "refresh_ai_select",
+            "refresh_core_universe",
+            "core_add",
+            "core_keep",
+            "core_remove",
+            "core_ignore",
+        ):
+            # Handled below after imports / tab context.
+            pass
+        else:
+            return redirect(url_for("watchlist", tab=request.args.get("tab") or "temp"))
 
     settings_data = get_all_settings()
     sma_period = int(settings_data.get("sma_period", 25))
@@ -1286,15 +1399,28 @@ def watchlist():
     mine_list = get_my_watchlist()
     show_valuation = is_owner()
 
-    tab = request.args.get("tab", "setup")
-    # Legacy bookmarks: oversold / pullback → merged setup tab
+    tab = request.args.get("tab", "mine")
+    # Legacy bookmarks: oversold / pullback → research screen (kept for features)
     if tab in ("oversold", "pullback"):
         tab = "setup"
     # Rising Now / Multi-Signal moved into Strong Stock Monitor
     if tab in ("rising_now", "multi_signal"):
         return redirect(url_for("strong_stock_monitor", tab=tab))
-    if tab not in ("setup", "low_target", "low_63d", "mine", "temp"):
-        tab = "setup"
+    if tab not in (
+        "mine",
+        "ai_approved",
+        "ai_discovery",
+        "core_universe",
+        "ndx100",
+        "ai_select",  # legacy alias → redirect below
+        "setup",
+        "low_target",
+        "low_63d",
+        "temp",
+    ):
+        tab = "mine"
+    if tab == "ai_select":
+        return redirect(url_for("watchlist", tab="core_universe"))
 
     # Cheap cache-only lists (no live fetch) — used for data and tab counts.
     setup = [_enrich(r) for r in list_setup(-10.0)]
@@ -1307,28 +1433,170 @@ def watchlist():
     for r in low_63d:
         r.setdefault("price_source", "dashboard_cache")
 
+    from ai_select import (
+        approve_ticker,
+        list_ai_approved_rows,
+        list_ai_approved_tickers,
+        membership_flags,
+        reject_ticker,
+        remove_ai_approved,
+    )
+    from core_universe import load_latest_run, run_core_universe_filter
+
+    core_run = None
+    core_view = (request.args.get("core_view") or "qualified").strip().lower()
+    if core_view not in ("qualified", "newly", "no_longer", "all"):
+        core_view = "qualified"
+
+    # Owner Core Universe / AI Approved actions
+    if request.method == "POST" and is_owner():
+        action = (request.form.get("action") or "").strip()
+        if action in (
+            "approve_ai",
+            "reject_ai",
+            "remove_ai_approved",
+            "refresh_core_universe",
+            "core_add",
+            "core_keep",
+            "core_remove",
+            "core_ignore",
+            "refresh_ai_select",
+        ):
+            try:
+                if action in ("refresh_core_universe", "refresh_ai_select"):
+                    built = run_core_universe_filter(persist=True)
+                    flash(
+                        ngettext_format(
+                            "Core Universe Filter: {n} qualified (raw {raw})",
+                            n=built.get("qualified_count", 0),
+                            raw=built.get("raw_count", 0),
+                        ),
+                        "ok",
+                    )
+                    return redirect(url_for("watchlist", tab="core_universe"))
+                tkr = (request.form.get("ticker") or "").strip().upper()
+                if action in ("approve_ai", "core_add") and tkr:
+                    src = (request.form.get("approve_source") or "CORE_UNIVERSE").strip().upper()
+                    if src not in ("CORE_UNIVERSE", "AI_DISCOVERY", "MANUAL"):
+                        src = "CORE_UNIVERSE"
+                    approve_ticker(tkr, source=src)
+                    flash(ngettext_format("Added {ticker} → AI APPROVED / Core Watch", ticker=tkr), "ok")
+                    next_tab = (request.form.get("next_tab") or "").strip()
+                    if next_tab == "ai_discovery":
+                        return redirect(url_for("watchlist", tab="ai_discovery"))
+                    return redirect(
+                        url_for(
+                            "watchlist",
+                            tab="core_universe",
+                            core_view=request.args.get("core_view") or "qualified",
+                        )
+                    )
+                if action == "reject_ai" and tkr:
+                    reject_ticker(tkr)
+                    flash(ngettext_format("Rejected {ticker}", ticker=tkr), "ok")
+                    return redirect(url_for("watchlist", tab="core_universe"))
+                if action in ("remove_ai_approved", "core_remove") and tkr:
+                    remove_ai_approved(tkr)
+                    flash(ngettext_format("Removed {ticker} from AI APPROVED", ticker=tkr), "ok")
+                    return redirect(url_for("watchlist", tab="ai_approved"))
+                if action == "core_keep" and tkr:
+                    flash(
+                        ngettext_format(
+                            "Keeping {ticker} in Core Watch (Owner override despite filter fail)",
+                            ticker=tkr,
+                        ),
+                        "ok",
+                    )
+                    return redirect(url_for("watchlist", tab="core_universe", core_view="no_longer"))
+                if action == "core_ignore" and tkr:
+                    flash(ngettext_format("Ignored newly qualified {ticker}", ticker=tkr), "ok")
+                    return redirect(url_for("watchlist", tab="core_universe", core_view="newly"))
+            except Exception as exc:
+                flash(str(exc), "warning")
+                return redirect(url_for("watchlist", tab=tab))
+
+    approved_list = list_ai_approved_tickers()
+    ndx100_list = [
+        (r.get("ticker") or "").upper()
+        for r in list_universe(group="ndx100")
+        if r.get("ticker")
+    ]
+    try:
+        core_run = load_latest_run(qualified_only=False)
+    except Exception:
+        app.logger.exception("load core universe failed")
+        core_run = None
+
     # Live-fetch groups only build rows for the active tab (they hit Yahoo).
     rows = []
     skip_heavy = False  # 新闻 / DCF / CLV / AI（及 live 财报抓取）
     fund_cache_only = False
     if tab == "setup":
-        # Show every match so tab count == table rows. Live Yahoo enrich is
-        # still capped (MAX_AUTO_ROWS); overflow uses shared fund/news cache.
         rows = setup
     elif tab == "low_target":
-        # Lightweight: all ratio hits; 财报 from existing cache only (no refetch).
         rows = low_target
         skip_heavy = True
         fund_cache_only = True
     elif tab == "low_63d":
-        # 63D Position < 25%; fund from shared cache; news only if pass rate >= 60%.
         rows = low_63d
         skip_heavy = True
         fund_cache_only = True
     elif tab == "mine":
         rows = _rows_for_tickers(mine_list)
+    elif tab == "ai_approved":
+        rows = _rows_for_tickers(approved_list)
+        by_ap = {r["ticker"]: r for r in list_ai_approved_rows()}
+        for r in rows:
+            ap = by_ap.get((r.get("ticker") or "").upper()) or {}
+            r["core_score"] = ap.get("core_score")
+            r["ai_sources"] = ap.get("sources_json")
+            r["review_flag"] = bool(ap.get("review_flag"))
+    elif tab == "ndx100":
+        # Independent Nasdaq-100 observation pool (parallel to My / AI Approved).
+        # Prefer dashboard cache for ~100 names; live-fill gaps like My Watchlist.
+        rows = _rows_for_tickers(ndx100_list)
+        skip_heavy = True
+        fund_cache_only = True
+    elif tab == "core_universe":
+        # Dedicated Core Universe UI — skip heavy wl_table fetch
+        rows = []
+        skip_heavy = True
+        fund_cache_only = True
+    elif tab == "ai_discovery":
+        try:
+            from ai_discovery import list_discovery_candidates
+
+            disc = list_discovery_candidates(
+                limit=150, recent_only=True, exclude_negative=False, history_mode=False
+            )
+        except Exception:
+            disc = []
+        rows = _rows_for_tickers(
+            list({(d.get("ticker") or "").upper() for d in disc if d.get("ticker")})
+        )
+        by_d = {}
+        for d in disc:
+            t = (d.get("ticker") or "").upper()
+            if t and t not in by_d:
+                by_d[t] = d
+        for r in rows:
+            d = by_d.get((r.get("ticker") or "").upper()) or {}
+            r["discovery_status"] = d.get("status")
+            r["discovery_event"] = d.get("event_summary") or d.get("event_category")
     elif tab == "temp":
         rows = _rows_for_tickers(temp_tickers)
+
+    # Membership badges on all watchlist rows
+    try:
+        flags = membership_flags([r.get("ticker") for r in rows if r.get("ticker")])
+        for r in rows:
+            fl = flags.get((r.get("ticker") or "").upper()) or {}
+            r["in_my_watchlist"] = bool(fl.get("in_my_watchlist"))
+            r["ai_approved"] = bool(fl.get("ai_approved"))
+    except Exception:
+        for r in rows:
+            r.setdefault("in_my_watchlist", False)
+            r.setdefault("ai_approved", False)
 
     signals = {}
     iv_results = {}
@@ -1523,12 +1791,34 @@ def watchlist():
             r.update(compute_target_proxy_mos(r.get("price"), r.get("target_1y")))
 
     tabs = [
+        {"key": "mine", "label": gettext("My Watchlist"), "count": len(mine_list)},
+        {"key": "ai_approved", "label": "🤖 " + gettext("AI Approved"), "count": len(approved_list)},
+        {
+            "key": "core_universe",
+            "label": "📐 " + gettext("Core Universe"),
+            "count": int((core_run or {}).get("qualified_count") or 0),
+        },
+        {"key": "ndx100", "label": "📗 " + gettext("Nasdaq-100"), "count": len(ndx100_list)},
+        {"key": "ai_discovery", "label": "🔭 " + gettext("AI Discovery"), "count": 0},
         {"key": "setup", "label": "🔻 " + gettext("Oversold pullback"), "count": len(setup)},
         {"key": "low_target", "label": "🎯 " + gettext("Target Ratio < 80%"), "count": len(low_target)},
         {"key": "low_63d", "label": "📉 " + gettext("63D Position < 25%"), "count": len(low_63d)},
-        {"key": "mine", "label": "⭐ " + gettext("My Watchlist"), "count": len(mine_list)},
         {"key": "temp", "label": "🕒 " + gettext("Temp"), "count": len(temp_tickers)},
     ]
+    # Discovery count from rows when active, else cheap query
+    if tab == "ai_discovery":
+        tabs[4]["count"] = len(rows)
+    else:
+        try:
+            from ai_discovery import list_discovery_candidates
+
+            tabs[4]["count"] = len(
+                list_discovery_candidates(
+                    limit=150, recent_only=True, exclude_negative=False, history_mode=False
+                )
+            )
+        except Exception:
+            tabs[4]["count"] = 0
 
     desc = tab_description(
         tab,
@@ -1545,6 +1835,71 @@ def watchlist():
 
     group_label = next((t["label"] for t in tabs if t["key"] == tab), tab)
 
+    # Core Universe change lists for Owner actions.
+    # Display / ADD focus: qualified ∩ NOT (My Watchlist ∪ Nasdaq-100).
+    core_newly = []
+    core_no_longer = []
+    core_still = []
+    if core_run:
+        try:
+            from core_universe import filter_focus_qualified, observation_exclude_tickers
+
+            exclude = observation_exclude_tickers()
+            all_rows = core_run.get("rows") or []
+            focus_rows = filter_focus_qualified(all_rows, exclude=exclude)
+            qset_all = {
+                (r.get("ticker") or "").upper()
+                for r in all_rows
+                if r.get("qualified")
+            }
+            qset_focus = {(r.get("ticker") or "").upper() for r in focus_rows}
+            pool = set(approved_list)
+            core_newly = sorted(qset_focus - pool)
+            core_still = sorted(qset_focus & pool)
+            # Leave AI Approved when numeric filter fails (not merely because in NDX/Mine).
+            core_no_longer = sorted(pool - qset_all)
+            by_t = {(r.get("ticker") or "").upper(): r for r in all_rows}
+            core_run["rows"] = all_rows
+            core_run["focus_rows"] = focus_rows
+            core_run["qualified_count"] = len(focus_rows)
+            core_run["qualified_count_all"] = len(qset_all)
+            core_run["excluded_overlap"] = len(qset_all - qset_focus)
+            core_run["newly_qualified"] = [
+                by_t.get(t) or {"ticker": t, "qualified": True} for t in core_newly
+            ]
+            core_run["no_longer_qualified"] = [
+                by_t.get(t) or {"ticker": t, "qualified": False} for t in core_no_longer
+            ]
+            core_run["still_qualified"] = core_still
+            # Attach latest dashboard prices for Core Universe table display.
+            try:
+                from db import get_dashboard_by_tickers
+
+                price_tickers = sorted(
+                    {
+                        (r.get("ticker") or "").upper()
+                        for r in (focus_rows + core_run["newly_qualified"] + core_run["no_longer_qualified"])
+                        if r.get("ticker")
+                    }
+                )
+                dash_px = get_dashboard_by_tickers(price_tickers) if price_tickers else {}
+                for r in focus_rows + core_run["newly_qualified"] + core_run["no_longer_qualified"]:
+                    t = (r.get("ticker") or "").upper()
+                    d = dash_px.get(t) or {}
+                    if d.get("price") is not None:
+                        r["price"] = d.get("price")
+                    if d.get("change_pct") is not None:
+                        r["change_pct"] = d.get("change_pct")
+            except Exception:
+                app.logger.exception("core universe price attach failed")
+            # Tab badge uses focus count
+            for t in tabs:
+                if t.get("key") == "core_universe":
+                    t["count"] = len(focus_rows)
+                    break
+        except Exception:
+            app.logger.exception("core universe diff failed")
+
     return render_template(
         "watchlist.html",
         sma_period=sma_period,
@@ -1559,12 +1914,22 @@ def watchlist():
         fund_cache_total=fund_cache_total,
         fund_cache_only=fund_cache_only,
         low_target_ms=low_target_ms,
-        show_alert=(tab == "mine"),
+        show_alert=(tab in ("mine", "ndx100", "ai_approved")),
         show_valuation=show_valuation,
         can_edit_mine=is_owner(),
+        can_edit_alert=(is_owner() and tab in ("mine", "ndx100", "ai_approved")),
+        show_ai_select_actions=(tab == "ai_discovery" and is_owner()),
+        show_ai_approved_actions=(tab == "ai_approved" and is_owner()),
+        architecture_v2=True,
         tab_desc=desc,
         wl_updated_at=wl_updated_at,
         group_label=group_label,
+        core_run=core_run,
+        core_view=core_view,
+        core_newly=core_newly,
+        core_still=core_still,
+        core_no_longer=core_no_longer,
+        approved_list=approved_list,
     )
 
 
@@ -1912,6 +2277,7 @@ def ai_trading():
         _ai_auto_thresholds,
         build_candidates,
         clear_priority,
+        create_paper_orders_from_ai_buy,
         create_paper_orders_from_candidates,
         ensure_portfolio,
         history_report,
@@ -1931,14 +2297,17 @@ def ai_trading():
     from knife_risk import KNIFE_AUTO_BLOCK_THRESHOLD
 
     ensure_portfolio()
-    tab = (request.args.get("tab") or request.form.get("tab") or "today").strip().lower()
+    tab = (request.args.get("tab") or request.form.get("tab") or "buy").strip().lower()
+    if tab in ("today", "legacy"):
+        # Legacy Top-10 / today → AI BUY (new architecture)
+        tab = "buy"
     if tab == "news_history":
         # Legacy top-tab URL → dock under AI Discovery.
         return redirect(
             url_for("ai_trading", tab="discovery", news_hist=1) + "#news-history-dock"
         )
-    if tab not in ("today", "open", "history", "discovery"):
-        tab = "today"
+    if tab not in ("buy", "open", "history", "discovery", "select"):
+        tab = "buy"
 
     if request.method == "POST":
         action = (request.form.get("action") or "").strip()
@@ -1946,18 +2315,106 @@ def ai_trading():
             flash(gettext("Please sign in to manage Paper Trading"), "warning")
             return redirect(url_for("owner_login", next=url_for("ai_trading", tab=tab)))
         try:
+            if action == "refresh_ai_buy":
+                from ai_buy import build_ai_buy_snapshot
+
+                built = build_ai_buy_snapshot(persist=True)
+                flash(
+                    ngettext_format(
+                        "AI BUY refreshed: Alert-marked {n} (pool {p}) · READY {r}",
+                        n=built.get("universe_count", 0),
+                        p=built.get("pool_count", 0),
+                        r=(built.get("counts") or {}).get("READY", 0),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="buy"))
+            if action == "check_data":
+                from db import get_dashboard_by_tickers
+                from market_data_validator import (
+                    format_data_check_text,
+                    validate_buy_data,
+                )
+
+                tkr = (request.form.get("ticker") or "").strip().upper()
+                if not tkr or not validate_ticker_format(tkr):
+                    raise ValueError(gettext("Enter a valid ticker"))
+                live = (request.form.get("live") or "").strip() in ("1", "true", "on")
+                row = get_dashboard_by_tickers([tkr]).get(tkr) or {"ticker": tkr}
+                report = validate_buy_data(
+                    tkr, row, require_live_history=live
+                )
+                session["mdv_last_report"] = format_data_check_text(report)
+                session["mdv_last_ticker"] = tkr
+                if report.get("data_block"):
+                    flash(
+                        ngettext_format(
+                            "DATA CHECK {ticker}: {status} — BUY BLOCKED",
+                            ticker=tkr,
+                            status=report.get("data_quality_status"),
+                        ),
+                        "warning",
+                    )
+                else:
+                    flash(
+                        ngettext_format(
+                            "DATA CHECK {ticker}: {status}",
+                            ticker=tkr,
+                            status=report.get("data_quality_status"),
+                        ),
+                        "ok",
+                    )
+                return redirect(url_for("ai_trading", tab="buy", data_check=tkr))
+            if action == "validate_market_data_batch":
+                from ai_buy import buy_observation_tickers
+                from db import get_dashboard_by_tickers
+                from market_data_validator import validate_rows_batch
+
+                tickers = buy_observation_tickers()
+                dash = get_dashboard_by_tickers(tickers) if tickers else {}
+                rows = [dash.get(t) or {"ticker": t} for t in tickers]
+                batch = validate_rows_batch(rows)
+                session["mdv_batch_report"] = batch
+                c = batch.get("counts") or {}
+                flash(
+                    ngettext_format(
+                        "Market Data Validation: checked {n} · PASS {p} · WARN {w} · ERROR {e} · INSUFF {i} · STALE {s}",
+                        n=batch.get("checked", 0),
+                        p=c.get("PASS", 0),
+                        w=c.get("WARNING", 0),
+                        e=c.get("ERROR", 0),
+                        i=c.get("INSUFFICIENT_DATA", 0),
+                        s=c.get("STALE_DATA", 0),
+                    ),
+                    "ok" if not c.get("ERROR") else "warning",
+                )
+                return redirect(url_for("ai_trading", tab="buy"))
+            if action == "refresh_ai_select":
+                from core_universe import run_core_universe_filter
+
+                built = run_core_universe_filter(persist=True)
+                flash(
+                    ngettext_format(
+                        "Core Universe Filter: {n} qualified (raw {raw})",
+                        n=built.get("qualified_count", 0),
+                        raw=built.get("raw_count", 0),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("watchlist", tab="core_universe"))
             if action == "refresh_candidates":
                 rows = build_candidates(persist=True)
                 flash(
                     ngettext_format(
-                        "AI Candidates refreshed: {n} names for {day}",
+                        "Legacy AI Candidates refreshed: {n} names for {day} (deprecated Top-10 path)",
                         n=len(rows),
                         day=trading_day_pt(),
                     ),
-                    "ok",
+                    "warning",
                 )
             elif action == "create_orders":
-                result = create_paper_orders_from_candidates()
+                # AI BUY: READY top→bottom ladder (paper only).
+                result = create_paper_orders_from_ai_buy()
                 created = result.get("created") or []
                 skipped = result.get("skipped") or []
                 if created:
@@ -2016,6 +2473,8 @@ def ai_trading():
                     "no_allocation",
                     "Skipped — no suggested allocation ($0): {detail}",
                 )
+                if created and tab == "buy":
+                    return redirect(url_for("ai_trading", tab="open"))
             elif action == "daily_update":
                 result = run_daily_update(refresh_candidates=True)
                 auto_n = len(result.get("auto_created") or [])
@@ -2143,10 +2602,9 @@ def ai_trading():
             elif action == "discovery_run":
                 from ai_discovery import run_discovery_cycle
 
-                create_orders = (request.form.get("create_orders") or "1") == "1"
-                result = run_discovery_cycle(create_orders=create_orders)
+                # Discovery harvest/analyze only — never auto-create paper orders from this UI.
+                result = run_discovery_cycle(create_orders=False)
                 h = result.get("harvest") or {}
-                o = result.get("orders") or {}
                 cc = h.get("channel_counts") or {}
                 flash(
                     ngettext_format(
@@ -2260,7 +2718,7 @@ def ai_trading():
             elif action == "reset_ai_trading":
                 from ai_trading_export import reset_ai_trading
 
-                result = reset_ai_trading()
+                result = reset_ai_trading(archive_first=True)
                 flash(
                     ngettext_format(
                         "AI Trading reset: trades {t} · priority {p} · cash restored ${c:.2f}. Discovery / Saved News kept.",
@@ -2291,7 +2749,23 @@ def ai_trading():
         return redirect(url_for("ai_trading", tab=tab))
 
     candidates = list_candidates()
-    if not candidates:
+    # Prefer AI BUY snapshot as primary view (new architecture).
+    ai_buy_view: dict = {
+        "as_of": "",
+        "universe_count": 0,
+        "counts": {},
+        "rows": [],
+    }
+    try:
+        from ai_buy import load_ai_buy_view
+
+        # Cache-first; Owner uses Refresh AI BUY for a full rebuild.
+        # Always rebuild: pool = My ∪ NDX100 Alert-marked (prices change often).
+        ai_buy_view = load_ai_buy_view(recompute=True)
+    except Exception:
+        app.logger.exception("AI BUY view failed")
+
+    if not candidates and tab not in ("buy", "select"):
         try:
             candidates = build_candidates(persist=True)
         except Exception:
@@ -2462,6 +2936,7 @@ def ai_trading():
             "ai_trading.html",
             tab=tab,
             summary=summary,
+            ai_buy_view=ai_buy_view,
             candidates=candidates,
             trade_candidates=trade_candidates,
             opens=opens,
@@ -2496,6 +2971,9 @@ def ai_trading():
             news_history_priority_rows=news_history_priority_rows,
             news_history_archive_rows=news_history_archive_rows,
             open_news_history=bool(request.args.get("news_hist")),
+            mdv_last_report=session.get("mdv_last_report"),
+            mdv_last_ticker=session.get("mdv_last_ticker"),
+            mdv_batch_report=session.get("mdv_batch_report"),
         )
     except Exception:
         app.logger.exception("ai_trading render failed")
@@ -2677,6 +3155,8 @@ def strong_stock_monitor():
         "watchlist",
         "rising_now",
         "multi_signal",
+        "rotation",
+        "rotation_detail",
     ):
         tab = "candidates"
 
@@ -2701,10 +3181,19 @@ def strong_stock_monitor():
                 )
             elif action == "add_mine":
                 add_my_watchlist_ticker(ticker)
+                refreshed = _force_refresh_mine_tickers([ticker]) if ticker else []
                 flash(
                     ngettext_format("Added {ticker} to My Watchlist", ticker=ticker),
                     "ok",
                 )
+                if refreshed:
+                    flash(
+                        ngettext_format(
+                            "Live data refreshed for: {tickers}",
+                            tickers=", ".join(refreshed),
+                        ),
+                        "ok",
+                    )
             elif action == "remove_mine":
                 remove_my_watchlist_ticker(ticker)
                 flash(gettext("Removed from My Watchlist"), "ok")
@@ -2735,6 +3224,19 @@ def strong_stock_monitor():
                     ),
                     "ok",
                 )
+            elif action == "refresh_rotation":
+                from sector_rotation import job_sector_rotation_update
+
+                result = job_sector_rotation_update(force=True)
+                flash(
+                    ngettext_format(
+                        "Sector Rotation updated: {n} sectors (as of {day})",
+                        n=result.get("sectors", 0),
+                        day=result.get("as_of") or "—",
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("strong_stock_monitor", tab="rotation"))
             else:
                 flash(gettext("Unknown action"), "warning")
         except Exception as exc:
@@ -2752,6 +3254,8 @@ def strong_stock_monitor():
     ca_rows: list = []
     ca_counts: dict = {}
     badge_candidates = 0
+    rotation_data: dict = {}
+    rotation_detail: dict = {}
 
     if tab == "candidates":
         try:
@@ -2767,6 +3271,37 @@ def strong_stock_monitor():
             app.logger.exception("strong-monitor candidates failed")
             data_badge_rising = 0
             data_badge_multi = 0
+    elif tab in ("rotation", "rotation_detail"):
+        try:
+            from sector_rotation import build_sector_detail, load_latest_sector_rotation
+
+            rotation_data = load_latest_sector_rotation(recompute_if_missing=True)
+            if tab == "rotation_detail":
+                sector_q = (request.args.get("sector") or "").strip()
+                if sector_q:
+                    rotation_detail = build_sector_detail(sector_q)
+                else:
+                    tab = "rotation"
+        except Exception:
+            app.logger.exception("strong-monitor sector rotation failed")
+            flash(gettext("Sector Rotation failed to load. Try Refresh Rotation."), "warning")
+            rotation_data = {
+                "as_of": "",
+                "rows": [],
+                "summary": {
+                    "leading": [],
+                    "rotating_in": [],
+                    "weakening": [],
+                    "falling": [],
+                },
+                "rules": "",
+            }
+        try:
+            rising_rows = [_enrich(r) for r in list_rising_now()]
+        except Exception:
+            rising_rows = []
+        data_badge_rising = len(rising_rows)
+        data_badge_multi = 0
     else:
         try:
             rising_rows = [_enrich(r) for r in list_rising_now()]
@@ -2854,6 +3389,9 @@ def strong_stock_monitor():
     data["multi_summary"] = multi_summary
     data["ca_rows"] = ca_rows
     data["ca_counts"] = ca_counts
+    data["rotation"] = rotation_data
+    data["rotation_detail"] = rotation_detail
+    data["badge_rotation"] = len((rotation_data or {}).get("rows") or [])
     lang = get_lang()
     data["rising_headline"] = rising_count_label(data_badge_rising, lang=lang)
     data["rising_rules"] = rising_rule_summary(lang=lang)

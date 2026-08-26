@@ -266,6 +266,7 @@
       <p><strong>{{ _('COUNT20 Ranking') }}:</strong> {{ _('Historical frequency over the latest 20 trading days. Research ranking only; not a Buy list. Current Position may be below the Strong Day threshold.') }}</p>
       <p><strong>{{ _('Strong Watchlist') }}:</strong> {{ _('COUNT ≥ threshold qualifies; retain N trading days after last qualify. For monitoring pullbacks — not automatic Buy. Renew resets retention.') }}</p>
       <p><strong>{{ _('Rising Now') }}:</strong> {{ _('Up Days ≥ 3/5 · 5D Return ≥ +3% (weak entry only). Rising Score 0–100 then ranks uptrend strength/persistence (Speed 17 · Rel 18 · 10D/20D Trend 35 · Strong Up 20D 12 · 63D Pos 18). Independent of Knife — not 100−Knife. High Rising can still be Knife-BLOCKED. Research only; no retention; not a Buy signal.') }}</p>
+      <p><strong>{{ _('Sector Rotation') }}:</strong> {{ _('Which GICS sectors are becoming stronger/weaker (research only). ETF 5D/20D + RS vs SPY + SMA25 slope; Rising % = Rising Now share of sector stocks (e.g. 25/80); Strong % = Strong Watchlist share. Rotation Score = 30% trend · 25% RS · 20% Rising · 15% Strong · 10% SMA25. Status uses score + direction (LEADING / RISING / NEUTRAL / WEAKENING / FALLING) with daily history for Score Δ / Rank Δ. Not a Buy signal; does not change Rising/Strong/Knife.') }}</p>
       <p><strong>{{ _('Multi-Signal') }}:</strong> {{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Overlap research screen only — not a Buy signal. Strong is a separate indicator.') }}</p>
       <p>{{ _('Workflow: Find strong stocks → Monitor → Wait for pullback → Reassess → Consider entry. Signal ≠ research decision ≠ trade decision. Nothing auto-selects for AI Trading.') }}</p>
     </div>
@@ -308,6 +309,11 @@
        href="{{ url_for('strong_stock_monitor', tab='rising_now') }}">
       {{ _('Rising Now') }}
       <span class="count">({{ data.badge_rising if data.badge_rising is defined else 0 }})</span>
+    </a>
+    <a class="tab {% if tab in ('rotation', 'rotation_detail') %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='rotation') }}">
+      {{ _('Sector Rotation') }}
+      <span class="count">({{ data.badge_rotation if data.badge_rotation is defined else 11 }})</span>
     </a>
     <a class="tab {% if tab == 'multi_signal' %}active{% endif %}"
        href="{{ url_for('strong_stock_monitor', tab='multi_signal') }}">
@@ -654,6 +660,217 @@
       {% endif %}
     </div>
 
+  {# ── Tab: Sector Rotation ── #}
+  {% elif tab == 'rotation' %}
+    {% set rot = data.rotation or {} %}
+    {% set sum = rot.summary or {} %}
+    <div class="hero-line">{{ _('Sector Rotation') }}
+      {% if rot.as_of %}<span class="hint" style="font-weight:400;margin-left:8px">{{ _('As of') }} {{ rot.as_of }}</span>{% endif %}
+    </div>
+    <p class="hint">{{ rot.rules or _('Research context: where market strength is rotating — not a Buy signal.') }}</p>
+    {% if can_manage %}
+    <div class="actions">
+      <form method="post" action="{{ url_for('strong_stock_monitor', tab='rotation') }}">
+        <input type="hidden" name="action" value="refresh_rotation">
+        <button class="btn primary" type="submit">{{ _('Refresh Rotation') }}</button>
+      </form>
+    </div>
+    {% endif %}
+    <div class="rot-summary" style="display:flex;flex-wrap:wrap;gap:10px 18px;margin:0 0 14px;font-size:0.88rem">
+      <div><strong>🟢 {{ _('LEADING') }}:</strong>
+        {% for s in sum.leading or [] %}
+          <a href="{{ url_for('strong_stock_monitor', tab='rotation_detail', sector=s) }}">[{{ s }}]</a>
+        {% else %}—{% endfor %}
+      </div>
+      <div><strong>🟢 {{ _('ROTATING IN') }}:</strong>
+        {% for s in sum.rotating_in or [] %}
+          <a href="{{ url_for('strong_stock_monitor', tab='rotation_detail', sector=s) }}">[{{ s }}]</a>
+        {% else %}—{% endfor %}
+      </div>
+      <div><strong>🟠 {{ _('WEAKENING') }}:</strong>
+        {% for s in sum.weakening or [] %}
+          <a href="{{ url_for('strong_stock_monitor', tab='rotation_detail', sector=s) }}">[{{ s }}]</a>
+        {% else %}—{% endfor %}
+      </div>
+      <div><strong>🔴 {{ _('FALLING') }}:</strong>
+        {% for s in sum.falling or [] %}
+          <a href="{{ url_for('strong_stock_monitor', tab='rotation_detail', sector=s) }}">[{{ s }}]</a>
+        {% else %}—{% endfor %}
+      </div>
+    </div>
+    <div class="panel wl-panel">
+      {% if not rot.rows %}
+        <p class="meta" style="padding:12px">{{ _('No Sector Rotation data yet — click Refresh Rotation (Owner).') }}</p>
+      {% else %}
+      <table class="data" id="sm-rotation-table">
+        <thead>
+          <tr class="col-row">
+            <th class="sortable num" data-col="0" data-type="num">{{ _('Rank') }}</th>
+            <th class="sortable" data-col="1" data-type="text">{{ _('Sector') }}</th>
+            <th class="sortable num" data-col="2" data-type="num">{{ _('5D Return') }}</th>
+            <th class="sortable num" data-col="3" data-type="num">{{ _('20D Return') }}</th>
+            <th class="sortable num" data-col="4" data-type="num">{{ _('Rising %') }}</th>
+            <th class="sortable num" data-col="5" data-type="num">{{ _('Strong %') }}</th>
+            <th class="sortable num" data-col="6" data-type="num" title="{{ _('Sector 20D − SPY 20D') }}">{{ _('Relative Strength') }}</th>
+            <th class="sortable" data-col="7" data-type="text">{{ _('SMA25 Trend') }}</th>
+            <th class="sortable num" data-col="8" data-type="num">{{ _('Rotation Score') }}</th>
+            <th class="sortable num" data-col="9" data-type="num">Δ{{ _('Score') }}</th>
+            <th class="sortable num" data-col="10" data-type="num">Δ{{ _('Rank') }}</th>
+            <th class="sortable" data-col="11" data-type="text">{{ _('Status') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rot.rows %}
+          <tr>
+            <td class="num" data-sort="{{ row.rank }}">{{ row.rank }}</td>
+            <td data-sort="{{ row.sector }}">
+              <a href="{{ url_for('strong_stock_monitor', tab='rotation_detail', sector=row.sector) }}"><strong>{{ row.sector }}</strong></a>
+              {% if row.etf %}<div class="name name-sub">{{ row.etf }}</div>{% endif %}
+            </td>
+            {% set r5 = row.return_5d %}
+            <td class="num {% if r5 is not none and r5 < 0 %}down{% elif r5 is not none and r5 > 0 %}up{% endif %}"
+                data-sort="{{ r5 if r5 is not none else '' }}">
+              {% if r5 is not none %}{{ '%+.2f'|format(r5) }}%{% else %}—{% endif %}
+            </td>
+            {% set r20 = row.return_20d %}
+            <td class="num {% if r20 is not none and r20 < 0 %}down{% elif r20 is not none and r20 > 0 %}up{% endif %}"
+                data-sort="{{ r20 if r20 is not none else '' }}">
+              {% if r20 is not none %}{{ '%+.2f'|format(r20) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.rising_pct if row.rising_pct is not none else '' }}">
+              {% if row.rising_pct is not none %}{{ '%.1f'|format(row.rising_pct) }}%{% else %}—{% endif %}
+              {% if row.n_stocks %}<div class="name name-sub">{{ row.n_rising }}/{{ row.n_stocks }}</div>{% endif %}
+            </td>
+            <td class="num" data-sort="{{ row.strong_pct if row.strong_pct is not none else '' }}">
+              {% if row.strong_pct is not none %}{{ '%.1f'|format(row.strong_pct) }}%{% else %}—{% endif %}
+              {% if row.n_stocks %}<div class="name name-sub">{{ row.n_strong }}/{{ row.n_stocks }}</div>{% endif %}
+            </td>
+            {% set rs = row.relative_strength %}
+            <td class="num {% if rs is not none and rs < 0 %}down{% elif rs is not none and rs > 0 %}up{% endif %}"
+                data-sort="{{ rs if rs is not none else '' }}">
+              {% if rs is not none %}{{ '%+.2f'|format(rs) }}%{% else %}—{% endif %}
+            </td>
+            <td data-sort="{{ row.sma25_trend or '' }}">{{ row.sma25_trend or '—' }}</td>
+            <td class="num" data-sort="{{ row.rotation_score if row.rotation_score is not none else '' }}">
+              <strong>{{ row.rotation_score if row.rotation_score is not none else '—' }}</strong>
+              {% if row.momentum %}<div class="name name-sub">{{ row.momentum }}</div>{% endif %}
+            </td>
+            {% set sch = row.score_change %}
+            <td class="num {% if sch is not none and sch < 0 %}down{% elif sch is not none and sch > 0 %}up{% endif %}"
+                data-sort="{{ sch if sch is not none else '' }}">
+              {% if sch is not none %}{{ '%+.1f'|format(sch) }}{% else %}—{% endif %}
+            </td>
+            {% set rch = row.rank_change %}
+            <td class="num {% if rch is not none and rch < 0 %}down{% elif rch is not none and rch > 0 %}up{% endif %}"
+                data-sort="{{ rch if rch is not none else '' }}">
+              {% if rch is not none %}{{ '%+d'|format(rch) }}{% else %}—{% endif %}
+            </td>
+            <td data-sort="{{ row.status or '' }}">
+              {{ row.status_emoji or '' }} {{ row.status or '—' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+  {# ── Tab: Sector Rotation Detail ── #}
+  {% elif tab == 'rotation_detail' %}
+    {% set det = data.rotation_detail or {} %}
+    {% set ov = det.overview or {} %}
+    <p class="hint"><a href="{{ url_for('strong_stock_monitor', tab='rotation') }}">← {{ _('Sector Rotation') }}</a></p>
+    <div class="hero-line">{{ det.sector or _('Sector') }}
+      {% if det.etf %}<span class="hint" style="font-weight:400;margin-left:8px">{{ det.etf }}</span>{% endif %}
+    </div>
+    <p class="hint">
+      {{ _('Rotation Score') }}: <strong>{{ ov.rotation_score if ov.rotation_score is not none else '—' }}</strong>
+      · {{ ov.status_emoji or '' }} {{ ov.status or '—' }}
+      · {{ _('5D') }} {% if ov.return_5d is not none %}{{ '%+.2f'|format(ov.return_5d) }}%{% else %}—{% endif %}
+      · {{ _('20D') }} {% if ov.return_20d is not none %}{{ '%+.2f'|format(ov.return_20d) }}%{% else %}—{% endif %}
+      · RS {% if ov.relative_strength is not none %}{{ '%+.2f'|format(ov.relative_strength) }}%{% else %}—{% endif %}
+      · {{ _('Rising %') }} {% if ov.rising_pct is not none %}{{ '%.1f'|format(ov.rising_pct) }}%{% else %}—{% endif %}
+      · {{ _('Strong %') }} {% if ov.strong_pct is not none %}{{ '%.1f'|format(ov.strong_pct) }}%{% else %}—{% endif %}
+      · SMA25 {{ ov.sma25_trend or '—' }}
+    </p>
+    {% if det.history %}
+    <p class="hint" style="margin-bottom:10px">
+      <strong>{{ _('Score History') }}:</strong>
+      {% for h in det.history %}
+        {{ h.as_of_date }} {{ h.rotation_score }}{% if not loop.last %} → {% endif %}
+      {% endfor %}
+      {% if ov.rotation_score is not none %} → <strong>{{ ov.rotation_score }}</strong>{% endif %}
+    </p>
+    {% endif %}
+    <p class="hint">{{ _('Line classes are informational (LEADER / SECOND LINE / THIRD LINE / WEAK) — not trade signals. Prefer SECOND LINE for rotation follow-through research.') }}</p>
+    <div class="panel wl-panel">
+      {% if not det.stocks %}
+        <p class="meta" style="padding:12px">{{ _('No stocks mapped to this sector in dashboard cache.') }}</p>
+      {% else %}
+      <table class="data" id="sm-rotation-detail-table">
+        <thead>
+          <tr class="col-row">
+            <th class="sortable freeze-col freeze-edge" data-col="0" data-type="text">{{ _('Stock') }}</th>
+            <th class="sortable" data-col="1" data-type="text">{{ _('Industry') }}</th>
+            <th class="sortable num" data-col="2" data-type="num">{{ _('Price') }}</th>
+            <th class="sortable num" data-col="3" data-type="num">{{ _('5D %') }}</th>
+            <th class="sortable num" data-col="4" data-type="num">{{ _('20D %') }}</th>
+            <th class="sortable num" data-col="5" data-type="num">{{ _('Rising Score') }}</th>
+            <th class="sortable" data-col="6" data-type="text">{{ _('Strong') }}</th>
+            <th class="sortable num" data-col="7" data-type="num">{{ _('Knife Risk') }}</th>
+            <th class="sortable num" data-col="8" data-type="num">{{ _('63D Position') }}</th>
+            <th class="sortable num" data-col="9" data-type="num">{{ _('Dist. SMA25') }}</th>
+            <th class="sortable" data-col="10" data-type="text">{{ _('Line') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in det.stocks %}
+          <tr>
+            <td class="freeze-col freeze-edge" data-sort="{{ row.ticker }}">
+              <span class="sym">{{ row.ticker }}</span>
+              {% if row.name %}<div class="name name-sub">{{ row.name }}</div>{% endif %}
+            </td>
+            <td data-sort="{{ (row.industry or '')|lower }}">{{ row.industry or '—' }}</td>
+            <td class="num" data-sort="{{ row.price if row.price is not none else '' }}">{{ money(row.get('price')) }}</td>
+            {% set r5 = row.get('return_5d_pct') %}
+            <td class="num {% if r5 is not none and r5 < 0 %}down{% elif r5 is not none and r5 > 0 %}up{% endif %}"
+                data-sort="{{ r5 if r5 is not none else '' }}">
+              {% if r5 is not none %}{{ '%+.2f'|format(r5) }}%{% else %}—{% endif %}
+            </td>
+            {% set r20 = row.get('return_20d_pct') %}
+            <td class="num {% if r20 is not none and r20 < 0 %}down{% elif r20 is not none and r20 > 0 %}up{% endif %}"
+                data-sort="{{ r20 if r20 is not none else '' }}">
+              {% if r20 is not none %}{{ '%+.2f'|format(r20) }}%{% else %}—{% endif %}
+            </td>
+            {% set rs = row.rising %}
+            <td class="num" data-sort="{{ rs.score if rs and rs.score is not none else '' }}">
+              {% if rs and rs.score is not none %}{{ rs.score }}{% if rs.level %} {{ rs.level }}{% endif %}{% else %}—{% endif %}
+              {% if row.in_rising %}<div class="name name-sub">Rising Now</div>{% endif %}
+            </td>
+            <td data-sort="{{ row.strong_status or '' }}">
+              {% if row.in_strong %}{{ row.count20_label or 'Strong' }} · {{ row.strong_status or '' }}{% else %}—{% endif %}
+            </td>
+            {% set k = row.knife %}
+            <td class="num" data-sort="{{ k.score if k and k.score is not none else '' }}">
+              {% if k and k.score is not none %}{{ k.score }} {{ k.level }}{% else %}—{% endif %}
+            </td>
+            {% set pos63 = row.get('range_63d_pos') %}
+            <td class="num" data-sort="{{ pos63 if pos63 is not none else '' }}">
+              {% if pos63 is not none %}{{ '%.1f'|format(pos63) }}%{% else %}—{% endif %}
+            </td>
+            {% set dist = row.get('dist_pct') %}
+            <td class="num {% if dist is not none and dist < 0 %}down{% elif dist is not none and dist > 0 %}up{% endif %}"
+                data-sort="{{ dist if dist is not none else '' }}">
+              {% if dist is not none %}{{ '%+.2f'|format(dist) }}%{% else %}—{% endif %}
+            </td>
+            <td data-sort="{{ row.line or '' }}">{{ row.line or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
   {# ── Tab 5: Multi-Signal ── #}
   {% elif tab == 'multi_signal' %}
     {% set ms = data.multi_summary or {} %}
@@ -750,7 +967,10 @@
 
   <script>
     (function () {
-      var table = document.getElementById("sm-multi-table") || document.getElementById("sm-rising-table");
+      var table = document.getElementById("sm-multi-table")
+        || document.getElementById("sm-rising-table")
+        || document.getElementById("sm-rotation-table")
+        || document.getElementById("sm-rotation-detail-table");
       if (!table) return;
       var tbody = table.tBodies[0];
       function cellValue(row, idx, type) {

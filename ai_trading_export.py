@@ -273,14 +273,75 @@ def build_ai_trading_workbook() -> bytes:
     return buf.getvalue()
 
 
-def reset_ai_trading() -> dict[str, Any]:
+def archive_legacy_ai_trading() -> dict[str, Any]:
+    """
+    Export active paper-trading experiment tables to
+    data/logs/LEGACY_AI_TRADING_<stamp>.json before reset.
+
+    Never touches daily_bars / universe / Strong / Rising / Sector Rotation / Watchlist.
+    """
+    import json
+    from pathlib import Path
+
+    init_db()
+    now = _utc_now_iso()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    root = Path(__file__).resolve().parent / "data" / "logs"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"LEGACY_AI_TRADING_{stamp}.json"
+    tables = (
+        "paper_trades",
+        "paper_candidates",
+        "paper_priority",
+        "paper_equity_snapshots",
+        "paper_level_overrides",
+        "paper_portfolio",
+    )
+    payload: dict[str, Any] = {
+        "archive_batch": stamp,
+        "archived_at": now,
+        "label": "LEGACY_AI_TRADING",
+        "tables": {},
+    }
+    counts: dict[str, int] = {}
+    with get_conn() as conn:
+        for table in tables:
+            try:
+                rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+            except Exception:
+                counts[table] = 0
+                continue
+            payload["tables"][table] = [dict(r) for r in rows]
+            counts[table] = len(payload["tables"][table])
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    return {
+        "archive_batch": stamp,
+        "archived_at": now,
+        "path": str(path),
+        "counts": counts,
+    }
+
+
+def reset_ai_trading(*, archive_first: bool = True) -> dict[str, Any]:
     """
     Wipe the AI Paper Trading experiment and restore cash to starting capital.
 
-    Does NOT delete: AI Discovery events/candidates (incl. Saved ★ News),
-    Watchlist, Research, alerts, scoring rules, or system settings.
+    With archive_first=True (default for architecture migration), copies rows into
+    LEGACY_* tables before delete.
+
+    Does NOT delete: Watchlist membership, Research history, daily_bars, universe,
+    Strong/Rising/Sector Rotation, AI Discovery research events (unlink paper ids only),
+    financial/news caches, system settings other than paper_* as_of keys.
     """
     from paper_trading import ensure_portfolio, _cfg
+
+    archive_info: dict[str, Any] = {}
+    if archive_first:
+        try:
+            archive_info = archive_legacy_ai_trading()
+        except Exception as exc:
+            log.exception("LEGACY archive failed")
+            archive_info = {"ok": False, "error": str(exc)}
 
     init_db()
     cfg = _cfg()
@@ -321,6 +382,20 @@ def reset_ai_trading() -> dict[str, Any]:
         conn.execute("DELETE FROM paper_priority")
         conn.execute("DELETE FROM paper_candidates")
         conn.execute("DELETE FROM paper_equity_snapshots")
+        # Clear temporary new-architecture snapshots for a clean active environment.
+        # Permanent market / Strong / Rising / Sector Rotation / Watchlist / Discovery kept.
+        try:
+            conn.execute("DELETE FROM ai_buy_snapshots")
+        except Exception:
+            pass
+        try:
+            conn.execute("DELETE FROM ai_select_candidates")
+        except Exception:
+            pass
+        try:
+            conn.execute("DELETE FROM trading_order_requests")
+        except Exception:
+            pass
         conn.execute(
             """
             UPDATE paper_portfolio
@@ -342,6 +417,10 @@ def reset_ai_trading() -> dict[str, Any]:
     set_keys = (
         "paper_candidates_as_of",
         "paper_last_daily_update",
+        "ai_select_as_of",
+        "ai_select_built_at",
+        "ai_buy_as_of",
+        "ai_buy_built_at",
     )
     from db import set_setting
 
@@ -360,4 +439,6 @@ def reset_ai_trading() -> dict[str, Any]:
         "snapshots_cleared": int(n_snap or 0),
         "cash_restored": start,
         "reset_at": now,
+        "legacy_archive": archive_info,
+        "architecture": "AI_SELECT_AI_BUY",
     }

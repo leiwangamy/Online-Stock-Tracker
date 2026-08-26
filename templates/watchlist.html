@@ -140,6 +140,12 @@
       box-shadow: 0 -2px 0 0 #ffffff, 0 1px 0 var(--border);
     }
     table[id^="wl-table"] th.col-ticker, table[id^="wl-table"] td.col-ticker { min-width: 200px; }
+    table[id^="wl-table"] th.col-approval, table[id^="wl-table"] td.col-approval {
+      min-width: 88px;
+      max-width: 110px;
+      text-align: center;
+      vertical-align: middle;
+    }
     table[id^="wl-table"] thead tr.group-row th.freeze-col {
       z-index: 31;
       background-color: #ffffff !important;
@@ -155,6 +161,18 @@
       z-index: 5;
       background-color: #ffffff !important;
       overflow: hidden;
+    }
+    /* Keep APPROVAL button visible in sticky Stock column */
+    table[id^="wl-table"] tbody td.col-ticker.freeze-col {
+      overflow: visible;
+      white-space: normal;
+    }
+    table[id^="wl-table"] td.col-ticker .ai-sel-actions {
+      display: block;
+      margin-top: 6px;
+    }
+    table[id^="wl-table"] td.col-ticker .ai-sel-actions .btn {
+      white-space: nowrap;
     }
     table[id^="wl-table"] td.freeze-col .name-sub {
       width: auto;
@@ -373,20 +391,21 @@
   {% else %}—{% endif %}
 {% endmacro %}
 
-{% macro wl_table(rows, sma_period, show_alert=False, show_valuation=False, can_edit_alert=False, table_id='wl-table') %}
+{% macro wl_table(rows, sma_period, show_alert=False, show_valuation=False, can_edit_alert=False, table_id='wl-table', show_ai_select_actions=False, show_ai_approved_actions=False, tab='mine') %}
   {% if not rows %}
     <p class="empty">{{ _("No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)") }}</p>
   {% else %}
   {% if show_valuation %}
-    {% set nf_extra = 30 if show_alert else 26 %}
+    {% set nf_extra = (31 if show_alert else 27) if show_ai_select_actions else (30 if show_alert else 26) %}
   {% else %}
-    {% set nf_extra = 27 if show_alert else 23 %}
+    {% set nf_extra = (28 if show_alert else 24) if show_ai_select_actions else (27 if show_alert else 23) %}
   {% endif %}
   <div class="panel wl-panel">
     <table class="data" id="{{ table_id }}">
       <thead>
         <tr class="group-row">
           <th class="col-ticker freeze-col freeze-edge"></th>
+          {% if show_ai_select_actions %}<th class="col-approval">{{ _("Owner") }}</th>{% endif %}
           <th colspan="3">{{ _("Basic info") }}</th>
           <th colspan="2">{{ _("Score") }}</th>
           <th colspan="5">{{ _("Price / trend") }}</th>
@@ -398,6 +417,9 @@
         </tr>
         <tr class="col-row">
           <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _("Stock") }}</th>
+          {% if show_ai_select_actions %}
+          <th class="col-approval" title="{{ _('Admin: APPROVAL → AI Approved') }}">{{ _('APPROVAL') }}</th>
+          {% endif %}
           <th class="sortable col-pools" data-col="1" data-type="text" title="{{ _('Index pools: S&P500 / Nasdaq100 / …; MANUAL if not in a pool') }}">{{ _("Pool") }}</th>
           <th class="sortable col-industry" data-col="2" data-type="text" title="{{ _('Industry (from universe)') }}">{{ _("Industry") }}</th>
           <th class="sortable num" data-col="3" data-type="num" title="{{ _('Market Cap') }}">{{ _("Market Cap") }}</th>
@@ -473,11 +495,41 @@
             {% endif %}
             <strong>{{ row.ticker }}</strong>
             {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
+            {% if row.core_score is defined and row.core_score is not none %}
+              <div class="hint" style="text-align:left;margin:2px 0 0;font-size:0.72rem">{{ _('Core') }} {{ row.core_score }}</div>
+            {% endif %}
+            {% if show_ai_approved_actions and not row.not_found %}
+              <div class="ai-sel-actions" style="margin-top:4px">
+                <form method="post" action="{{ url_for('watchlist', tab='ai_approved') }}" style="display:inline;margin:0"
+                      onsubmit="return confirm({{ _('Remove from AI Approved?')|tojson }});">
+                  <input type="hidden" name="action" value="remove_ai_approved">
+                  <input type="hidden" name="ticker" value="{{ row.ticker }}">
+                  <button class="btn" type="submit" style="padding:1px 6px;font-size:0.72rem;color:#b91c1c">{{ _('Remove from AI Approved') }}</button>
+                </form>
+              </div>
+            {% endif %}
           </td>
+          {% if show_ai_select_actions %}
+          <td class="col-approval">
+            {% if row.not_found %}
+              —
+            {% elif row.ai_approved %}
+              <span class="hint" style="margin:0;font-size:0.72rem">{{ _('In AI Approved') }}</span>
+            {% else %}
+              <form method="post" action="{{ url_for('watchlist', tab=tab) }}" style="display:inline;margin:0">
+                <input type="hidden" name="action" value="approve_ai">
+                <input type="hidden" name="ticker" value="{{ row.ticker }}">
+                <input type="hidden" name="approve_source" value="AI_DISCOVERY">
+                <input type="hidden" name="next_tab" value="{{ tab }}">
+                <button class="btn primary" type="submit" style="padding:2px 8px;font-size:0.75rem">{{ _('APPROVAL') }}</button>
+              </form>
+            {% endif %}
+          </td>
+          {% endif %}
           {% if row.not_found %}
             {# One <td> per column (no colspan) so table-layout:fixed / colgroup stay aligned. #}
-            {% for i in range(nf_extra) %}
-              {% if i == 1 %}
+            {% for i in range(nf_extra - (1 if show_ai_select_actions else 0)) %}
+              {% if i == 0 %}
             <td class="empty col-industry" style="text-align:left;white-space:normal">{{ _("Ticker not found (bad symbol or delisted).") }}</td>
               {% else %}
             <td class="empty">—</td>
@@ -490,10 +542,14 @@
 
             {% set a = row.ai %}
             <td class="col-ai" data-sort="{{ a.final if a else '' }}" {% if a %}title="{{ a.detail }}"{% endif %}>
-              {% if a %}
+              {% if a and a.final is not none %}
                 {% set cls = 'good' if a.final >= 70 else ('mid' if a.final >= 40 else 'bad') %}
                 <span class="ai {{ cls }}">{{ a.final }}</span>
                 <div class="ai-sub">{{ _("Opp") }} {{ a.opp }} · {{ _("Risk") }} −{{ a.risk }}</div>
+              {% elif a and a.data_error %}
+                <span class="ai bad" title="{{ a.detail or '' }}">{{ _('DATA ERROR') }}</span>
+              {% elif a %}
+                <span class="ai bad" title="{{ a.detail or '' }}">—</span>
               {% else %}—{% endif %}
             </td>
 
@@ -732,9 +788,13 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
           </td>
           {% set a = row.ai %}
           <td class="col-ai" data-sort="{{ a.final if a else '' }}" {% if a %}title="{{ a.detail }}"{% endif %}>
-            {% if a %}
+            {% if a and a.final is not none %}
               {% set cls = 'good' if a.final >= 70 else ('mid' if a.final >= 40 else 'bad') %}
               <span class="ai {{ cls }}">{{ a.final }}</span>
+            {% elif a and a.data_error %}
+              <span class="ai bad" title="{{ a.detail or '' }}">{{ _('DATA ERROR') }}</span>
+            {% elif a %}
+              <span class="ai bad" title="{{ a.detail or '' }}">—</span>
             {% else %}—{% endif %}
           </td>
         </tr>
@@ -806,9 +866,13 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
           </td>
           {% set a = row.ai %}
           <td class="col-ai" data-sort="{{ a.final if a else '' }}" {% if a %}title="{{ a.detail }}"{% endif %}>
-            {% if a %}
+            {% if a and a.final is not none %}
               {% set cls = 'good' if a.final >= 70 else ('mid' if a.final >= 40 else 'bad') %}
               <span class="ai {{ cls }}">{{ a.final }}</span>
+            {% elif a and a.data_error %}
+              <span class="ai bad" title="{{ a.detail or '' }}">{{ _('DATA ERROR') }}</span>
+            {% elif a %}
+              <span class="ai bad" title="{{ a.detail or '' }}">—</span>
             {% else %}—{% endif %}
           </td>
         </tr>
@@ -889,6 +953,24 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     <div class="dlg-body">
       <div class="legend-body">
       <div class="legend-col">
+        <strong>{{ _("Core Universe Filter (source of truth for WHO)") }}</strong>
+        <ul style="columns:1">
+          <li>{{ _("Long-term numeric characteristics determine WHAT we watch.") }}</li>
+          <li>{{ _("Short-term market conditions determine WHEN we buy.") }}</li>
+          <li>{{ _("Deterministic PASS/FAIL · configurable thresholds · no LLM selection") }}</li>
+          <li>{{ _("Focus list excludes My Watchlist and Nasdaq-100 (complementary pool)") }}</li>
+        </ul>
+        <p style="margin:10px 0 4px;text-align:left"><strong>{{ _("Core Universe table columns") }}</strong></p>
+        <ul style="columns:1">
+          <li><code>RS252</code> — {{ _("Stock 252D return − SPY 252D return (%)") }}</li>
+          <li><code>Path</code> — ESTABLISHED / EMERGING / both ({{ _("qualification path") }})</li>
+          <li><code>Status</code> / <code>Fail</code> — {{ _("PASS/FAIL and failure codes — Admin only") }}</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:8px 0 0">
+          {{ _("Legacy AI Score V1 below is a research feature column — not Core Universe qualification.") }}
+        </p>
+      </div>
+      <div class="legend-col">
         <strong>{{ _("AI Score V1 = Opportunity (0–100) − Risk penalty") }}</strong>
         <ul style="columns:1">
           <li>{{ _("Pullback depth") }} <code>25</code></li>
@@ -949,6 +1031,32 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         </p>
         <p class="hint" style="text-align:left;margin:6px 0 0">
           {{ _("Does not remove Knife BLOCK / WATCH / PASS. High Rising Score can still be AUTO BLOCKED by Knife Risk. Shown on Research → Rising Now (sortable); hover Rising for component breakdown.") }}
+        </p>
+      </div>
+      <div class="legend-col">
+        <strong>{{ _("Sector Rotation (Research) — market-context layer") }}</strong>
+        <p class="hint" style="text-align:left;margin:0 0 6px">
+          {{ _("Answers: which GICS sectors are becoming stronger or weaker. Not a Buy/Sell signal. Does not place orders or change Rising / Strong / Knife rules.") }}
+        </p>
+        <ul style="columns:1">
+          <li>{{ _("Universe") }} — {{ _("11 GICS sectors via existing sector→ETF map (XLK / XLF / XLV / …)") }}</li>
+          <li>{{ _("5D / 20D Return") }} — {{ _("sector ETF representative returns") }}</li>
+          <li>{{ _("Rising %") }} — {{ _("share of sector stocks that currently qualify under Rising Now (Up Days ≥ 3/5 · 5D ≥ +3%); fraction = Rising count / sector count") }}</li>
+          <li>{{ _("Strong %") }} — {{ _("share of sector stocks on Strong Watchlist (reuse existing Strong membership)") }}</li>
+          <li>{{ _("Relative Strength") }} — {{ _("Sector 20D − SPY 20D") }}</li>
+          <li>{{ _("SMA25 Trend") }} — {{ _("UP / FLAT / DOWN from SMA25 slope (not merely price above SMA)") }}</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:8px 0 0">
+          <strong>{{ _("Rotation Score 0–100:") }}</strong>
+          {{ _("30% 5D/20D trend · 25% RS vs SPY · 20% Rising % · 15% Strong % · 10% SMA25 trend") }}
+        </p>
+        <p class="hint" style="text-align:left;margin:6px 0 0">
+          <strong>{{ _("Status (score + direction):") }}</strong>
+          🟢 LEADING · 🟢 RISING (ROTATING IN) · 🟡 NEUTRAL · 🟠 WEAKENING · 🔴 FALLING
+          — {{ _("also tracks Score Δ / Rank Δ and ACCELERATING / STABLE / DECELERATING from daily history") }}
+        </p>
+        <p class="hint" style="text-align:left;margin:6px 0 0">
+          {{ _("Daily snapshots saved (not overwritten). Owner can Refresh Rotation on Research → Sector Rotation. Detail page shows constituents with LEADER / SECOND LINE / THIRD LINE / WEAK (informational only).") }}
         </p>
       </div>
       <div class="legend-col">
@@ -1067,6 +1175,210 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     {% endif %}
   {% endif %}
 
+  {% if tab == 'ndx100' %}
+    <div class="alert-hint-block">
+      <strong>{{ _("Nasdaq-100 Alerts") }}</strong>
+      <p class="alert-hint-line">{{ _("Same rules as My Watchlist. Auto: 🟡 WATCH = 5% below SMA · 🟢 DEEP = 10% below SMA") }}</p>
+      <p class="alert-hint-line">{{ _("Manual: Custom alert overrides Auto · 🟡 WATCH = within 5% above alert · 🟢 ALERT = alert reached · Remains active until reset") }}</p>
+      <p class="alert-hint-line hint">{{ _("Research zones only — never auto-buy. Manual alerts are stored per ticker (shared with My Watchlist if the same name appears in both).") }}</p>
+    </div>
+    {% if not can_edit_alert|default(false) %}
+    <p class="hint" style="margin:0 0 12px">{{ _("Sign in as Admin to edit Manual Alert on Nasdaq-100.") }}
+      <a href="{{ url_for('owner_login', next=url_for('watchlist', tab='ndx100')) }}">{{ _("Sign in") }}</a>
+    </p>
+    {% endif %}
+  {% endif %}
+
+  {% if tab == 'ai_approved' %}
+    <div class="alert-hint-block">
+      <strong>{{ _("AI Approved Alerts") }}</strong>
+      <p class="alert-hint-line">{{ _("Same rules as My Watchlist. Auto: 🟡 WATCH = 5% below SMA · 🟢 DEEP = 10% below SMA") }}</p>
+      <p class="alert-hint-line">{{ _("Manual: Custom alert overrides Auto · 🟡 WATCH = within 5% above alert · 🟢 ALERT = alert reached · Remains active until reset") }}</p>
+      <p class="alert-hint-line hint">{{ _("Research zones only — never auto-buy. Manual alerts are stored per ticker (shared across My Watchlist / Nasdaq-100 / AI Approved).") }}</p>
+    </div>
+    {% if not can_edit_alert|default(false) %}
+    <p class="hint" style="margin:0 0 12px">{{ _("Sign in as Admin to edit Manual Alert on AI Approved.") }}
+      <a href="{{ url_for('owner_login', next=url_for('watchlist', tab='ai_approved')) }}">{{ _("Sign in") }}</a>
+    </p>
+    {% endif %}
+  {% endif %}
+
+  {% if tab in ('core_universe',) and can_edit_mine|default(false) %}
+    <div class="actions" style="margin-bottom:10px">
+      <form method="post" action="{{ url_for('watchlist', tab='core_universe') }}" style="display:inline">
+        <input type="hidden" name="action" value="refresh_core_universe">
+        <button class="btn primary" type="submit">{{ _('Run Core Universe Filter') }}</button>
+      </form>
+      <a class="btn" href="{{ url_for('ai_trading', tab='buy') }}">{{ _('Open AI BUY') }}</a>
+      <span class="hint" style="margin:0">{{ _('Long-term numeric characteristics determine WHAT we watch. Short-term conditions determine WHEN we buy.') }}</span>
+    </div>
+  {% elif tab in ('ai_approved', 'ai_discovery') and can_edit_mine|default(false) %}
+    <div class="actions" style="margin-bottom:10px">
+      <a class="btn" href="{{ url_for('watchlist', tab='core_universe') }}">{{ _('Core Universe Filter') }}</a>
+      <a class="btn" href="{{ url_for('ai_trading', tab='buy') }}">{{ _('Open AI BUY') }}</a>
+      {% if tab == 'ai_discovery' %}
+      <span class="hint" style="margin:0">{{ _('APPROVAL column is next to Stock (left side).') }}</span>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if tab == 'core_universe' %}
+    {% set cr = core_run or {} %}
+    {% set funnel = cr.funnel or [] %}
+    {% set thr = cr.thresholds or {} %}
+    <div class="paper-banner" style="background:#f0fdf4;border-color:#86efac;color:#14532d;margin-bottom:12px">
+      <strong>{{ _('CORE UNIVERSE FILTER') }}</strong> —
+      {{ _('Deterministic PASS/FAIL · no LLM ranking · no short-term Rising/Knife/SMA25') }}
+      {% if cr.as_of %} · {{ _('As of') }} {{ cr.as_of }}{% endif %}
+      {% if cr.built_at %} · {{ cr.built_at|format_ui_datetime }}{% endif %}
+    </div>
+
+    {% if not cr.as_of %}
+      <p class="empty">{{ _('No Core Universe run yet. Owner: click Run Core Universe Filter.') }}</p>
+    {% else %}
+      <div class="summary-grid" style="margin-bottom:12px">
+        {% for st in funnel %}
+        <div class="cell">
+          <span class="k">{{ st.stage }}</span>
+          <span class="v">{{ st.count }}</span>
+        </div>
+        {% endfor %}
+        <div class="cell">
+          <span class="k">{{ _('FINAL QUALIFIED') }}</span>
+          <span class="v">{{ cr.qualified_count or 0 }}</span>
+        </div>
+      </div>
+      <p class="hint" style="text-align:left;margin:0 0 10px">
+        {{ _('Thresholds (configurable):') }}
+        MCap ≥ {{ '%.0f'|format((thr.min_market_cap or 0)/1e9) }}B ·
+        $Vol ≥ {{ '%.0f'|format((thr.min_avg_dollar_volume or 0)/1e6) }}M ·
+        ADM ≥ {{ thr.min_avg_daily_move_63d or '—' }}% ·
+        Rev &gt; {{ '%.0f'|format((thr.min_revenue_growth or 0)*100) }}% ·
+        126/252 &gt; {{ thr.min_return_126d or 0 }}% ·
+        RS252 ≥ {{ thr.min_rs_252d_vs_spy or '—' }}% ·
+        Ind% ≥ {{ thr.min_industry_mcap_percentile or '—' }}
+        / PathB Rev ≥ {{ '%.0f'|format((thr.path_b_min_revenue_growth or 0)*100) }}%
+        RS ≥ {{ thr.path_b_min_rs_252d or '—' }}%
+      </p>
+      <p class="hint" style="text-align:left;margin:0 0 12px">
+        {{ _('Showing qualified names not already in My Watchlist or Nasdaq-100.') }}
+        {% if cr.qualified_count_all is defined %}
+          · {{ _('Numeric pass') }} {{ cr.qualified_count_all }}
+          · {{ _('Overlap hidden') }} {{ cr.excluded_overlap or 0 }}
+          · {{ _('Focus list') }} {{ cr.qualified_count or 0 }}
+        {% endif %}
+        · 🟢 {{ _('NEWLY') }} {{ (cr.newly_qualified or [])|length }} ·
+        ✓ {{ _('STILL') }} {{ (cr.still_qualified or [])|length }} ·
+        🔴 {{ _('NO LONGER') }} {{ (cr.no_longer_qualified or [])|length }}
+        · {{ _('Owner ADD / KEEP / REMOVE — no auto membership change') }}
+      </p>
+
+      <div class="tabs" style="margin-bottom:10px">
+        <a class="tab {% if core_view == 'qualified' %}active{% endif %}" href="{{ url_for('watchlist', tab='core_universe', core_view='qualified') }}">{{ _('Qualified') }} ({{ cr.qualified_count or 0 }})</a>
+        <a class="tab {% if core_view == 'newly' %}active{% endif %}" href="{{ url_for('watchlist', tab='core_universe', core_view='newly') }}">🟢 {{ _('Newly') }} ({{ (cr.newly_qualified or [])|length }})</a>
+        <a class="tab {% if core_view == 'no_longer' %}active{% endif %}" href="{{ url_for('watchlist', tab='core_universe', core_view='no_longer') }}">🔴 {{ _('No Longer') }} ({{ (cr.no_longer_qualified or [])|length }})</a>
+      </div>
+
+      {% if core_view == 'newly' %}
+        {% set show_rows = cr.newly_qualified or [] %}
+      {% elif core_view == 'no_longer' %}
+        {% set show_rows = cr.no_longer_qualified or [] %}
+      {% else %}
+        {% set show_rows = cr.focus_rows if cr.focus_rows is defined else (cr.rows or [])|selectattr('qualified')|list %}
+      {% endif %}
+
+      {% if not show_rows %}
+        <p class="empty">{{ _('No rows in this view.') }}</p>
+      {% else %}
+      <div class="panel wl-panel">
+        <table class="data" id="core-universe-table">
+          <thead>
+            <tr class="col-row">
+              <th>{{ _('Ticker') }}</th>
+              <th class="num">{{ _('Price') }}</th>
+              <th>{{ _('Industry') }}</th>
+              <th class="num">{{ _('Market Cap') }}</th>
+              <th class="num">{{ _('Ind %') }}</th>
+              <th class="num">{{ _('$Vol') }}</th>
+              <th class="num">{{ _('ADM%') }}</th>
+              <th class="num">{{ _('Rev%') }}</th>
+              <th class="num">{{ _('126D') }}</th>
+              <th class="num">{{ _('252D') }}</th>
+              <th class="num">{{ _('RS252') }}</th>
+              <th>{{ _('Path') }}</th>
+              {% if can_edit_mine %}
+              <th title="{{ _('PASS/FAIL — Admin only') }}">{{ _('Status') }}</th>
+              <th title="{{ _('Failure reason codes — Admin only') }}">{{ _('Fail') }}</th>
+              <th title="{{ _('Admin: APPROVAL → AI Approved') }}">{{ _('APPROVAL') }}</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in show_rows %}
+            {% set tkr = (r.ticker or '')|upper %}
+            {% set already = tkr in (approved_list or []) %}
+            <tr>
+              <td class="freeze-col freeze-edge">
+                <strong>{{ r.ticker }}</strong>
+                {% if r.name %}<div class="hint name-sub" style="text-align:left;margin:0">{{ r.name }}</div>{% endif %}
+              </td>
+              <td class="num {% if r.change_pct is not none and r.change_pct > 0 %}up{% elif r.change_pct is not none and r.change_pct < 0 %}down{% endif %}">
+                {% if r.price is not none %}${{ '%.2f'|format(r.price) }}{% else %}—{% endif %}
+                {% if r.change_pct is not none %}
+                <div class="hint" style="margin:0;font-size:0.72rem">{{ '%+.1f'|format(r.change_pct) }}%</div>
+                {% endif %}
+              </td>
+              <td>{{ r.industry or '—' }}</td>
+              <td class="num">{% if r.market_cap is not none %}${{ '%.1f'|format(r.market_cap/1e9) }}B{% else %}—{% endif %}</td>
+              <td class="num">{% if r.industry_mcap_percentile is not none %}{{ '%.0f'|format(r.industry_mcap_percentile) }}{% elif r.industry_market_cap_percentile is not none %}{{ '%.0f'|format(r.industry_market_cap_percentile) }}{% else %}—{% endif %}</td>
+              <td class="num">{% if r.avg_dollar_volume is not none %}${{ '%.0f'|format(r.avg_dollar_volume/1e6) }}M{% else %}—{% endif %}</td>
+              <td class="num">{% if r.avg_daily_move_63d is not none %}{{ '%.2f'|format(r.avg_daily_move_63d) }}{% elif r.avg_move_pct is not none %}{{ '%.2f'|format(r.avg_move_pct) }}{% else %}—{% endif %}</td>
+              <td class="num">{% if r.revenue_growth_pct is not none %}{{ '%+.1f'|format(r.revenue_growth_pct) }}{% else %}—{% endif %}</td>
+              <td class="num">{% if r.return_126d is not none %}{{ '%+.1f'|format(r.return_126d) }}{% elif r.return_126d_pct is not none %}{{ '%+.1f'|format(r.return_126d_pct) }}{% else %}—{% endif %}</td>
+              <td class="num">{% if r.return_252d is not none %}{{ '%+.1f'|format(r.return_252d) }}{% elif r.return_252d_pct is not none %}{{ '%+.1f'|format(r.return_252d_pct) }}{% else %}—{% endif %}</td>
+              <td class="num">{% if r.rs_252d is not none %}{{ '%+.1f'|format(r.rs_252d) }}{% elif r.rs_252d_vs_spy is not none %}{{ '%+.1f'|format(r.rs_252d_vs_spy) }}{% else %}—{% endif %}</td>
+              <td>{{ r.qualification_path or '—' }}</td>
+              {% if can_edit_mine %}
+              <td>{% if r.qualified %}✓{% else %}✗{% endif %}</td>
+              <td class="hint" style="text-align:left;white-space:normal;max-width:180px">
+                {% set fr = r.failure_reasons or [] %}
+                {{ fr|join(', ') if fr else '—' }}
+              </td>
+              <td>
+                {% if core_view == 'no_longer' %}
+                  <form method="post" action="{{ url_for('watchlist', tab='core_universe', core_view='no_longer') }}" style="display:inline;margin:0">
+                    <input type="hidden" name="action" value="core_keep">
+                    <input type="hidden" name="ticker" value="{{ tkr }}">
+                    <button class="btn" type="submit" style="padding:2px 8px;font-size:0.75rem" title="{{ _('Keep in AI Approved despite filter fail') }}">{{ _('KEEP') }}</button>
+                  </form>
+                  <form method="post" action="{{ url_for('watchlist', tab='core_universe', core_view='no_longer') }}" style="display:inline;margin:0"
+                        onsubmit="return confirm({{ _('Remove from AI Approved?')|tojson }});">
+                    <input type="hidden" name="action" value="core_remove">
+                    <input type="hidden" name="ticker" value="{{ tkr }}">
+                    <button class="btn" type="submit" style="padding:2px 8px;font-size:0.75rem;border-color:#dc2626;color:#b91c1c">{{ _('REMOVE') }}</button>
+                  </form>
+                {% elif already %}
+                  <span class="hint" style="margin:0">{{ _('In AI Approved') }}</span>
+                {% elif r.qualified or core_view == 'newly' %}
+                  <form method="post" action="{{ url_for('watchlist', tab='core_universe', core_view=core_view) }}" style="display:inline;margin:0">
+                    <input type="hidden" name="action" value="approve_ai">
+                    <input type="hidden" name="ticker" value="{{ tkr }}">
+                    <button class="btn primary" type="submit" style="padding:2px 8px;font-size:0.75rem">{{ _('APPROVAL') }}</button>
+                  </form>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    {% endif %}
+  {% endif %}
+
   {% if tab == 'temp' %}
     <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='temp') }}">
       <input type="hidden" name="action" value="add_temp">
@@ -1080,7 +1392,9 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     <p class="hint" style="margin:0 0 12px">{{ _f("Temp list holds up to {max} tickers (extras ignored); cleared when the browser closes. Now {n} / {max}.", max=max_temp, n=temp_tickers|length) }}</p>
   {% endif %}
 
-  {{ wl_table(rows, sma_period, show_alert=show_alert|default(False), show_valuation=show_valuation|default(False), can_edit_alert=can_edit_mine|default(False), table_id='wl-table-' + (tab|default('main'))) }}
+  {% if tab != 'core_universe' %}
+  {{ wl_table(rows, sma_period, show_alert=show_alert|default(False), show_valuation=show_valuation|default(False), can_edit_alert=can_edit_alert|default(can_edit_mine|default(False)), table_id='wl-table-' + (tab|default('main')), show_ai_select_actions=show_ai_select_actions|default(False), show_ai_approved_actions=show_ai_approved_actions|default(False), tab=tab|default('mine')) }}
+  {% endif %}
 
   <script>
     (function () {
