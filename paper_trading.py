@@ -194,6 +194,134 @@ def stop_take_prices(
     return stop, take
 
 
+def _fetch_live_price(ticker: str) -> float | None:
+    """Fresh Yahoo last close/price for paper fills (avoids stale dashboard entry)."""
+    t = (ticker or "").strip().upper()
+    if not t:
+        return None
+    try:
+        from market_data import fetch_metrics_for_ticker
+
+        sma_period = int(get_setting("sma_period", 25) or 25)
+        rebound_lookback = int(get_setting("rebound_lookback", sma_period) or sma_period)
+        if rebound_lookback < 5:
+            rebound_lookback = sma_period
+        m = fetch_metrics_for_ticker(
+            t, sma_period=sma_period, rebound_lookback=rebound_lookback
+        ) or {}
+        px = m.get("price")
+        if px is None:
+            return None
+        px_f = float(px)
+        return px_f if px_f > 0 else None
+    except Exception:
+        log.exception("live price fetch failed for %s", t)
+        return None
+
+
+def repair_stale_entry_opens(*, gap_pct: float = 1.5) -> dict[str, Any]:
+    """
+    If an open trade's entry diverges from live price by > gap_pct,
+    rebase entry to live, keep $ cost, resize shares, and rebuild Stop/Take.
+    Fixes fills that used stale dashboard prices (wrong absolute Stop/Take).
+    """
+    ensure_portfolio()
+    cfg = _cfg()
+    fixed: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    now = _utc_now_iso()
+    for tr in list_open_trades():
+        tkr = (tr.get("ticker") or "").upper()
+        try:
+            entry = float(tr["entry_price"])
+            cost = float(tr["cost"])
+        except (TypeError, ValueError, KeyError):
+            skipped.append({"ticker": tkr, "reason": "bad_row"})
+            continue
+        live = _fetch_live_price(tkr)
+        if live is None:
+            skipped.append({"ticker": tkr, "reason": "no_live_price"})
+            continue
+        gap = abs(entry - live) / live * 100.0
+        if gap <= float(gap_pct):
+            skipped.append({"ticker": tkr, "reason": "ok", "gap_pct": round(gap, 2)})
+            continue
+        stop_pct = float(
+            tr["stop_pct"] if tr.get("stop_pct") is not None else cfg["stop_loss_pct"]
+        )
+        take_pct = float(
+            tr["take_profit_pct"]
+            if tr.get("take_profit_pct") is not None
+            else cfg["take_profit_pct"]
+        )
+        shares = round(cost / live, 4) if live > 0 else 0.0
+        if shares <= 0:
+            skipped.append({"ticker": tkr, "reason": "resize_failed"})
+            continue
+        new_cost = round(shares * live, 4)
+        stop, take = stop_take_prices(live, stop_pct, take_pct)
+        # Honor manual Admin overrides if present.
+        ov = get_level_overrides([tkr]).get(tkr)
+        row_levels = {
+            "stop_price": stop,
+            "take_profit_price": take,
+            "price": live,
+        }
+        apply_level_override_to_row(
+            row_levels, ov, default_stop=stop, default_take=take
+        )
+        stop = float(row_levels["stop_price"])
+        take = float(row_levels["take_profit_price"])
+        stop_pct = round((live - stop) / live * 100.0, 4)
+        take_pct = round((take - live) / live * 100.0, 4)
+        mv = round(live * shares, 4)
+        with get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE paper_trades SET
+                  entry_price = ?, shares = ?, cost = ?,
+                  stop_price = ?, take_profit_price = ?,
+                  stop_pct = ?, take_profit_pct = ?,
+                  current_price = ?, market_value = ?,
+                  unrealized_pnl = 0, unrealized_pnl_pct = 0,
+                  updated_at = ?
+                WHERE id = ? AND status = 'open'
+                """,
+                (
+                    live,
+                    shares,
+                    new_cost,
+                    stop,
+                    take,
+                    stop_pct,
+                    take_pct,
+                    live,
+                    mv,
+                    now,
+                    tr["id"],
+                ),
+            )
+        # Adjust cash if rounded cost changed vs old cost.
+        delta = round(float(tr["cost"]) - new_cost, 4)
+        if abs(delta) > 1e-6:
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE paper_portfolio SET cash = cash + ?, updated_at = ? WHERE id = 1",
+                    (delta, now),
+                )
+        fixed.append(
+            {
+                "ticker": tkr,
+                "old_entry": entry,
+                "new_entry": live,
+                "gap_pct": round(gap, 2),
+                "stop": stop,
+                "take": take,
+            }
+        )
+    return {"fixed": fixed, "skipped": skipped, "updated_at": now}
+
+
 def risk_reward_metrics(
     entry: float | None, stop: float | None, take: float | None
 ) -> dict[str, float | None]:
@@ -1496,9 +1624,17 @@ def _open_auto_replace_position(
     t = str(research_row.get("ticker") or "").upper()
     if not t:
         raise ValueError("ticker required")
-    price = float(research_row["price"])
+    # Always prefer a live Yahoo price for fills + Stop/Take (dashboard can be stale).
+    live = _fetch_live_price(t)
+    try:
+        cached = float(research_row["price"]) if research_row.get("price") is not None else 0.0
+    except (TypeError, ValueError):
+        cached = 0.0
+    price = float(live) if live is not None else cached
     if price <= 0:
         raise ValueError("invalid price")
+    research_row = dict(research_row)
+    research_row["price"] = price
     shares, cost, mode = size_position(price, float(target_usd))
     if shares <= 0 or cost <= 0:
         raise ValueError("allocation too small")
