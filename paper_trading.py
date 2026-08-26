@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -2631,6 +2632,153 @@ def run_daily_update(*, refresh_candidates: bool = True) -> dict[str, Any]:
         "updated_at": now,
         "snapshot": snap,
     }
+
+
+def soft_mark_open_positions() -> dict[str, Any]:
+    """
+    Light mark-to-market for open paper trades (P&L only).
+    Does not run Stop/Take closes — those stay on the daily OHLC pass.
+    """
+    ensure_portfolio()
+    opens = list_open_trades()
+    if not opens:
+        return {"marked": 0, "errors": []}
+
+    tickers = sorted({(t.get("ticker") or "").upper() for t in opens if t.get("ticker")})
+    from db import get_dashboard_by_tickers
+
+    cached = get_dashboard_by_tickers(tickers)
+    price_map: dict[str, float] = {}
+    for tkr in tickers:
+        row = cached.get(tkr) or {}
+        px = row.get("price")
+        if px is not None:
+            try:
+                price_map[tkr] = float(px)
+            except (TypeError, ValueError):
+                pass
+    missing = [t for t in tickers if t not in price_map]
+    if missing:
+        try:
+            from market_data import fetch_metrics_for_ticker
+
+            for tkr in missing:
+                try:
+                    m = fetch_metrics_for_ticker(tkr) or {}
+                    px = m.get("price")
+                    if px is not None:
+                        price_map[tkr] = float(px)
+                except Exception:
+                    log.exception("soft mark fetch failed for %s", tkr)
+        except Exception:
+            log.exception("soft mark Yahoo import failed")
+
+    marked = 0
+    errors: list[dict[str, Any]] = []
+    now = _utc_now_iso()
+    with get_conn() as conn:
+        for tr in opens:
+            tkr = (tr.get("ticker") or "").upper()
+            px = price_map.get(tkr)
+            if px is None:
+                errors.append({"ticker": tkr, "error": "no_price"})
+                continue
+            try:
+                entry = float(tr["entry_price"])
+                shares = float(tr["shares"])
+                mv = round(px * shares, 4)
+                upnl = round((px - entry) * shares, 4)
+                upct = round((px - entry) / entry * 100.0, 4) if entry else 0.0
+                conn.execute(
+                    """
+                    UPDATE paper_trades SET
+                      current_price = ?, market_value = ?,
+                      unrealized_pnl = ?, unrealized_pnl_pct = ?,
+                      updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (px, mv, upnl, upct, now, tr["id"]),
+                )
+                marked += 1
+            except Exception as exc:
+                errors.append({"ticker": tkr, "error": str(exc)})
+    set_setting("paper_last_soft_mark", now)
+    return {"marked": marked, "errors": errors, "updated_at": now}
+
+
+def maybe_auto_refresh_ai_trading(
+    *,
+    soft_mark_max_age_sec: int = 30 * 60,
+    claim_ttl_sec: int = 90,
+) -> dict[str, Any]:
+    """
+    Auto-refresh used on AI Trading page load:
+    - Full daily settle if not yet run for today's PT trading day
+    - Else soft-mark open P&L when last mark is older than soft_mark_max_age_sec
+    - Rebuild AI BUY when snapshot as_of != trading day
+    """
+    day = trading_day_pt()
+    out: dict[str, Any] = {
+        "day": day,
+        "ran_daily": False,
+        "ran_soft": False,
+        "ran_buy": False,
+    }
+
+    # Simple cross-worker throttle (SQLite setting).
+    try:
+        now_ts = time.time()
+        last_claim = float(get_setting("ai_trading_auto_refresh_claim", 0) or 0)
+        if now_ts - last_claim < claim_ttl_sec:
+            out["skipped"] = "throttled"
+            return out
+        set_setting("ai_trading_auto_refresh_claim", now_ts)
+    except Exception:
+        pass
+
+    paper_day = (get_setting("paper_last_daily_update_day", "") or "").strip()
+    if paper_day != day:
+        try:
+            out["daily"] = run_daily_update(refresh_candidates=True)
+            out["ran_daily"] = True
+        except Exception as exc:
+            log.exception("auto daily paper update failed")
+            out["daily_error"] = str(exc)
+    elif list_open_trades():
+        # Prefer soft mark when last soft/daily stamp is stale.
+        last_soft = (get_setting("paper_last_soft_mark", "") or "").strip()
+        last_daily = (get_setting("paper_last_daily_update", "") or "").strip()
+        stamp = last_soft or last_daily
+        age_ok = False
+        if stamp:
+            try:
+                dt = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_ok = (datetime.now(timezone.utc) - dt).total_seconds() < soft_mark_max_age_sec
+            except Exception:
+                age_ok = False
+        if not age_ok:
+            try:
+                out["soft"] = soft_mark_open_positions()
+                out["ran_soft"] = True
+            except Exception as exc:
+                log.exception("auto soft mark failed")
+                out["soft_error"] = str(exc)
+
+    buy_as_of = (get_setting("ai_buy_as_of", "") or "").strip()
+    if buy_as_of != day:
+        try:
+            from ai_buy import build_ai_buy_snapshot
+
+            out["buy"] = build_ai_buy_snapshot(persist=True)
+            out["ran_buy"] = True
+        except Exception as exc:
+            log.exception("auto AI BUY rebuild failed")
+            out["buy_error"] = str(exc)
+
+    set_setting("ai_trading_auto_refresh_at", _utc_now_iso())
+    return out
 
 
 def _parse_ymd(s: str | None):

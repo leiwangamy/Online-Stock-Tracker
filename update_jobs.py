@@ -313,6 +313,39 @@ def job_paper_trading_daily() -> dict:
     return out
 
 
+def job_paper_intraday_mark() -> dict:
+    """
+    Intraday: soft-mark open paper P&L + refresh AI BUY snapshot.
+    Complements the weekday EOD full settle (stops/targets).
+    """
+    log = _setup_logging()
+    log.info("Starting AI Trading intraday mark…")
+    from ai_buy import build_ai_buy_snapshot
+    from paper_trading import soft_mark_open_positions
+
+    out: dict = {"soft": None, "ai_buy": None}
+    try:
+        out["soft"] = soft_mark_open_positions()
+    except Exception:
+        log.exception("Intraday soft mark failed")
+        out["soft_error"] = 1
+    try:
+        buy = build_ai_buy_snapshot(persist=True)
+        out["ai_buy"] = {
+            "universe": buy.get("universe_count", 0),
+            "ready": (buy.get("counts") or {}).get("READY", 0),
+        }
+    except Exception:
+        log.exception("Intraday AI BUY refresh failed")
+        out["ai_buy_error"] = 1
+    log.info(
+        "Intraday mark done: soft=%s ai_buy=%s",
+        out.get("soft"),
+        out.get("ai_buy"),
+    )
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="LeiBot scheduled data updates")
     parser.add_argument("--universe", action="store_true", help="Refresh company names / index lists")

@@ -75,7 +75,9 @@ try:
 
     start_scheduler()
 except Exception:
-    pass
+    import logging as _logging
+
+    _logging.getLogger("leibot").exception("Failed to start in-app scheduler")
 
 
 # ---------------------------------------------------------------------------
@@ -2288,6 +2290,7 @@ def ai_trading():
         list_rebuy_candidates,
         manual_buy_candidate,
         manual_close_trade,
+        maybe_auto_refresh_ai_trading,
         portfolio_summary,
         rebuy_from_closed_trade,
         run_daily_update,
@@ -2748,6 +2751,12 @@ def ai_trading():
             flash(ngettext_format("Paper Trading action failed: {exc}", exc=exc), "warning")
         return redirect(url_for("ai_trading", tab=tab))
 
+    # Auto mark open P&L / rebuild AI BUY when the trading day (or mark age) is stale.
+    try:
+        maybe_auto_refresh_ai_trading()
+    except Exception:
+        app.logger.exception("AI Trading auto-refresh failed")
+
     candidates = list_candidates()
     # Prefer AI BUY snapshot as primary view (new architecture).
     ai_buy_view: dict = {
@@ -2759,8 +2768,7 @@ def ai_trading():
     try:
         from ai_buy import load_ai_buy_view
 
-        # Cache-first; Owner uses Refresh AI BUY for a full rebuild.
-        # Always rebuild: pool = My ∪ NDX100 Alert-marked (prices change often).
+        # Rebuild each visit so Dist / HOLDING / READY stay current with prices.
         ai_buy_view = load_ai_buy_view(recompute=True)
     except Exception:
         app.logger.exception("AI BUY view failed")

@@ -17,6 +17,7 @@ from update_jobs import (
     DEFAULT_UNIVERSE_MINUTE,
     DEFAULT_UNIVERSE_WEEKDAY,
     PRICE_TZ,
+    job_paper_intraday_mark,
     job_refresh_prices,
     job_refresh_universe,
 )
@@ -117,10 +118,25 @@ def start_scheduler() -> Any:
         max_instances=1,
         coalesce=True,
     )
+    # Intraday soft mark + AI BUY (Mon–Fri, every hour 7:30–12:30 PT)
+    sched.add_job(
+        job_paper_intraday_mark,
+        CronTrigger(
+            day_of_week="mon-fri",
+            hour="7-12",
+            minute=30,
+            timezone=PRICE_TZ,
+        ),
+        id="intraday_paper_mark",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     sched.start()
     _scheduler = sched
     log.info(
-        "Scheduler started: universe %s %02d:%02d PT; prices Mon–Fri %02d:%02d PT",
+        "Scheduler started: universe %s %02d:%02d PT; prices Mon–Fri %02d:%02d PT; "
+        "intraday paper mark Mon–Fri 07:30–12:30 PT hourly",
         universe_day,
         u_hour,
         u_min,
