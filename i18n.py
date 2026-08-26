@@ -1776,9 +1776,13 @@ ZH: dict[str, str] = {
     'Current Price':
         '现价',
     'Cost':
-        '成本',
+        '持仓成本',
     'Market Value':
-        '市值',
+        '持仓市值',
+    'Position cost = shares × entry price':
+        '持仓成本 = 股数 × 开仓价',
+    'Position market value = shares × current price':
+        '持仓市值 = 股数 × 现价',
     'Stop':
         '止损价',
     'Invested Amount':

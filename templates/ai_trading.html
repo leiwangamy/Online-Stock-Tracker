@@ -265,8 +265,8 @@
         <th class="num">{{ _('Entry Price') }}</th>
         <th class="num">{{ _('Current Price') }}</th>
         <th class="num">{{ _('Shares') }}</th>
-        <th class="num">{{ _('Cost') }}</th>
-        <th class="num">{{ _('Market Value') }}</th>
+        <th class="num" title="{{ _('Position cost = shares × entry price') }}">{{ _('Cost') }}</th>
+        <th class="num" title="{{ _('Position market value = shares × current price') }}">{{ _('Market Value') }}</th>
         <th class="num" title="{{ _('Stop Loss — AUTO from entry %; Admin can override. Reset restores AUTO.') }}">{{ _('Stop') }}</th>
         <th class="num" title="{{ _('Take Profit — AUTO from entry %; Admin can override. Reset restores AUTO.') }}">{{ _('Take Profit') }}</th>
         <th class="num" title="{{ _('R/R = Reward% ÷ Risk% (Take Profit % / Stop Loss %). Example: +10% / 5% = 2.0. Higher usually means more reward per unit of risk.') }}">R/R</th>

@@ -175,14 +175,24 @@ def clear_priority(ticker: str) -> None:
 def size_position(price: float, target_alloc: float) -> tuple[float, float, str]:
     """
     Returns (shares, cost, mode).
-    Always uses fractional shares so allocation $ can be filled exactly.
+
+    Prefer whole shares when the $ target can buy ≥ 1 share.
+    Only use fractional shares when the target cannot afford a full share
+    (so small ladder slots can still open).
     """
     if price is None or price <= 0 or target_alloc is None or target_alloc <= 0:
         return 0.0, 0.0, "none"
-    shares = round(float(target_alloc) / float(price), 4)
+    px = float(price)
+    budget = float(target_alloc)
+    whole = int(budget // px)
+    if whole >= 1:
+        shares = float(whole)
+        cost = round(shares * px, 4)
+        return shares, cost, "whole"
+    shares = round(budget / px, 4)
     if shares <= 0:
         return 0.0, 0.0, "fractional"
-    cost = round(shares * float(price), 4)
+    cost = round(shares * px, 4)
     return shares, cost, "fractional"
 
 
@@ -317,6 +327,108 @@ def repair_stale_entry_opens(*, gap_pct: float = 1.5) -> dict[str, Any]:
                 "gap_pct": round(gap, 2),
                 "stop": stop,
                 "take": take,
+            }
+        )
+    return {"fixed": fixed, "skipped": skipped, "updated_at": now}
+
+
+def repair_opens_to_whole_shares() -> dict[str, Any]:
+    """
+    Convert fractional open lots to whole shares at live (or entry) price.
+    Keeps Stop%/Take%; refunds leftover cash from reduced cost.
+    """
+    ensure_portfolio()
+    cfg = _cfg()
+    fixed: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    now = _utc_now_iso()
+    for tr in list_open_trades():
+        tkr = (tr.get("ticker") or "").upper()
+        try:
+            old_shares = float(tr["shares"])
+            old_cost = float(tr["cost"])
+            entry = float(tr["entry_price"])
+        except (TypeError, ValueError, KeyError):
+            skipped.append({"ticker": tkr, "reason": "bad_row"})
+            continue
+        # Already whole (within float noise)
+        if abs(old_shares - round(old_shares)) < 1e-9 and old_shares >= 1:
+            skipped.append({"ticker": tkr, "reason": "already_whole"})
+            continue
+        live = _fetch_live_price(tkr) or entry
+        if live <= 0:
+            skipped.append({"ticker": tkr, "reason": "no_price"})
+            continue
+        # Re-size from original $ cost budget (ladder slot), not current fractional shares.
+        budget = old_cost
+        shares, cost, mode = size_position(live, budget)
+        if shares <= 0 or cost <= 0:
+            skipped.append({"ticker": tkr, "reason": "resize_failed"})
+            continue
+        stop_pct = float(
+            tr["stop_pct"] if tr.get("stop_pct") is not None else cfg["stop_loss_pct"]
+        )
+        take_pct = float(
+            tr["take_profit_pct"]
+            if tr.get("take_profit_pct") is not None
+            else cfg["take_profit_pct"]
+        )
+        stop, take = stop_take_prices(live, stop_pct, take_pct)
+        ov = get_level_overrides([tkr]).get(tkr)
+        row_levels = {"stop_price": stop, "take_profit_price": take, "price": live}
+        apply_level_override_to_row(
+            row_levels, ov, default_stop=stop, default_take=take
+        )
+        stop = float(row_levels["stop_price"])
+        take = float(row_levels["take_profit_price"])
+        stop_pct = round((live - stop) / live * 100.0, 4)
+        take_pct = round((take - live) / live * 100.0, 4)
+        mv = round(live * shares, 4)
+        upnl = round((live - live) * shares, 4)  # entry rebase to live → flat
+        with get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE paper_trades SET
+                  entry_price = ?, shares = ?, shares_mode = ?, cost = ?,
+                  stop_price = ?, take_profit_price = ?,
+                  stop_pct = ?, take_profit_pct = ?,
+                  current_price = ?, market_value = ?,
+                  unrealized_pnl = ?, unrealized_pnl_pct = 0,
+                  updated_at = ?
+                WHERE id = ? AND status = 'open'
+                """,
+                (
+                    live,
+                    shares,
+                    mode,
+                    cost,
+                    stop,
+                    take,
+                    stop_pct,
+                    take_pct,
+                    live,
+                    mv,
+                    upnl,
+                    now,
+                    tr["id"],
+                ),
+            )
+        delta = round(old_cost - cost, 4)
+        if abs(delta) > 1e-6:
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE paper_portfolio SET cash = cash + ?, updated_at = ? WHERE id = 1",
+                    (delta, now),
+                )
+        fixed.append(
+            {
+                "ticker": tkr,
+                "old_shares": old_shares,
+                "new_shares": shares,
+                "old_cost": old_cost,
+                "new_cost": cost,
+                "entry": live,
+                "mode": mode,
             }
         )
     return {"fixed": fixed, "skipped": skipped, "updated_at": now}
