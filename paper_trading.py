@@ -1360,11 +1360,20 @@ def create_paper_orders_from_ai_buy(
             and r.get("ticker")
         ]
         if stale:
+            from db import get_setting as _gs
             from market_data import fetch_metrics_for_ticker
 
+            sma_period = int(_gs("sma_period", 25) or 25)
+            rebound_lookback = int(_gs("rebound_lookback", sma_period) or sma_period)
+            if rebound_lookback < 5:
+                rebound_lookback = sma_period
             for tkr in stale[:12]:
                 try:
-                    m = fetch_metrics_for_ticker(tkr) or {}
+                    m = fetch_metrics_for_ticker(
+                        tkr,
+                        sma_period=sma_period,
+                        rebound_lookback=rebound_lookback,
+                    ) or {}
                     px = m.get("price")
                     if px is None:
                         continue
@@ -2694,11 +2703,23 @@ def soft_mark_open_positions() -> dict[str, Any]:
     missing = [t for t in tickers if t not in price_map]
     if missing:
         try:
+            from db import get_setting as _gs
             from market_data import fetch_metrics_for_ticker
 
+            sma_period = int(_gs("sma_period", 25) or 25)
+            rebound_lookback = int(_gs("rebound_lookback", sma_period) or sma_period)
+            if rebound_lookback < 5:
+                rebound_lookback = sma_period
             for tkr in missing:
                 try:
-                    m = fetch_metrics_for_ticker(tkr) or {}
+                    m = (
+                        fetch_metrics_for_ticker(
+                            tkr,
+                            sma_period=sma_period,
+                            rebound_lookback=rebound_lookback,
+                        )
+                        or {}
+                    )
                     px = m.get("price")
                     if px is not None:
                         price_map[tkr] = float(px)
