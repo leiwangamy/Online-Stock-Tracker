@@ -320,6 +320,10 @@
       {{ _('Multi-Signal') }}
       <span class="count">({{ data.badge_multi if data.badge_multi is defined else 0 }})</span>
     </a>
+    <a class="tab"
+       href="{{ url_for('watchlist', tab='ai_news') }}">
+      {{ _('AI News') }}
+    </a>
   </div>
 
   {# ── Tab 1: Daily Strong Stocks ── #}

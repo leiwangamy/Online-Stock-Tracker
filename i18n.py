@@ -27,14 +27,62 @@ ZH: dict[str, str] = {
         "信号 → 财报得分 → 若财报通过率 ≥60%（ok/known）则抓取/分析新闻（新鲜缓存可复用）；否则 SKIPPED，新闻得分=0，不调 News API。财报≥60% 仅为新闻分析门槛，不是买入条件。SKIPPED ≠ NEUTRAL（二者得分都是0）。",
     "Risk penalties: severe financial −0~15, volume dump −0~5, high vol/low liquidity −0~5, near earnings −0~15. News is not double-counted in risk (only ±5 News Score). Hover AI for breakdown. Green≥70 / yellow 40–69 / red <40. 63D Position and Admin-only Intrinsic Value / real MOS are excluded from AI Score V1.":
         "风险扣分：严重财务 −0~15、放量下跌 −0~5、高波动/低流动性 −0~5、临近财报 −0~15。新闻不在风险中重复扣分（仅 ±5 新闻得分）。悬停 AI 看明细。绿≥70 / 黄40–69 / 红<40。63日位置与管理员估值/真实 MOS 不计入 AI Score V1。",
+    "Market Dashboard": "市场看板",
+    "ETF Market Data": "ETF 行情",
+    "STOCKS": "股票",
+    "ETFs": "ETF",
+    "Refresh ETF Prices": "刷新 ETF 行情",
+    "Re-seed ETF List": "重新载入 ETF 列表",
+    "Re-seed curated ETF list from code?": "从代码重新载入精选 ETF 列表？",
+    "LeiBot ETF Universe — shared price pipeline with stocks. Market data only; not sent to AI BUY / Alert Buy. Company fundamentals do not apply.":
+        "LeiBot ETF 宇宙 — 与股票共用行情管道。仅市场数据；不进入 AI BUY / Alert Buy。不适用公司基本面。",
+    "Search ticker / name / Gold / SECTOR…": "搜索代码 / 名称 / Gold / SECTOR…",
+    "ETF prices refreshed: ok {ok} / errors {errors} (universe {universe})":
+        "ETF 行情已刷新：成功 {ok} / 失败 {errors}（宇宙 {universe}）",
+    "ETF universe seeded: {n} tickers": "ETF 宇宙已载入：{n} 只",
+    "No ETFs match this filter.": "没有符合此筛选的 ETF。",
+    "Priced": "已有报价",
+    "Avg $ Vol": "日均成交额",
+    "Data Status": "数据状态",
+    "SMA25 Dist": "距 SMA25",
+    "63D Pos": "63日位置",
+    "Avg Daily Move": "日均波动",
+    "63D Ret": "63日收益",
+    "126D Ret": "126日收益",
+    "252D Ret": "252日收益",
+    "Subcategory": "子类",
+    "Daily %": "当日%",
     "Research": "研究中心",
     "AI BUY": "AI 买入",
     "AI Approved": "AI 批准池",
     "AI SELECT": "AI 筛选",
+    "AI Select": "AI 筛选",
+    "AI Select workflow": "AI 筛选流程",
+    "Choose a strategy to open its Cash / Positions / History workspace.":
+        "请选择策略，进入后再显示现金 / 持仓 / 历史工作区。",
+    "AI News Pool": "AI 新闻池",
+    "RUN AI NEWS": "运行 AI 新闻",
+    "AI News → AI Discovery → Core Universe → AI Approved":
+        "AI 新闻 → AI 发现 → 核心宇宙 → AI 批准池",
+    "AI Discovery → Core Universe → AI Approved": "AI 发现 → 核心宇宙 → AI 批准池",
     "Core Universe": "核心宇宙",
     "Nasdaq-100 Alerts": "纳斯达克100 提醒",
     "Same rules as My Watchlist. Auto: 🟡 WATCH = 5% below SMA · 🟢 DEEP = 10% below SMA":
         "规则与「我的自选」相同。自动：🟡 WATCH = SMA 下方 5% · 🟢 DEEP = SMA 下方 10%",
+    "Dist SMA25 alerts: >−5% none · 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%":
+        "Dist SMA25 提醒：>−5% 无 · 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%",
+    "Manual Active Alert is optional for Owner notes; colored WATCH/LOW/DEEP/EXTREME always follow Dist vs SMA25.":
+        "Manual Active Alert 仅作 Owner 备注；有色 WATCH/LOW/DEEP/EXTREME 一律按 Dist vs SMA25。",
+    "Dist SMA25: 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%":
+        "Dist SMA25：🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%",
+    "WATCH — Dist SMA25 −5% ~ −10%": "WATCH — Dist SMA25 −5% ~ −10%",
+    "LOW — Dist SMA25 −10% ~ −15%": "LOW — Dist SMA25 −10% ~ −15%",
+    "DEEP — Dist SMA25 −15% ~ −20%": "DEEP — Dist SMA25 −15% ~ −20%",
+    "EXTREME — Dist SMA25 ≤ −20%": "EXTREME — Dist SMA25 ≤ −20%",
+    "Auto-buy on refresh: opened {n} · cash left {cash}":
+        "刷新自动买入：新开 {n} 笔 · 剩余现金 {cash}",
+    "Auto-buy skipped — no fund / trading-limit room":
+        "自动买入已跳过 — 无可用资金 / 交易额度",
     "Research zones only — never auto-buy. Manual alerts are stored per ticker (shared with My Watchlist if the same name appears in both).":
         "仅研究区间，永不自动买入。Manual Alert 按代码存储（若同代码也在我的自选，共用同一提醒）。",
     "Sign in as Admin to edit Manual Alert on Nasdaq-100.": "请以管理员登录后编辑 Nasdaq-100 的 Manual Alert。",
@@ -81,8 +129,31 @@ ZH: dict[str, str] = {
         "买入候选 =「我的自选」与 Nasdaq-100 中当前标有 🟡 WATCH / 🟢 ALERT / 🟢 DEEP 的股票（规则与 Watchlist 相同）。Dist SMA25 + 回稳决定 READY / STABILIZING / APPROACHING …",
     "Buy candidates = My Watchlist + Nasdaq-100 + AI Approved names currently marked 🟡 WATCH / 🟢 ALERT / 🟢 DEEP (same SMA Alert rules). Dist SMA25 + Recovery decide READY / STABILIZING / APPROACHING …":
         "买入候选 =「我的自选」+ Nasdaq-100 + AI 批准池 中当前标有 🟡 WATCH / 🟢 ALERT / 🟢 DEEP 的股票（同一套 SMA Alert）。Dist SMA25 + 回稳决定 READY / STABILIZING / APPROACHING …",
+    "Buy candidates = My Watchlist + Nasdaq-100 + AI Approved names currently marked 🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME (Dist SMA25 bands). Dist + Recovery decide READY / STABILIZING / APPROACHING …":
+        "买入候选 =「我的自选」+ Nasdaq-100 + AI 批准池 中当前标有 🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME（Dist SMA25 分档）。Dist + 回稳决定 READY / STABILIZING / APPROACHING …",
     "Observation pool (MY∪NDX)": "观察池（我的∪NDX）",
     "Observation pool (MY∪NDX∪AI)": "观察池（我的∪NDX∪AI）",
+    "Deep Recovery": "深度反弹",
+    "OVERSOLD PULLBACK top 15 → Dist / Recovery timing (Alert Buy rules)":
+        "超卖回调前 15 → Dist / 回稳时机（与 Alert Buy 同一套规则）",
+    "Mid/small bias · lower quality · larger rebound potential · independent $2k paper book.":
+        "偏中小盘 · 质量弱于 Alert Buy · 反弹空间更大 · 独立 $2k 纸面账户。",
+    "Top 15 · same Watchlist sort (UP > MIXED > DOWN, then deepest Dist%)":
+        "前 15 · 与 Watchlist 同序（UP > MIXED > DOWN，再按 Dist% 最深）",
+    "same gates as Alert Buy — expect more KNIFE on mid/small":
+        "门槛与 Alert Buy 相同 — 中小盘会更多 KNIFE",
+    "Experiment: buy deepest Oversold pullback names (often mid/small). Stock quality weaker than Alert Buy; rebound amplitude can be large. Paper ladder uses slightly smaller slots ($250→$150, max 6). Prefer UP-trend names — already prioritized by Watchlist sort.":
+        "实验：买超卖回调最深的一批（多为中小盘）。质量不如 Alert Buy，但反弹幅度可能更大。纸面仓位略小（$250→$150，最多 6 仓）。优先 UP 趋势 — Watchlist 排序已体现。",
+    "Refresh Deep Recovery": "刷新深度反弹",
+    "top 15": "前 15",
+    "No Oversold pullback names in top-N yet. Refresh Watchlist prices, then Refresh Deep Recovery.":
+        "暂无超卖回调前 N 名。请先刷新 Watchlist 价格，再刷新深度反弹。",
+    "Deep Recovery refreshed: top {n} of Oversold pool {p} · READY {r}":
+        "深度反弹已刷新：超卖池 {p} 中取前 {n} · READY {r}",
+    "Deep Recovery paper orders: {n} · skipped {s}":
+        "深度反弹纸面单：开仓 {n} · 跳过 {s}",
+    "No Deep Recovery orders · skipped {s}. Need READY/STABILIZING on Oversold top-N.":
+        "未开深度反弹单 · 跳过 {s}。需 Oversold 前 N 中有 READY/STABILIZING。",
     "AI Approved Alerts": "AI 批准池提醒",
     "Research zones only — never auto-buy. Manual alerts are stored per ticker (shared across My Watchlist / Nasdaq-100 / AI Approved).":
         "仅研究区间，永不自动买入。Manual Alert 按代码存储（我的自选 / Nasdaq-100 / AI 批准池共用）。",
@@ -126,6 +197,8 @@ ZH: dict[str, str] = {
     "DATA": "DATA",
     "DATA QUALITY — not trading risk. ERROR = hard BUY block.":
         "数据质量（不是交易风险）。ERROR = 硬性禁止买入。",
+    "DATA QUALITY — Admin diagnostics only; does not BLOCK Status.":
+        "数据质量 — 仅 Admin 诊断；不会把 Status 标为 BLOCK。",
     "DATA ERROR is a hard BUY block (not a score penalty). SMA25_D = 25 trading-day SMA from daily closes.":
         "DATA ERROR 是硬性买入阻断（不是扣分）。SMA25_D = 25 个交易日收盘价简单均线。",
     "DATA CHECK {ticker}: {status}": "数据检查 {ticker}：{status}",
@@ -161,6 +234,33 @@ ZH: dict[str, str] = {
     "Price Score": "价格分",
     "Recovery": "回稳",
     "Buy Status": "买入状态",
+    "Status": "状态",
+    "BLOCK": "拦截",
+    "BUY QUEUE": "买入队列",
+    "MY": "我的自选",
+    "NDX100": "Nasdaq-100",
+    "AI APPROVED": "AI 批准池",
+    "More in queue (Dist order)": "队列其余（按 Dist）",
+    "scroll / pick to jump": "滚动 / 点选跳转",
+    "more": "更多",
+    "BUY QUEUE = Dist SMA25 ascending (including BLOCK). ~10 rows visible — use the right scrollbar for the rest.":
+        "买入队列按 Dist SMA25 升序（含 BLOCK）。约显示 10 行，右侧滚动条查看其余。",
+    "Dist order · BLOCK included · scroll table":
+        "按 Dist 排序 · 含 BLOCK · 表格内滚动",
+    "Top 10 by Dist · BLOCK included · rest in scroll list":
+        "按 Dist 前 10 · 含 BLOCK · 其余在滚动列表",
+    "CANDIDATES = today’s list including HOLDING; BLOCK hidden until you tap BLOCK. Ranked by Dist SMA25 ascending.":
+        "CANDIDATES = 当日列表（含 HOLDING）；BLOCK 需点标签才显示。按 Dist SMA25 升序。",
+    "Status tags: READY · HOLDING · STABILIZING (includes former APPROACHING) · BLOCK.":
+        "状态标签：READY · HOLDING · STABILIZING（含原 APPROACHING）· BLOCK。",
+    "Dist + Recovery decide READY / STABILIZING …":
+        "Dist + Recovery 决定 READY / STABILIZING …",
+    "CANDIDATES = today’s AI BUY list including HOLDING; BLOCK hidden (see Other). Ranked by Dist SMA25 ascending.":
+        "CANDIDATES = 当日 AI BUY 列表（含 HOLDING）；BLOCK 默认隐藏（见 Other）。按 Dist SMA25 从小到大排序。",
+    "Primary rank: Dist SMA25 ascending (deepest first). BLOCK does not reorder.":
+        "主排序：Dist SMA25 升序（跌得越深越靠前）。BLOCK 只决定资格，不改排序。",
+    "Timing / HOLDING / BLOCK — eligibility only; does not change Dist rank order.":
+        "时机 / HOLDING / BLOCK — 仅资格判定，不改变 Dist 排序。",
     "AI SELECT & AI BUY (source of truth)": "AI SELECT 与 AI BUY（架构真源）",
     "Legacy AI Score V1 below is a research feature column — not the AI BUY decision engine.": "下方旧 AI Score V1 仅为研究特征列，不是 AI BUY 决策引擎。",
     "No auto real orders in V1 — READY is for Owner / paper decision.": "V1 不自动真实下单 — READY 供 Owner / 模拟决策。",
@@ -340,6 +440,26 @@ ZH: dict[str, str] = {
     "Oversold pullback": "超卖回调",
     "Target Ratio < 80%": "Target Ratio < 80%",
     "My Watchlist": "我的自选",
+    "GROWTH": "GROWTH",
+    "SHORT": "SHORT",
+    "Add to GROWTH": "加入 GROWTH",
+    "Add to SHORT": "加入 SHORT",
+    "Remove from GROWTH": "移出 GROWTH",
+    "Remove from SHORT": "移出 SHORT",
+    "Removed from GROWTH": "已从 GROWTH 移除",
+    "Removed from SHORT": "已从 SHORT 移除",
+    "Added to GROWTH: {tickers}": "已加入 GROWTH：{tickers}",
+    "Added to SHORT: {tickers}": "已加入 SHORT：{tickers}",
+    "Already in GROWTH: {tickers}": "已在 GROWTH：{tickers}",
+    "Already in SHORT: {tickers}": "已在 SHORT：{tickers}",
+    "Please sign in to edit Watchlist pools": "请登录后编辑 Watchlist 池",
+    "Sign in to edit GROWTH.": "登录后可编辑 GROWTH。",
+    "Sign in to edit SHORT.": "登录后可编辑 SHORT。",
+    "Add tickers, comma-separated": "添加代码，逗号分隔",
+    "GROWTH pool — long-horizon Financial / Exchange / Utility / Health Care + ETF sleeve from S&P500∪NDX100. Same quotes as My Watchlist; ALERT not enabled yet. Funds/ETFs skip Financial & News. Method: large durable names only; skip speculative (e.g. COIN); review membership quarterly at most.":
+        "GROWTH 池 — 长期金融/交易所/公用事业/医疗 + ETF（宇宙仅 S&P500∪NDX100）。与「我的自选」相同行情；暂未启用 ALERT。基金不查财报与新闻。选股：大市值护城河、少改名单；剔除投机股（如 COIN）；最多按季复审。",
+    "SHORT pool — ETF / index / leveraged + stable stocks. Same quotes as My Watchlist; ALERT not enabled yet. Funds/ETFs skip Financial & News; KO/PEP/WMT/MCD/PG/JNJ/JPM still load them.":
+        "SHORT 池 — ETF/指数/杠杆 + 稳定股。与「我的自选」相同行情；暂未启用 ALERT。基金不查财报与新闻；KO/PEP/WMT/MCD/PG/JNJ/JPM 仍加载。",
     "Temp": "临时",
     "Add to My Watchlist": "添加到我的自选",
     "Add tickers, comma-separated, e.g. AMD, SHOP.TO": "添加自选代码，逗号分隔，如 AMD, SHOP.TO",
@@ -1537,6 +1657,20 @@ ZH: dict[str, str] = {
         'AI 交易',
     'AI TRADING':
         'AI TRADING',
+    'AI AUTO TRADING':
+        'AI AUTO TRADING',
+    'Deepest Oversold pullback names (often mid/small). Weaker quality than Alert Buy; larger rebound potential. Paper slots $250→$150, max 6.':
+        '超卖回调最深的一批（多为中小盘）。质量弱于 Alert Buy，反弹空间可能更大。纸面仓位 $250→$150，最多 6 仓。',
+    'Top 15 · Watchlist sort (UP > MIXED > DOWN, Dist%)':
+        '前 15 · Watchlist 排序（UP > MIXED > DOWN，Dist%）',
+    'Knife / HIGH / News (DATA is Admin-only, not BLOCK)':
+        'Knife / HIGH / News（DATA 仅 Admin，不打 BLOCK）',
+    'BUY QUEUE = Dist SMA25 ascending (including BLOCK). Scroll the table for more rows.':
+        'BUY QUEUE = Dist SMA25 升序（含 BLOCK）。表格右侧滚动看更多。',
+    'READY · STABILIZING · BLOCK · HOLDING':
+        'READY · STABILIZING · BLOCK · HOLDING',
+    'SIMULATE Deep Recovery paper orders from READY / STABILIZING?':
+        '用 READY / STABILIZING 模拟开 Deep Recovery 纸面单？',
     'SIMULATE':
         'SIMULATE',
     'Allocate paper orders from READY (top→bottom ladder)? Settings stop/take & capital still apply. Simulated only.':
@@ -2151,6 +2285,18 @@ def tab_description(key: str, *, mine_list_label: str = "", can_edit_mine: bool 
         else:
             src = ZH["desc_mine_owner"] if can_edit_mine else ZH["desc_mine_public"]
         return src.format(list=label)
+    if key == "growth":
+        return (
+            "GROWTH 观察池：S&P500∪NDX100 内金融/交易所与数据/公用事业/医疗龙头 + 分红增长/成长/行业 ETF；长期持有、少改名单。与「我的自选」相同行情；暂不启用 ALERT。基金不查财报与新闻。"
+            if lang == "zh"
+            else "GROWTH pool: S&P500∪NDX100 Financial / Exchanges & Data / Utilities / Health Care leaders + dividend-growth/growth/sector ETFs; long-horizon, rare membership changes. Same quotes as My Watchlist; ALERT off. Funds skip Financial & News."
+        )
+    if key == "short":
+        return (
+            "SHORT 观察池：宽基/行业/杠杆 ETF + 稳定股。与「我的自选」相同行情；暂不启用 ALERT。基金不查财报与新闻，稳定股仍加载。"
+            if lang == "zh"
+            else "SHORT pool: broad/sector/leveraged ETFs + stable stocks. Same quotes as My Watchlist; ALERT not enabled yet. Funds skip Financial & News; stable stocks still load them."
+        )
     if key == "ai_approved":
         return (
             "长期观察池（Owner 从 Core Universe / Discovery 批准）。Alert 规则与「我的自选」相同（Auto SMA×0.95 / 0.90；可设 Manual）。仅研究提醒，不自动下单。"
@@ -2180,5 +2326,11 @@ def tab_description(key: str, *, mine_list_label: str = "", can_edit_mine: bool 
             "发现提名来源。提名 ≠ 入选；须通过 Core Universe Filter。"
             if lang == "zh"
             else "Discovery nomination source. Nomination ≠ qualification — must pass Core Universe Filter."
+        )
+    if key == "ai_news":
+        return (
+            "新闻事件雷达（Broad + Official）。原 AI Trading → AI Discovery，现并入 Watchlist AI Select。"
+            if lang == "zh"
+            else "News-event radar (Broad + Official). Moved from AI Trading → AI Discovery into Watchlist AI Select."
         )
     return ""

@@ -132,6 +132,11 @@
 {% block content %}
   <h1>{{ _('Market Dashboard') }}</h1>
 
+  <div class="tabs" style="margin-bottom:10px">
+    <a class="tab active" href="{{ url_for('market_dashboard', group=group) }}">{{ _('STOCKS') }}</a>
+    <a class="tab" href="{{ url_for('etf_dashboard') }}">{{ _('ETFs') }}</a>
+  </div>
+
   <div class="tabs">
     {% for tab in tabs %}
       <a class="tab {% if tab.key == group %}active{% endif %}"

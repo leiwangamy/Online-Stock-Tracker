@@ -1,8 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Watchlist{% endblock %}
 {% block head %}
+  {% if tab == 'ai_news' %}{% include '_ai_news_styles.html' %}{% endif %}
   <style>
-    .tabs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 0 0 14px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 0 0 14px; align-items: center; }
+    .tab-cluster {
+      display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      padding: 4px 8px 4px 10px; border: 1px dashed var(--border);
+      border-radius: 12px; background: #f8fafc;
+    }
+    .tab-cluster.is-active { border-color: #93c5fd; background: #eff6ff; }
+    .tab-cluster-label {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+      text-transform: uppercase; color: #64748b; padding: 0 4px 0 2px; white-space: nowrap;
+    }
+    .tab-cluster .tab { padding: 6px 12px; font-size: 0.86rem; }
+    .tab-sep { width: 1px; height: 22px; background: var(--border); margin: 0 2px; flex: 0 0 auto; }
     .tab {
       display: inline-block; padding: 8px 16px; border-radius: 999px;
       border: 1px solid var(--border); background: var(--panel); color: var(--muted);
@@ -265,15 +278,20 @@
       background: #fef3c7;
       border-color: #f59e0b;
     }
-    .alert-badge.alert {
+    .alert-badge.low, .alert-badge.alert {
+      color: #166534;
+      background: #dcfce7;
+      border-color: #22c55e;
+    }
+    .alert-badge.deep {
       color: #9a3412;
       background: #ffedd5;
       border-color: #f97316;
     }
-    .alert-badge.deep {
-      color: #991b1b;
-      background: #fee2e2;
-      border-color: #ef4444;
+    .alert-badge.extreme {
+      color: #0e7490;
+      background: #cffafe;
+      border-color: #22d3ee;
     }
     .alert-edit {
       width: 5.5rem;
@@ -460,7 +478,7 @@
           <th class="sortable num col-alert" data-col="29" data-type="num"
               title="{{ _('Active Alert = Manual if set, else Auto Default (SMA×0.95).') }}">{{ _("Active Alert") }}</th>
           <th class="sortable col-alert-status" data-col="30" data-type="text"
-              title="{{ _('Auto: 🟡 WATCH / 🟢 DEEP · Manual: 🟡 WATCH / 🟢 ALERT. Same as dots on ticker.') }}">{{ _("Alert Status") }}</th>
+              title="{{ _('Dist SMA25: 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%') }}">{{ _("Alert Status") }}</th>
           {% endif %}
           {% else %}
           <th class="sortable col-fund" data-col="18" data-type="num" title="{{ _('Fundamentals health: 7 red-flag checks') }}">{{ _("Financial") }}</th>
@@ -477,7 +495,7 @@
           <th class="sortable num col-alert" data-col="26" data-type="num"
               title="{{ _('Active Alert = Manual if set, else Auto Default (SMA×0.95).') }}">{{ _("Active Alert") }}</th>
           <th class="sortable col-alert-status" data-col="27" data-type="text"
-              title="{{ _('Auto: 🟡 WATCH / 🟢 DEEP · Manual: 🟡 WATCH / 🟢 ALERT. Same as dots on ticker.') }}">{{ _("Alert Status") }}</th>
+              title="{{ _('Dist SMA25: 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%') }}">{{ _("Alert Status") }}</th>
           {% endif %}
           {% endif %}
         </tr>
@@ -488,10 +506,14 @@
             data-price="{% if row.price is not none %}{{ row.price }}{% endif %}"
             data-sma="{% if row.sma is not none %}{{ row.sma }}{% endif %}">
           <td class="col-ticker freeze-col freeze-edge" data-sort="{{ row.ticker }}">
-            {% if show_alert and row.alert and row.alert.state in ('alert', 'deep') %}
-              <span class="alert-dot ready" title="{% if row.alert_source == 'manual' %}{{ _('ALERT — manual alert reached') }}{% else %}{{ _('DEEP — 10% below SMA') }}{% endif %}">🟢</span>
+            {% if show_alert and row.alert and row.alert.state == 'extreme' %}
+              <span class="alert-dot extreme" title="{{ _('EXTREME — Dist SMA25 ≤ −20%') }}">🔵</span>
+            {% elif show_alert and row.alert and row.alert.state == 'deep' %}
+              <span class="alert-dot deep" title="{{ _('DEEP — Dist SMA25 −15% ~ −20%') }}">🟠</span>
+            {% elif show_alert and row.alert and row.alert.state in ('low', 'alert') %}
+              <span class="alert-dot low" title="{{ _('LOW — Dist SMA25 −10% ~ −15%') }}">🟢</span>
             {% elif show_alert and row.alert and row.alert.state == 'watch' %}
-              <span class="alert-dot near" title="{% if row.alert_source == 'manual' %}{{ _('WATCH — within 5% above manual alert') }}{% else %}{{ _('WATCH — 5% below SMA') }}{% endif %}">🟡</span>
+              <span class="alert-dot near" title="{{ _('WATCH — Dist SMA25 −5% ~ −10%') }}">🟡</span>
             {% endif %}
             <strong>{{ row.ticker }}</strong>
             {% if row.name %}<div class="hint name-sub" style="text-align:left;margin:0" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
@@ -731,12 +753,14 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
             </td>
             <td class="col-alert-status js-alert-status"
                 data-sort="{{ row.alert.state if row.alert and row.alert.state else '' }}">
-              {% if row.alert and row.alert.state == 'deep' %}
-                <span class="alert-badge deep" title="{{ _('DEEP — 10% below SMA') }}">DEEP</span>
-              {% elif row.alert and row.alert.state == 'alert' %}
-                <span class="alert-badge alert" title="{{ _('ALERT — manual alert reached') }}">ALERT</span>
+              {% if row.alert and row.alert.state == 'extreme' %}
+                <span class="alert-badge extreme" title="{{ _('EXTREME — Dist SMA25 ≤ −20%') }}">EXTREME</span>
+              {% elif row.alert and row.alert.state == 'deep' %}
+                <span class="alert-badge deep" title="{{ _('DEEP — Dist SMA25 −15% ~ −20%') }}">DEEP</span>
+              {% elif row.alert and row.alert.state in ('low', 'alert') %}
+                <span class="alert-badge low" title="{{ _('LOW — Dist SMA25 −10% ~ −15%') }}">LOW</span>
               {% elif row.alert and row.alert.state == 'watch' %}
-                <span class="alert-badge watch" title="{% if row.alert_source == 'manual' %}{{ _('WATCH — within 5% above manual alert') }}{% else %}{{ _('WATCH — 5% below SMA') }}{% endif %}">WATCH</span>
+                <span class="alert-badge watch" title="{{ _('WATCH — Dist SMA25 −5% ~ −10%') }}">WATCH</span>
               {% else %}
                 <span class="alert-badge none" title="{{ _('No alert zone') }}">—</span>
               {% endif %}
@@ -887,14 +911,39 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
 
 {% block content %}
   <h1>{{ _('Watchlist') }}</h1>
-
   <div class="tabs">
+    {% set ai_select_keys = ['ai_news', 'ai_discovery', 'core_universe', 'ai_approved'] %}
+    {% set ai_select_active = tab in ai_select_keys %}
     {% for t in tabs %}
+      {% if t.group == 'ai_select' and (loop.first or tabs[loop.index0 - 1].group != 'ai_select') %}
+        {% if not loop.first %}<span class="tab-sep" aria-hidden="true"></span>{% endif %}
+        <div class="tab-cluster {% if ai_select_active %}is-active{% endif %}" title="{{ _('AI News → AI Discovery → Core Universe → AI Approved') }}">
+          <span class="tab-cluster-label">{{ _('AI Select') }}</span>
+      {% endif %}
+      {% if t.group == 'screens' and (loop.first or tabs[loop.index0 - 1].group != 'screens') %}
+        <span class="tab-sep" aria-hidden="true"></span>
+      {% endif %}
+      {% if t.group == 'scratch' and (loop.first or tabs[loop.index0 - 1].group != 'scratch') %}
+        <span class="tab-sep" aria-hidden="true"></span>
+      {% endif %}
       <a class="tab {% if t.key == tab %}active{% endif %}" href="{{ url_for('watchlist', tab=t.key) }}">
         {{ t.label }} <span class="count">({{ t.count }})</span>
       </a>
+      {% if t.group == 'ai_select' and (loop.last or tabs[loop.index0 + 1].group != 'ai_select') %}
+        </div>
+        <span class="tab-sep" aria-hidden="true"></span>
+      {% endif %}
     {% endfor %}
   </div>
+  {% if ai_select_active %}
+  <p class="hint" style="text-align:center;margin:-6px 0 12px">
+    {{ _('AI Select workflow') }}:
+    <a href="{{ url_for('watchlist', tab='ai_news') }}">{{ _('AI News') }}</a>
+    → <a href="{{ url_for('watchlist', tab='ai_discovery') }}">{{ _('AI Discovery') }}</a>
+    → <a href="{{ url_for('watchlist', tab='core_universe') }}">{{ _('Core Universe') }}</a>
+    → <a href="{{ url_for('watchlist', tab='ai_approved') }}">{{ _('AI Approved') }}</a>
+  </p>
+  {% endif %}
 
   <div class="ops-bar">
     <div class="ops-main">
@@ -1121,12 +1170,8 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
       <div class="legend-col">
         <strong>{{ _("My Watchlist Alerts") }}</strong>
         <ul style="columns:1">
-          <li><strong>{{ _("Auto") }}</strong> — {{ _("SMA-based until Manual is set") }}</li>
-          <li>🟡 WATCH = SMA × 0.95 ({{ _("5% below SMA") }})</li>
-          <li>🟢 DEEP = SMA × 0.90 ({{ _("10% below SMA") }})</li>
-          <li><strong>{{ _("Manual") }}</strong> — {{ _("custom price overrides Auto until Reset") }}</li>
-          <li>🟡 WATCH = {{ _("within 5% above manual alert") }} (≤ Active × 1.05)</li>
-          <li>🟢 ALERT = {{ _("price ≤ manual alert") }}</li>
+          <li>{{ _('Dist SMA25 alerts: >−5% none · 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%') }}</li>
+          <li>{{ _('Manual Active Alert is optional for Owner notes; colored WATCH/LOW/DEEP/EXTREME always follow Dist vs SMA25.') }}</li>
         </ul>
         <p class="hint" style="text-align:left;margin:0">{{ _("Dots next to ticker only — hover for status. Research zones only; never auto-buy.") }}</p>
       </div>
@@ -1149,8 +1194,8 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
   {% if tab == 'mine' %}
     <div class="alert-hint-block">
       <strong>{{ _("My Watchlist Alerts") }}</strong>
-      <p class="alert-hint-line">{{ _("Auto: 🟡 WATCH = 5% below SMA · 🟢 DEEP = 10% below SMA") }}</p>
-      <p class="alert-hint-line">{{ _("Manual: Custom alert overrides Auto · 🟡 WATCH = within 5% above alert · 🟢 ALERT = alert reached · Remains active until reset") }}</p>
+      <p class="alert-hint-line">{{ _('Dist SMA25 alerts: >−5% none · 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%') }}</p>
+      <p class="alert-hint-line">{{ _('Manual Active Alert is optional for Owner notes; colored WATCH/LOW/DEEP/EXTREME always follow Dist vs SMA25.') }}</p>
     </div>
     {% if can_edit_mine|default(false) %}
     <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='mine') }}" style="margin-bottom:8px">
@@ -1175,11 +1220,71 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     {% endif %}
   {% endif %}
 
+  {% if tab == 'growth' %}
+    <p class="hint" style="margin:0 0 10px;text-align:left">
+      {{ _('GROWTH pool — long-horizon Financial / Exchange / Utility / Health Care + ETF sleeve from S&P500∪NDX100. Same quotes as My Watchlist; ALERT not enabled yet. Funds/ETFs skip Financial & News. Method: large durable names only; skip speculative (e.g. COIN); review membership quarterly at most.') }}
+    </p>
+    {% if can_edit_pool|default(can_edit_mine|default(false)) %}
+    <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='growth') }}" style="margin-bottom:8px">
+      <input type="hidden" name="action" value="add_growth">
+      <input type="hidden" name="next_tab" value="growth">
+      <input type="text" name="pool_tickers" placeholder="{{ _('Add tickers, comma-separated') }}" required>
+      <button class="btn primary" type="submit">{{ _('Add to GROWTH') }}</button>
+    </form>
+    <p class="hint" style="margin:0 0 12px;text-align:left">
+      {{ _("Current list:") }}
+      {% for t in growth_list|default([]) %}
+        <form method="post" action="{{ url_for('watchlist', tab='growth') }}" style="display:inline;margin:0 6px 4px 0">
+          <input type="hidden" name="action" value="remove_growth">
+          <input type="hidden" name="ticker" value="{{ t }}">
+          <button class="btn" type="submit" title="{{ _('Remove from GROWTH') }} {{ t }}" style="padding:2px 8px;font-size:0.85rem">{{ t }} ×</button>
+        </form>
+      {% else %}
+        {{ _("(empty)") }}
+      {% endfor %}
+    </p>
+    {% else %}
+    <p class="hint" style="margin:0 0 12px">{{ _('Sign in to edit GROWTH.') }}
+      <a href="{{ url_for('owner_login', next=url_for('watchlist', tab='growth')) }}">{{ _("Sign in") }}</a>
+    </p>
+    {% endif %}
+  {% endif %}
+
+  {% if tab == 'short' %}
+    <p class="hint" style="margin:0 0 10px;text-align:left">
+      {{ _('SHORT pool — ETF / index / leveraged + stable stocks. Same quotes as My Watchlist; ALERT not enabled yet. Funds/ETFs skip Financial & News; KO/PEP/WMT/MCD/PG/JNJ/JPM still load them.') }}
+    </p>
+    {% if can_edit_pool|default(can_edit_mine|default(false)) %}
+    <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='short') }}" style="margin-bottom:8px">
+      <input type="hidden" name="action" value="add_short">
+      <input type="hidden" name="next_tab" value="short">
+      <input type="text" name="pool_tickers" placeholder="{{ _('Add tickers, comma-separated') }}" required>
+      <button class="btn primary" type="submit">{{ _('Add to SHORT') }}</button>
+    </form>
+    <p class="hint" style="margin:0 0 12px;text-align:left">
+      {{ _("Current list:") }}
+      {% for t in short_list|default([]) %}
+        <form method="post" action="{{ url_for('watchlist', tab='short') }}" style="display:inline;margin:0 6px 4px 0">
+          <input type="hidden" name="action" value="remove_short">
+          <input type="hidden" name="ticker" value="{{ t }}">
+          <button class="btn" type="submit" title="{{ _('Remove from SHORT') }} {{ t }}" style="padding:2px 8px;font-size:0.85rem">{{ t }} ×</button>
+        </form>
+      {% else %}
+        {{ _("(empty)") }}
+      {% endfor %}
+    </p>
+    {% else %}
+    <p class="hint" style="margin:0 0 12px">{{ _('Sign in to edit SHORT.') }}
+      <a href="{{ url_for('owner_login', next=url_for('watchlist', tab='short')) }}">{{ _("Sign in") }}</a>
+    </p>
+    {% endif %}
+  {% endif %}
+
   {% if tab == 'ndx100' %}
     <div class="alert-hint-block">
       <strong>{{ _("Nasdaq-100 Alerts") }}</strong>
-      <p class="alert-hint-line">{{ _("Same rules as My Watchlist. Auto: 🟡 WATCH = 5% below SMA · 🟢 DEEP = 10% below SMA") }}</p>
-      <p class="alert-hint-line">{{ _("Manual: Custom alert overrides Auto · 🟡 WATCH = within 5% above alert · 🟢 ALERT = alert reached · Remains active until reset") }}</p>
+      <p class="alert-hint-line">{{ _('Dist SMA25 alerts: >−5% none · 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%') }}</p>
+      <p class="alert-hint-line">{{ _('Manual Active Alert is optional for Owner notes; colored WATCH/LOW/DEEP/EXTREME always follow Dist vs SMA25.') }}</p>
       <p class="alert-hint-line hint">{{ _("Research zones only — never auto-buy. Manual alerts are stored per ticker (shared with My Watchlist if the same name appears in both).") }}</p>
     </div>
     {% if not can_edit_alert|default(false) %}
@@ -1192,8 +1297,8 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
   {% if tab == 'ai_approved' %}
     <div class="alert-hint-block">
       <strong>{{ _("AI Approved Alerts") }}</strong>
-      <p class="alert-hint-line">{{ _("Same rules as My Watchlist. Auto: 🟡 WATCH = 5% below SMA · 🟢 DEEP = 10% below SMA") }}</p>
-      <p class="alert-hint-line">{{ _("Manual: Custom alert overrides Auto · 🟡 WATCH = within 5% above alert · 🟢 ALERT = alert reached · Remains active until reset") }}</p>
+      <p class="alert-hint-line">{{ _('Dist SMA25 alerts: >−5% none · 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%') }}</p>
+      <p class="alert-hint-line">{{ _('Manual Active Alert is optional for Owner notes; colored WATCH/LOW/DEEP/EXTREME always follow Dist vs SMA25.') }}</p>
       <p class="alert-hint-line hint">{{ _("Research zones only — never auto-buy. Manual alerts are stored per ticker (shared across My Watchlist / Nasdaq-100 / AI Approved).") }}</p>
     </div>
     {% if not can_edit_alert|default(false) %}
@@ -1212,6 +1317,16 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
       <a class="btn" href="{{ url_for('ai_trading', tab='buy') }}">{{ _('Open AI BUY') }}</a>
       <span class="hint" style="margin:0">{{ _('Long-term numeric characteristics determine WHAT we watch. Short-term conditions determine WHEN we buy.') }}</span>
     </div>
+  {% elif tab == 'ai_news' and can_edit_mine|default(false) %}
+    <div class="actions" style="margin-bottom:10px">
+      <form method="post" action="{{ url_for('watchlist', tab='ai_news') }}" style="display:inline">
+        <input type="hidden" name="action" value="discovery_run">
+        <input type="hidden" name="create_orders" value="0">
+        <button class="btn primary" type="submit">{{ _('RUN AI NEWS') }}</button>
+      </form>
+      <a class="btn" href="{{ url_for('watchlist', tab='ai_discovery') }}">{{ _('AI Discovery') }}</a>
+      <span class="hint" style="margin:0;align-self:center">{{ _('Harvest + analyze Broad + Official Discovery only — no auto orders.') }}</span>
+    </div>
   {% elif tab in ('ai_approved', 'ai_discovery') and can_edit_mine|default(false) %}
     <div class="actions" style="margin-bottom:10px">
       <a class="btn" href="{{ url_for('watchlist', tab='core_universe') }}">{{ _('Core Universe Filter') }}</a>
@@ -1222,7 +1337,9 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     </div>
   {% endif %}
 
-  {% if tab == 'core_universe' %}
+  {% if tab == 'ai_news' %}
+    {% include '_ai_news_body.html' %}
+  {% elif tab == 'core_universe' %}
     {% set cr = core_run or {} %}
     {% set funnel = cr.funnel or [] %}
     {% set thr = cr.thresholds or {} %}
@@ -1392,7 +1509,7 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     <p class="hint" style="margin:0 0 12px">{{ _f("Temp list holds up to {max} tickers (extras ignored); cleared when the browser closes. Now {n} / {max}.", max=max_temp, n=temp_tickers|length) }}</p>
   {% endif %}
 
-  {% if tab != 'core_universe' %}
+  {% if tab not in ('core_universe', 'ai_news') %}
   {{ wl_table(rows, sma_period, show_alert=show_alert|default(False), show_valuation=show_valuation|default(False), can_edit_alert=can_edit_alert|default(can_edit_mine|default(False)), table_id='wl-table-' + (tab|default('main')), show_ai_select_actions=show_ai_select_actions|default(False), show_ai_approved_actions=show_ai_approved_actions|default(False), tab=tab|default('mine')) }}
   {% endif %}
 
@@ -1513,17 +1630,17 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
       }
 
       function alertBadgeHtml(state, source) {
-        var manual = source === "manual";
-        if (state === "deep") {
-          return '<span class="alert-badge deep" title="DEEP — 10% below SMA">DEEP</span>';
+        if (state === "extreme") {
+          return '<span class="alert-badge extreme" title="EXTREME — Dist SMA25 ≤ −20%">EXTREME</span>';
         }
-        if (state === "alert") {
-          return '<span class="alert-badge alert" title="ALERT — manual alert reached">ALERT</span>';
+        if (state === "deep") {
+          return '<span class="alert-badge deep" title="DEEP — Dist SMA25 −15% ~ −20%">DEEP</span>';
+        }
+        if (state === "low" || state === "alert") {
+          return '<span class="alert-badge low" title="LOW — Dist SMA25 −10% ~ −15%">LOW</span>';
         }
         if (state === "watch") {
-          return '<span class="alert-badge watch" title="'
-            + (manual ? "WATCH — within 5% above manual alert" : "WATCH — 5% below SMA")
-            + '">WATCH</span>';
+          return '<span class="alert-badge watch" title="WATCH — Dist SMA25 −5% ~ −10%">WATCH</span>';
         }
         return '<span class="alert-badge none" title="No alert zone">—</span>';
       }
@@ -1536,17 +1653,22 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         var state = alert && alert.state;
         if (!state) return;
         var span = document.createElement("span");
-        var manual = source === "manual" || (alert && alert.alert_source === "manual");
-        if (state === "alert" || state === "deep") {
-          span.className = "alert-dot ready";
+        if (state === "extreme") {
+          span.className = "alert-dot extreme";
+          span.textContent = "🔵";
+          span.title = "EXTREME — Dist SMA25 ≤ −20%";
+        } else if (state === "deep") {
+          span.className = "alert-dot deep";
+          span.textContent = "🟠";
+          span.title = "DEEP — Dist SMA25 −15% ~ −20%";
+        } else if (state === "low" || state === "alert") {
+          span.className = "alert-dot low";
           span.textContent = "🟢";
-          span.title = state === "deep" ? "DEEP — 10% below SMA" : "ALERT — manual alert reached";
+          span.title = "LOW — Dist SMA25 −10% ~ −15%";
         } else if (state === "watch") {
           span.className = "alert-dot near";
           span.textContent = "🟡";
-          span.title = manual
-            ? "WATCH — within 5% above manual alert"
-            : "WATCH — 5% below SMA";
+          span.title = "WATCH — Dist SMA25 −5% ~ −10%";
         } else {
           return;
         }

@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}{{ _('ETF Market Data') }}{% endblock %}
+{% block head %}
+  <style>
+    .asset-switch {
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 0 0 14px;
+    }
+    .asset-switch a {
+      display: inline-block; padding: 8px 16px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--panel);
+      color: var(--muted); text-decoration: none; font-weight: 600; font-size: 0.9rem;
+    }
+    .asset-switch a.active {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .tabs {
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 0 0 16px;
+    }
+    .tab {
+      display: inline-block; padding: 6px 12px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--panel);
+      color: var(--muted); text-decoration: none; font-weight: 600; font-size: 0.82rem;
+    }
+    .tab.active { background: #0f766e; color: #fff; border-color: #0f766e; }
+    .tab .count { font-weight: 400; opacity: 0.75; }
+    .ops-bar {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 8px 16px; margin: 0 0 12px; font-size: 0.9rem; color: var(--muted);
+    }
+    .search-row {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 12px;
+    }
+    .search-row input[type="search"] {
+      min-width: 180px; flex: 1 1 200px; padding: 6px 10px;
+      border: 1px solid var(--border); border-radius: 6px; font: inherit;
+    }
+    table.data th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    table.data th.sortable:hover { color: var(--accent); }
+    .hint-note { font-size: 0.85rem; color: var(--muted); text-align: left; margin: 0 0 12px; }
+    .dq-pass { color: #166534; }
+    .dq-warn { color: #b45309; }
+    .dq-err { color: #b91c1c; }
+    .num.up { color: var(--up); }
+    .num.down { color: var(--down); }
+    #etf-table { border-collapse: separate; border-spacing: 0; width: 100%; }
+    #etf-table th, #etf-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 0.86rem; }
+    #etf-table th { background: #f8fafc; position: sticky; top: 0; z-index: 2; }
+    .name-sub { font-size: 0.72rem; color: var(--muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+{% endblock %}
+{% block content %}
+  <h1>{{ _('ETF Market Data') }}</h1>
+  <p class="hint-note">
+    {{ _('LeiBot ETF Universe — shared price pipeline with stocks. Market data only; not sent to AI BUY / Alert Buy. Company fundamentals do not apply.') }}
+  </p>
+
+  <div class="asset-switch">
+    <a href="{{ url_for('market_dashboard') }}">{{ _('STOCKS') }}</a>
+    <a href="{{ url_for('etf_dashboard') }}" class="active">{{ _('ETFs') }} <span class="count">({{ etf_count }})</span></a>
+  </div>
+
+  <div class="tabs">
+    {% for f in filters %}
+      <a class="tab {% if f.active %}active{% endif %}"
+         href="{{ url_for('etf_dashboard', cat=f.key if f.key != 'ALL' else None, q=q or None, order=order) }}">
+        {{ _(f.label) }}
+        {% if f.key != 'ALL' and category_counts.get(f.key) %}
+          <span class="count">({{ category_counts.get(f.key) }})</span>
+        {% elif f.key == 'ALL' %}
+          <span class="count">({{ etf_count }})</span>
+        {% endif %}
+      </a>
+    {% endfor %}
+  </div>
+
+  <div class="ops-bar">
+    <div>
+      {{ _('US') }} {{ us_count }} · {{ _('Canada') }} {{ canada_count }} ·
+      {{ _('Priced') }} {{ priced_count }}/{{ rows|length }} · SMA{{ sma_period }}
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <form method="post" action="{{ url_for('refresh_etf_dashboard') }}" style="margin:0">
+        <input type="hidden" name="cat" value="{{ category }}">
+        <button class="btn" type="submit">{{ _('Refresh ETF Prices') }}</button>
+      </form>
+      <form method="post" action="{{ url_for('reseed_etf_universe') }}" style="margin:0"
+            onsubmit="return confirm({{ _('Re-seed curated ETF list from code?')|tojson }});">
+        <button class="btn" type="submit" style="opacity:0.85">{{ _('Re-seed ETF List') }}</button>
+      </form>
+    </div>
+  </div>
+
+  <form class="search-row" method="get" action="{{ url_for('etf_dashboard') }}">
+    {% if category and category != 'ALL' %}
+      <input type="hidden" name="cat" value="{{ category }}">
+    {% endif %}
+    <input type="hidden" name="order" value="{{ order }}">
+    <input type="search" name="q" value="{{ q }}" placeholder="{{ _('Search ticker / name / Gold / SECTOR…') }}" autocomplete="off">
+    <button class="btn" type="submit">{{ _('Search') }}</button>
+    {% if q %}
+      <a class="btn" href="{{ url_for('etf_dashboard', cat=category if category != 'ALL' else None) }}">{{ _('Clear') }}</a>
+    {% endif %}
+  </form>
+
+  <div class="panel" style="overflow:auto">
+    <table class="data" id="etf-table">
+      <thead>
+        <tr>
+          <th>{{ _('Ticker') }}</th>
+          <th>{{ _('Name') }}</th>
+          <th>{{ _('Category') }}</th>
+          <th>{{ _('Subcategory') }}</th>
+          <th>{{ _('Market') }}</th>
+          <th class="num">{{ _('Price') }}</th>
+          <th class="num">{{ _('Daily %') }}</th>
+          <th class="num">
+            <a href="{{ url_for('etf_dashboard', cat=category if category != 'ALL' else None, q=q or None, order='dist_asc') }}">{{ _('SMA25 Dist') }}</a>
+          </th>
+          <th class="num">{{ _('63D Pos') }}</th>
+          <th class="num">
+            <a href="{{ url_for('etf_dashboard', cat=category if category != 'ALL' else None, q=q or None, order='avg_move_desc') }}">{{ _('Avg Daily Move') }}</a>
+          </th>
+          <th class="num">
+            <a href="{{ url_for('etf_dashboard', cat=category if category != 'ALL' else None, q=q or None, order='ret_63d_desc') }}">{{ _('63D Ret') }}</a>
+          </th>
+          <th class="num">
+            <a href="{{ url_for('etf_dashboard', cat=category if category != 'ALL' else None, q=q or None, order='ret_126d_desc') }}">{{ _('126D Ret') }}</a>
+          </th>
+          <th class="num">
+            <a href="{{ url_for('etf_dashboard', cat=category if category != 'ALL' else None, q=q or None, order='ret_252d_desc') }}">{{ _('252D Ret') }}</a>
+          </th>
+          <th class="num">
+            <a href="{{ url_for('etf_dashboard', cat=category if category != 'ALL' else None, q=q or None, order='dollar_vol_desc') }}">{{ _('Avg $ Vol') }}</a>
+          </th>
+          <th>{{ _('Data Status') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td><strong>{{ row.ticker }}</strong></td>
+          <td><div class="name-sub" title="{{ row.name or '' }}">{{ row.name or '—' }}</div></td>
+          <td>{{ row.etf_category or '—' }}</td>
+          <td>{{ row.etf_subcategory or '—' }}</td>
+          <td>{{ row.market or '—' }}{% if row.currency %} <span class="hint">({{ row.currency }})</span>{% endif %}</td>
+          <td class="num">{% if row.price is not none %}{{ '%.2f'|format(row.price) }}{% else %}—{% endif %}</td>
+          <td class="num {% if row.change_pct is not none and row.change_pct > 0 %}up{% elif row.change_pct is not none and row.change_pct < 0 %}down{% endif %}">
+            {% if row.change_pct is not none %}{{ '%+.2f'|format(row.change_pct) }}%{% else %}—{% endif %}
+          </td>
+          <td class="num {% if row.dist_pct is not none and row.dist_pct < 0 %}down{% elif row.dist_pct is not none and row.dist_pct > 0 %}up{% endif %}">
+            {% if row.dist_pct is not none %}{{ '%+.1f'|format(row.dist_pct) }}%{% else %}—{% endif %}
+          </td>
+          <td class="num">{% if row.range_63d_pos is not none %}{{ '%.0f'|format(row.range_63d_pos) }}%{% else %}—{% endif %}</td>
+          <td class="num">{% if row.avg_move_pct is not none %}{{ '%.2f'|format(row.avg_move_pct) }}%{% else %}—{% endif %}</td>
+          <td class="num">{% if row.ret_63d is not none %}{{ '%+.1f'|format(row.ret_63d) }}%{% else %}—{% endif %}</td>
+          <td class="num">{% if row.ret_126d is not none %}{{ '%+.1f'|format(row.ret_126d) }}%{% else %}—{% endif %}</td>
+          <td class="num">{% if row.ret_252d is not none %}{{ '%+.1f'|format(row.ret_252d) }}%{% else %}—{% endif %}</td>
+          <td class="num">
+            {% if row.avg_dollar_vol is not none %}
+              {% if row.avg_dollar_vol >= 1e9 %}{{ '%.1f'|format(row.avg_dollar_vol / 1e9) }}B
+              {% elif row.avg_dollar_vol >= 1e6 %}{{ '%.1f'|format(row.avg_dollar_vol / 1e6) }}M
+              {% else %}{{ '%.0f'|format(row.avg_dollar_vol) }}{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% set st = (row.data_quality_status or '')|upper %}
+            {% if st == 'PASS' %}<span class="dq-pass">PASS</span>
+            {% elif st == 'WARNING' or st == 'STALE_DATA' %}<span class="dq-warn">{{ st }}</span>
+            {% elif st %}
+              <span class="dq-err">{{ st }}</span>
+            {% elif row.price is none %}
+              <span class="dq-warn">—</span>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="15" class="empty">{{ _('No ETFs match this filter.') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

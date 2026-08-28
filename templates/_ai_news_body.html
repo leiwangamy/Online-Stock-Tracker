@@ -1,0 +1,420 @@
+
+    {% set chs = discovery_channel_stats or {} %}
+    {% set cc = chs.channel_counts or {} %}
+    {% set dp = discovery_perf or {} %}
+    {% set alpha = dp.discovery_alpha or {} %}
+    {% set pool = dp.pool or {} %}
+    {% set tc = alpha.threshold_counts or {} %}
+    {% set nt = dp.news_trading or {} %}
+    {% set min_score = discovery_min_score if discovery_min_score is defined else 70 %}
+    {% set unres_n = discovery_unresolved_count if discovery_unresolved_count is defined else (discovery_unresolved|length if discovery_unresolved is defined else 0) %}
+    {% set resolved_today_n = discovery_resolved_today if discovery_resolved_today is defined else 0 %}
+    {% set broad_n = discovery_broad_rows|length if discovery_broad_rows is defined else 0 %}
+    {% set official_n = discovery_official_rows|length if discovery_official_rows is defined else 0 %}
+    {% set layer = discovery_layer if discovery_layer is defined else 'official' %}
+    {% set layer_rows = discovery_official_rows if layer == 'official' else discovery_broad_rows %}
+    {% if layer_rows is not defined or layer_rows is none %}{% set layer_rows = discovery_rows %}{% endif %}
+    {% set nt_pnl = nt.total_pnl if nt.total_pnl is defined else none %}
+
+    <div class="disc-guide-wrap">
+      <h2 class="section">{{ _('AI News Pool') }}</h2>
+      <div class="disc-toolbar" id="disc-toolbar">
+        <button type="button" class="btn disc-tab-btn" data-panel="disc-panel-guide">{{ _('Code Guide') }}</button>
+        <button type="button" class="btn disc-tab-btn" data-panel="disc-panel-radar">{{ _('Radar') }}</button>
+        <button type="button" class="btn disc-tab-btn" data-panel="disc-panel-scores">{{ _('Scores') }}</button>
+        <button type="button" class="btn disc-tab-btn" data-panel="disc-panel-alpha">{{ _('Alpha') }}</button>
+        {% if can_manage %}
+        <button type="button" class="btn disc-tab-btn" data-panel="disc-panel-actions">{{ _('Actions') }}</button>
+        {% endif %}
+      </div>
+
+      <div id="disc-panel-guide" class="disc-panel-slot" hidden>
+        <p style="margin:0 0 8px"><strong>{{ _('Scoring & pool rules') }}</strong></p>
+        <ul style="margin:0 0 12px;padding-left:1.15rem">
+          <li>{{ _('News labels: 🟢 POSITIVE / 🔴 NEGATIVE / ⚪ NEUTRAL') }}</li>
+          <li>{{ _('Event Score = materiality of the underlying event (not summed across headlines). Default display filter ≥ 70.') }}</li>
+          <li>{{ _('Broad Discovery: thematic external news. Official 5×5: USAspending / DoD / SEC / FDA / Gov Disclosure — Top 5 each, then shared dedupe.') }}</li>
+          <li>{{ _('Unresolved tickers stay out of Priority and Trading until confidently resolved.') }}</li>
+          <li>{{ _('News Trading P&L = Realized + Unrealized for source AI_DISCOVERY only.') }}</li>
+        </ul>
+        <p style="margin:0 0 8px"><strong>{{ _('News Auto Trading method') }}</strong></p>
+        <ol style="margin:0;padding-left:1.15rem">
+          <li>{{ _('Discover → resolve ticker confidently → store unique underlying event (ticker + category + period).') }}</li>
+          <li>{{ _('Analyze with existing Financial / AI Score / Knife / price-location gates (same as Paper Auto Trading).') }}</li>
+          <li>{{ _('Auto TRADE_CANDIDATE only if ALL pass: not 🔴 Negative · event is recent · Event Score ≥ 70 · AI Score ≥ 45 · price location OR gate · Knife below AUTO BLOCK (default ≥ 45 blocks).') }}</li>
+          <li>{{ _('Price location OR (any one): Dist from SMA25 ≤ −20% · or Target Ratio ≤ 70% · or 63D Position ≤ 10%.') }}</li>
+          <li>{{ _('Politician-purchase clues are discovery-only — never auto-ordered.') }}</li>
+          <li>{{ _('Paper order source = AI_DISCOVERY. At most one order per underlying event. Cash + trading limit apply. Default Stop −5% / Take +10% (Admin settings).') }}</li>
+          <li>{{ _('🔴 Negative / stale / Knife-blocked / price-fail → WATCH or AUTO_BLOCK — never Priority, never auto trade.') }}</li>
+        </ol>
+      </div>
+
+      <div id="disc-panel-radar" class="disc-panel-slot" hidden>
+        <p style="margin:0 0 6px"><strong>{{ _('Official 5×5 Radar') }}</strong></p>
+        <p style="margin:0 0 8px" class="k">
+          USAspending {{ cc.usaspending if cc.usaspending is defined else '—' }}
+          · DoD {{ cc.dod if cc.dod is defined else '—' }}
+          · SEC {{ cc.sec if cc.sec is defined else '—' }}
+          · FDA {{ cc.fda if cc.fda is defined else '—' }}
+          · {{ _('Gov Disclosure') }} {{ cc.gov_transactions if cc.gov_transactions is defined else '—' }}
+          · {{ _('Raw') }} {{ chs.raw_total if chs.raw_total is defined else '—' }}
+          · {{ _('Today admitted') }} {{ chs.admitted_today if chs.admitted_today is defined else '—' }}
+        </p>
+        <p style="margin:0 0 6px"><strong>{{ _('Broad Discovery') }}</strong></p>
+        <p style="margin:0" class="k">
+          {{ _('Harvest') }} {{ cc.broad if cc.broad is defined else '—' }}
+          · {{ _('Unique Stocks') }} {{ pool.unique_stocks if pool.unique_stocks is defined else 0 }}
+          · {{ _('Qualifying Events') }} {{ pool.qualifying_events if pool.qualifying_events is defined else 0 }}
+          · {{ _('Trade Candidates') }} {{ alpha.trade_candidates if alpha.trade_candidates is defined else 0 }}
+        </p>
+      </div>
+
+      <div id="disc-panel-scores" class="disc-panel-slot" hidden>
+        <p style="margin:0 0 8px" class="k">
+          ≥70 {{ tc.events_ge_70 if tc.events_ge_70 is defined else '—' }}
+          · ≥75 {{ tc.events_ge_75 if tc.events_ge_75 is defined else '—' }}
+          · ≥80 {{ tc.events_ge_80 if tc.events_ge_80 is defined else '—' }}
+          · ≥85 {{ tc.events_ge_85 if tc.events_ge_85 is defined else '—' }}
+        </p>
+        {% if can_manage %}
+        <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='ai_news', layer=layer) }}" style="margin:0;gap:6px">
+          <input type="hidden" name="action" value="discovery_set_min_score">
+          <label style="font-size:0.85rem">{{ _('Minimum Event Score') }}</label>
+          <input type="number" name="min_event_score" value="{{ min_score|int if min_score == min_score|int else min_score }}" min="0" max="100" step="1" style="max-width:72px">
+          <button class="btn" type="submit">{{ _('Apply') }}</button>
+        </form>
+        {% else %}
+        <p class="hint" style="margin:0">{{ _('Minimum Event Score') }}: {{ min_score|int if min_score == min_score|int else min_score }}</p>
+        {% endif %}
+      </div>
+
+      <div id="disc-panel-alpha" class="disc-panel-slot" hidden>
+        <p style="margin:0 0 6px"><strong>{{ _('Discovery Alpha') }}</strong> <span class="k">{{ _('forward returns, all events') }}</span></p>
+        <p style="margin:0 0 10px" class="k">
+          {{ _('Trade Candidates') }} {{ alpha.trade_candidates if alpha.trade_candidates is defined else 0 }}
+          · {{ _('Traded') }} {{ alpha.traded if alpha.traded is defined else 0 }}
+          · 5D {% if alpha.avg_ret_5d is not none %}{{ alpha.avg_ret_5d }}%{% else %}—{% endif %}
+          · 20D {% if alpha.avg_ret_20d is not none %}{{ alpha.avg_ret_20d }}%{% else %}—{% endif %}
+          · 63D {% if alpha.avg_ret_63d is not none %}{{ alpha.avg_ret_63d }}%{% else %}—{% endif %}
+          · vs SPY 20D {% if alpha.avg_ret_20d_vs_spy is not none %}{{ alpha.avg_ret_20d_vs_spy }}%{% else %}—{% endif %}
+          · 63D {% if alpha.avg_ret_63d_vs_spy is not none %}{{ alpha.avg_ret_63d_vs_spy }}%{% else %}—{% endif %}
+        </p>
+        <p style="margin:0" class="hint">{{ _('Unavailable periods show — until enough trading days have elapsed.') }}</p>
+      </div>
+
+      {% if can_manage %}
+      <div id="disc-panel-actions" class="disc-panel-slot" hidden>
+        <p class="hint" style="margin:0 0 10px;text-align:left">{{ _('Use RUN AI DISCOVERY at the top (next to Download). Discovery does not auto-create paper orders.') }}</p>
+        <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='ai_news', layer=layer) }}" style="margin:0">
+          <input type="hidden" name="action" value="discovery_add_event">
+          <input type="text" name="ticker" placeholder="{{ _('Ticker') }}" required style="max-width:100px">
+          <input type="text" name="event_summary" placeholder="{{ _('Major positive event summary (contract / FDA / guidance…)') }}" required style="flex:1 1 200px">
+          <button class="btn" type="submit">{{ _('Add Discovery Event') }}</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="news-trading-kpi" style="margin:0 0 12px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px;color:var(--muted)">
+      <strong style="color:#0f172a">{{ _('News Trading') }}</strong>
+      <span class="{% if nt_pnl is not none and nt_pnl > 0 %}up{% elif nt_pnl is not none and nt_pnl < 0 %}down{% endif %}">
+        {{ _('P&L') }}
+        {% if nt_pnl is not none %}${{ '%+.2f'|format(nt_pnl) }}{% else %}—{% endif %}
+      </span>
+      <span>
+        {{ _('Return') }}
+        {% if nt.return_pct is defined and nt.return_pct is not none %}
+          <span class="{% if nt.return_pct > 0 %}up{% elif nt.return_pct < 0 %}down{% endif %}">{{ '%+.1f'|format(nt.return_pct) }}%</span>
+        {% else %}—{% endif %}
+      </span>
+      <span>{{ _('Trades') }} {{ nt.trades if nt.trades is defined else 0 }}</span>
+      <span>{{ _('Win Rate') }} {% if nt.win_rate is defined and nt.win_rate is not none %}{{ nt.win_rate }}%{% else %}—{% endif %}</span>
+    </div>
+
+    <div class="disc-layer-tabs">
+      <a class="tab {% if layer == 'broad' %}active{% endif %}"
+         href="{{ url_for('watchlist', tab='ai_news', layer='broad') }}">{{ _('BROAD DISCOVER') }} ({{ broad_n }})</a>
+      <a class="tab {% if layer == 'official' %}active{% endif %}"
+         href="{{ url_for('watchlist', tab='ai_news', layer='official') }}">{{ _('OFFICIAL 5×5 RADAR') }} ({{ official_n }})</a>
+    </div>
+
+    <div class="panel disc-panel">
+      {% if not layer_rows %}
+        {% if layer == 'broad' %}
+        <p class="hint">{{ _('No Broad Discovery rows yet. Click RUN AI DISCOVERY at the top (Broad + Official). Official rows are under the right tab.') }}</p>
+        {% else %}
+        <p class="hint">{{ _('No Official 5×5 Radar rows at the current minimum Event Score.') }}</p>
+        {% endif %}
+      {% else %}
+      <table class="data" id="disc-layer-table">
+        <thead>
+          <tr>
+            <th class="freeze-col freeze-edge">{{ _('Symbol') }}</th>
+            <th>{{ _('News') }}</th>
+            <th>{{ _('Event') }}</th>
+            <th>{{ _('Source') }}</th>
+            <th class="num">{{ _('Event Score') }}</th>
+            <th>{{ _('Status') }}</th>
+            <th class="num">{{ _('AI Score') }}</th>
+            <th class="num">{{ _('Knife') }}</th>
+            <th>{{ _('Period') }}</th>
+            <th class="num">{{ _('5D') }}</th>
+            <th class="num">{{ _('20D') }}</th>
+            <th class="num">{{ _('PRIORITY') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in layer_rows %}
+          <tr id="disc-row-{{ r.id }}" data-pri="{{ '1' if r.is_news_priority else '0' }}"
+              {% if r.is_news_priority %}style="background:rgba(217,119,6,0.06)"{% endif %}>
+            <td class="freeze-col freeze-edge"><strong>{{ r.ticker }}</strong></td>
+            <td>
+              {% if r.news_quality == 'good' %}
+              <span class="news-q good" title="POSITIVE / 利好">🟢 {{ _('POSITIVE') }}</span>
+              {% elif r.news_quality == 'bad' %}
+              <span class="news-q bad" title="NEGATIVE / 利空">🔴 {{ _('NEGATIVE') }}</span>
+              {% else %}
+              <span class="news-q medium" title="NEUTRAL / 中性">⚪ {{ _('NEUTRAL') }}</span>
+              {% endif %}
+            </td>
+            <td class="disc-event-cell" title="{{ r.event_summary or '' }}">{{ r.event_summary or '—' }}</td>
+            <td style="max-width:140px;font-size:0.78rem" title="{{ r.source_display or '' }}">
+              {% if r.source_link %}
+              <a href="{{ r.source_link }}" target="_blank" rel="noopener">{{ r.source_display or '—' }}</a>
+              {% else %}
+              {{ r.source_display or r.source_tags or r.primary_source or r.source_name or '—' }}
+              {% endif %}
+            </td>
+            <td class="num">{% if r.event_score is not none %}{{ '%.0f'|format(r.event_score) }}{% else %}—{% endif %}</td>
+            <td style="font-size:0.82rem">{{ r.status }}{% if r.block_reason %} <span class="hint" title="{{ r.block_reason }}">·</span>{% endif %}</td>
+            <td class="num">{% if r.ai_score is not none %}{{ '%.0f'|format(r.ai_score) }}{% else %}—{% endif %}</td>
+            <td class="num">{% if r.knife_score is not none %}{{ '%.0f'|format(r.knife_score) }}{% else %}—{% endif %}</td>
+            <td style="font-size:0.82rem;white-space:nowrap">{{ r.event_period or r.event_date or '—' }}</td>
+            <td class="num">{% if r.ret_5d is not none %}{{ '%.1f'|format(r.ret_5d) }}%{% else %}—{% endif %}</td>
+            <td class="num">{% if r.ret_20d is not none %}{{ '%.1f'|format(r.ret_20d) }}%{% else %}—{% endif %}</td>
+            <td class="num">
+              {% if can_manage %}
+              <form method="post" action="{{ url_for('watchlist', tab='ai_news', layer=layer) }}" style="display:inline">
+                <input type="hidden" name="action" value="news_priority_toggle">
+                <input type="hidden" name="candidate_id" value="{{ r.id }}">
+                <input type="hidden" name="layer" value="{{ layer }}">
+                <input type="hidden" name="on" value="{{ '0' if r.is_news_priority else '1' }}">
+                <button class="btn" type="submit" title="{{ _('PRIORITY — keep in News History past 7 days until manually deleted') }}"
+                        style="padding:2px 8px;font-size:0.85rem;{% if r.is_news_priority %}color:#d97706{% endif %}">
+                  {% if r.is_news_priority %}★{% else %}☆{% endif %}
+                </button>
+              </form>
+              {% else %}
+                {% if r.is_news_priority %}★{% else %}{% endif %}
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+    {% set nh_priority = news_history_priority_rows if news_history_priority_rows is defined else [] %}
+    {% set nh_rest = news_history_archive_rows if news_history_archive_rows is defined else [] %}
+    {% set nh_open = open_news_history if open_news_history is defined else false %}
+    <div class="news-history-dock" id="news-history-dock">
+      <details {% if nh_open %}open{% endif %}>
+        <summary>
+          <span class="btn" style="padding:2px 10px;font-size:0.82rem;pointer-events:none">
+            {{ _('News History') }} ({{ news_history_count if news_history_count is defined else (nh_priority|length + nh_rest|length) }})
+          </span>
+          <span class="nh-hint">{{ _('Unsaved news auto-clears after 7 full days · ★ PRIORITY Delete only after 7 days') }}</span>
+        </summary>
+
+        <h3 class="nh-section-title">{{ _('PRIORITY NEWS') }}</h3>
+        {% set nh_all = nh_priority + nh_rest %}
+        {% if not nh_all %}
+        <p class="hint">{{ _('No stored news events yet. Run Harvest from AI Discovery first.') }}</p>
+        {% else %}
+        <div class="panel nh-panel">
+          <table class="data" id="news-history-table">
+            <thead>
+              <tr>
+                <th class="freeze-col freeze-edge">{{ _('Symbol') }}</th>
+                <th>{{ _('News') }}</th>
+                <th>{{ _('Event') }}</th>
+                <th>{{ _('Source') }}</th>
+                <th class="num">{{ _('Event Score') }}</th>
+                <th>{{ _('Status') }}</th>
+                <th class="num">{{ _('AI Score') }}</th>
+                <th class="num">{{ _('Knife') }}</th>
+                <th>{{ _('Period') }}</th>
+                <th class="num">{{ _('5D') }}</th>
+                <th class="num">{{ _('20D') }}</th>
+                <th class="num">{{ _('PRIORITY') }}</th>
+                {% if can_manage %}<th></th>{% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in nh_all %}
+              <tr id="nh-row-{{ r.id }}" data-pri="{{ '1' if r.is_news_priority else '0' }}"
+                  {% if r.is_news_priority %}style="background:rgba(217,119,6,0.06)"{% endif %}>
+                <td class="freeze-col freeze-edge"><strong>{{ r.ticker }}</strong></td>
+                <td>
+                  {% if r.news_quality == 'good' %}
+                  <span class="news-q good">🟢 {{ _('POSITIVE') }}</span>
+                  {% elif r.news_quality == 'bad' %}
+                  <span class="news-q bad">🔴 {{ _('NEGATIVE') }}</span>
+                  {% else %}
+                  <span class="news-q medium">⚪ {{ _('NEUTRAL') }}</span>
+                  {% endif %}
+                </td>
+                <td class="disc-event-cell" title="{{ r.event_summary or '' }}">{{ r.event_summary or '—' }}</td>
+                <td style="max-width:140px;font-size:0.78rem">
+                  {% if r.source_link %}
+                  <a href="{{ r.source_link }}" target="_blank" rel="noopener">{{ r.source_display or '—' }}</a>
+                  {% else %}
+                  {{ r.source_display or r.source_tags or r.primary_source or '—' }}
+                  {% endif %}
+                </td>
+                <td class="num">{% if r.event_score is not none %}{{ '%.0f'|format(r.event_score) }}{% else %}—{% endif %}</td>
+                <td style="font-size:0.82rem">{{ r.status }}</td>
+                <td class="num">{% if r.ai_score is not none %}{{ '%.0f'|format(r.ai_score) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if r.knife_score is not none %}{{ '%.0f'|format(r.knife_score) }}{% else %}—{% endif %}</td>
+                <td style="font-size:0.82rem;white-space:nowrap">{{ r.event_period or r.event_date or '—' }}</td>
+                <td class="num">{% if r.ret_5d is not none %}{{ '%.1f'|format(r.ret_5d) }}%{% else %}—{% endif %}</td>
+                <td class="num">{% if r.ret_20d is not none %}{{ '%.1f'|format(r.ret_20d) }}%{% else %}—{% endif %}</td>
+                <td class="num">
+                  {% if can_manage %}
+                  <form method="post" action="{{ url_for('watchlist', tab='ai_news', layer=layer) }}" style="display:inline">
+                    <input type="hidden" name="action" value="news_priority_toggle">
+                    <input type="hidden" name="candidate_id" value="{{ r.id }}">
+                    <input type="hidden" name="layer" value="{{ layer }}">
+                    <input type="hidden" name="on" value="{{ '0' if r.is_news_priority else '1' }}">
+                    <button class="btn" type="submit" title="{{ _('PRIORITY — keep in News History past 7 days until manually deleted') }}"
+                            style="padding:2px 8px;font-size:0.85rem;{% if r.is_news_priority %}color:#d97706{% endif %}">
+                      {% if r.is_news_priority %}★{% else %}☆{% endif %}
+                    </button>
+                  </form>
+                  {% else %}
+                    {% if r.is_news_priority %}★{% endif %}
+                  {% endif %}
+                </td>
+                {% if can_manage %}
+                <td>
+                  {% if r.is_news_priority and r.can_manual_delete_news %}
+                  <form method="post" action="{{ url_for('watchlist', tab='ai_news', layer=layer) }}" style="display:inline"
+                        class="js-lei-confirm-form"
+                        data-confirm-message="{{ _('Delete this PRIORITY news from History? This cannot be undone.') }}"
+                        data-confirm-danger="1">
+                    <input type="hidden" name="action" value="news_history_delete">
+                    <input type="hidden" name="candidate_id" value="{{ r.id }}">
+                    <input type="hidden" name="layer" value="{{ layer }}">
+                    <button class="btn" type="submit" style="padding:2px 8px;font-size:0.75rem">{{ _('Delete') }}</button>
+                  </form>
+                  {% elif r.is_news_priority %}
+                  <span class="hint" title="{{ _('News History keeps items for 7 full days — Delete unlocks after that.') }}">{{ _('Keep 7d') }}</span>
+                  {% endif %}
+                </td>
+                {% endif %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </details>
+    </div>
+
+    <div class="unresolved-footer">
+      <details class="unresolved-details" style="text-align:right">
+        <summary style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;list-style:none;user-select:none;justify-content:flex-end">
+          <span class="btn" style="padding:2px 10px;font-size:0.82rem;pointer-events:none">
+            {{ _('Unresolved') }} ({{ unres_n }})
+          </span>
+          {% if resolved_today_n %}
+          <span class="hint" style="margin:0">· {{ _('Resolved Today') }} {{ resolved_today_n }}</span>
+          {% endif %}
+        </summary>
+        <div class="panel" style="margin-top:8px;text-align:left;max-width:920px;margin-left:auto">
+          <p class="hint">{{ _('Not in Priority / Trading until ticker is confidently resolved.') }}</p>
+          {% if not discovery_unresolved %}
+            <p class="hint">{{ _('No unresolved headlines. Events without confident ticker resolution stay here — not in the tradable pool.') }}</p>
+          {% else %}
+          <table class="data">
+            <thead>
+              <tr>
+                <th class="num">{{ _('Event Score') }}</th>
+                <th>{{ _('Category') }}</th>
+                <th>{{ _('Headline') }}</th>
+                <th>{{ _('Note') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in discovery_unresolved %}
+              <tr>
+                <td class="num">{% if u.event_score is not none %}{{ '%.0f'|format(u.event_score) }}{% else %}—{% endif %}</td>
+                <td style="font-size:0.82rem">{{ u.event_category or '—' }}</td>
+                <td style="max-width:420px;font-size:0.82rem" title="{{ u.source_url or '' }}">{{ (u.headline or '—')[:120] }}{% if u.headline and u.headline|length > 120 %}…{% endif %}</td>
+                <td style="font-size:0.78rem;color:var(--muted)">{{ u.resolve_notes or '—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% endif %}
+        </div>
+      </details>
+    </div>
+
+
+<script>
+  (function () {
+    function bindGuideToolbar(toolbarId) {
+      var bar = document.getElementById(toolbarId);
+      if (!bar) return;
+      var buttons = bar.querySelectorAll(".disc-tab-btn");
+      var wrap = bar.closest(".disc-guide-wrap") || document;
+      var slots = wrap.querySelectorAll(".disc-panel-slot");
+      function closeAll() {
+        buttons.forEach(function (b) {
+          b.classList.remove("active");
+          b.classList.remove("primary");
+        });
+        slots.forEach(function (s) {
+          s.classList.remove("open");
+          s.hidden = true;
+        });
+      }
+      buttons.forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var id = btn.getAttribute("data-panel");
+          var slot = id ? document.getElementById(id) : null;
+          var already = btn.classList.contains("active");
+          closeAll();
+          if (!already && slot) {
+            btn.classList.add("active");
+            btn.classList.add("primary");
+            slot.hidden = false;
+            slot.classList.add("open");
+          }
+        });
+      });
+    }
+    bindGuideToolbar("disc-toolbar");
+    bindGuideToolbar("trade-guide-toolbar");
+
+    // After PRIORITY toggle redirect (#disc-row-N), stay on that row instead of page top.
+    if (location.hash && location.hash.indexOf("#disc-row-") === 0) {
+      var row = document.querySelector(location.hash);
+      if (row) {
+        requestAnimationFrame(function () {
+          row.scrollIntoView({ block: "center", behavior: "auto" });
+        });
+      }
+    }
+    if (window.updateFreezeColOffsets) {
+      ["disc-layer-table", "news-history-table"].forEach(function (id) {
+        var t = document.getElementById(id);
+        if (t) window.updateFreezeColOffsets(t);
+      });
+    }
+  })();
+  </script>

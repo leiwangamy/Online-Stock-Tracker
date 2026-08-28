@@ -46,6 +46,8 @@ DEFAULT_SETTINGS = {
     "paper_take_profit_pct": 10.0,
     # After Stop/Take: auto-buy top unused AI-ranked names (1:1 with exits).
     "paper_auto_replace_on_exit": "1",
+    # On AI BUY refresh: auto-open READY/STABILIZING while cash + limit remain.
+    "paper_auto_buy_on_refresh": "1",
     # AI Discovery pool visibility (unique events). No Top-N by default.
     "ai_discovery_min_event_score": 70.0,
 }
@@ -87,6 +89,20 @@ def init_db() -> None:
                 in_sp400 INTEGER NOT NULL DEFAULT 0,
                 in_sp600 INTEGER NOT NULL DEFAULT 0,
                 in_tsx INTEGER NOT NULL DEFAULT 0
+            );
+
+            -- LeiBot ETF Universe (separate from equity Wikipedia universe so
+            -- weekly stock refresh cannot wipe ETF membership).
+            CREATE TABLE IF NOT EXISTS etf_universe (
+                ticker TEXT PRIMARY KEY,
+                name TEXT,
+                etf_category TEXT NOT NULL,
+                etf_subcategory TEXT,
+                market TEXT NOT NULL DEFAULT 'US',
+                currency TEXT NOT NULL DEFAULT 'USD',
+                tags_json TEXT,
+                asset_type TEXT NOT NULL DEFAULT 'ETF',
+                updated_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS daily_bars (
@@ -156,6 +172,47 @@ def init_db() -> None:
                 cash REAL NOT NULL,
                 updated_at TEXT NOT NULL
             );
+
+            -- Per-strategy paper accounts (independent experimental capital).
+            CREATE TABLE IF NOT EXISTS paper_strategy_accounts (
+                strategy_id TEXT PRIMARY KEY,
+                starting_capital REAL NOT NULL,
+                trading_limit REAL NOT NULL,
+                reserve_cash REAL NOT NULL,
+                cash REAL NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            -- Daily candidate snapshots (includes BLOCKED / not purchased).
+            CREATE TABLE IF NOT EXISTS strategy_candidates (
+                as_of_date TEXT NOT NULL,
+                strategy_id TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                name TEXT,
+                primary_rank INTEGER,
+                primary_metric_name TEXT,
+                primary_metric_value REAL,
+                trade_status TEXT,
+                block_reasons_json TEXT,
+                purchased INTEGER NOT NULL DEFAULT 0,
+                price REAL,
+                dist_pct REAL,
+                market_cap REAL,
+                cap_category TEXT,
+                knife_score REAL,
+                recovery_score REAL,
+                rising_score REAL,
+                buy_score REAL,
+                news_status TEXT,
+                financial_status TEXT,
+                data_quality_status TEXT,
+                side TEXT,
+                meta_json TEXT,
+                updated_at TEXT,
+                PRIMARY KEY (as_of_date, strategy_id, ticker)
+            );
+            CREATE INDEX IF NOT EXISTS idx_strategy_candidates_day
+                ON strategy_candidates(strategy_id, as_of_date, primary_rank);
 
             CREATE TABLE IF NOT EXISTS paper_priority (
                 ticker TEXT PRIMARY KEY,
@@ -509,9 +566,34 @@ def init_db() -> None:
             ("range_63d_high", "REAL"),
             ("range_63d_pos", "REAL"),
             ("target_1y", "REAL"),
+            ("asset_type", "TEXT"),
+            ("sma63", "REAL"),
+            ("dist_sma63_pct", "REAL"),
+            ("ret_20d", "REAL"),
+            ("ret_63d", "REAL"),
+            ("ret_126d", "REAL"),
+            ("ret_252d", "REAL"),
+            ("avg_dollar_vol", "REAL"),
+            ("data_quality_status", "TEXT"),
         ):
             if col not in cache_cols:
                 conn.execute(f"ALTER TABLE dashboard_cache ADD COLUMN {col} {decl}")
+        # Ensure ETF universe table exists on older DBs that ran init before this migration.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS etf_universe (
+                ticker TEXT PRIMARY KEY,
+                name TEXT,
+                etf_category TEXT NOT NULL,
+                etf_subcategory TEXT,
+                market TEXT NOT NULL DEFAULT 'US',
+                currency TEXT NOT NULL DEFAULT 'USD',
+                tags_json TEXT,
+                asset_type TEXT NOT NULL DEFAULT 'ETF',
+                updated_at TEXT
+            )
+            """
+        )
         # Migrate intrinsic_value for Valuation Engine V1 metadata.
         iv_cols = {
             r["name"]
@@ -540,9 +622,73 @@ def init_db() -> None:
                 ("financial_known_entry", "INTEGER"),
                 ("news_tone_entry", "TEXT"),
                 ("source_at_entry", "TEXT"),
+                ("strategy_id", "TEXT"),
+                ("primary_rank_entry", "INTEGER"),
+                ("primary_metric_name_entry", "TEXT"),
+                ("primary_metric_value_entry", "REAL"),
+                ("side", "TEXT"),
             ):
                 if col not in paper_cols:
                     conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {decl}")
+            # Backfill legacy rows → ALERT_BUY (do not wipe history).
+            conn.execute(
+                """
+                UPDATE paper_trades
+                SET strategy_id = 'ALERT_BUY'
+                WHERE strategy_id IS NULL OR TRIM(strategy_id) = ''
+                """
+            )
+            conn.execute(
+                """
+                UPDATE paper_trades
+                SET side = 'long'
+                WHERE side IS NULL OR TRIM(side) = ''
+                """
+            )
+        # Ensure multi-strategy account + candidate tables exist on older DBs.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS paper_strategy_accounts (
+                strategy_id TEXT PRIMARY KEY,
+                starting_capital REAL NOT NULL,
+                trading_limit REAL NOT NULL,
+                reserve_cash REAL NOT NULL,
+                cash REAL NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS strategy_candidates (
+                as_of_date TEXT NOT NULL,
+                strategy_id TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                name TEXT,
+                primary_rank INTEGER,
+                primary_metric_name TEXT,
+                primary_metric_value REAL,
+                trade_status TEXT,
+                block_reasons_json TEXT,
+                purchased INTEGER NOT NULL DEFAULT 0,
+                price REAL,
+                dist_pct REAL,
+                market_cap REAL,
+                cap_category TEXT,
+                knife_score REAL,
+                recovery_score REAL,
+                rising_score REAL,
+                buy_score REAL,
+                news_status TEXT,
+                financial_status TEXT,
+                data_quality_status TEXT,
+                side TEXT,
+                meta_json TEXT,
+                updated_at TEXT,
+                PRIMARY KEY (as_of_date, strategy_id, ticker)
+            )
+            """
+        )
         # Migrate AI Discovery for underlying-event dedupe + Discovery Alpha snapshots.
         disc_ev_cols = {
             r["name"] for r in conn.execute("PRAGMA table_info(ai_discovery_events)")
@@ -736,17 +882,18 @@ def build_watchlist_alert(
     manual_alert: float | None,
 ) -> dict[str, Any]:
     """
-    My Watchlist alert bundle (research zones only — never creates orders).
+    Watchlist / AI BUY Dist-SMA25 alert zones (research only — never creates orders).
 
-    Auto (no Manual):
-      WATCH 🟡 — price <= SMA × 0.95
-      DEEP  🟢 — price <= SMA × 0.90
-    Manual (overrides Auto until Reset):
-      WATCH 🟡 — Active < price <= Active × 1.05
-      ALERT 🟢 — price <= Active (manual alert price)
+    Dist_SMA25% = (Price − SMA25) / SMA25 × 100
 
-    Default Alert = SMA × 0.95; Deep Alert = SMA × 0.90 (SMA-based levels).
-    Active Alert  = Manual if set, else Default.
+      > −5%            — none (normal)
+      −5% ~ −10%       WATCH   🟡
+      −10% ~ −15%      LOW     🟢
+      −15% ~ −20%      DEEP    🟠
+      ≤ −20%           EXTREME 🔵
+
+    Manual alert price is still stored for Owner “Active Alert” display, but
+    the colored state always comes from Dist vs SMA (not from Manual).
     """
     default_alert = default_alert_from_sma(sma)
     deep_alert = deep_alert_from_sma(sma)
@@ -766,7 +913,6 @@ def build_watchlist_alert(
         active = default_alert
         source = "default" if default_alert is not None else None
 
-    state: str | None = None
     try:
         px = float(price) if price is not None else None
     except (TypeError, ValueError):
@@ -776,18 +922,21 @@ def build_watchlist_alert(
     except (TypeError, ValueError):
         s = None
 
-    if px is not None:
-        if source == "manual" and active is not None:
-            if px <= active:
-                state = "alert"
-            elif px <= active * 1.05:
-                state = "watch"
-        else:
-            # AUTO — SMA-based only (Manual absent)
-            if deep_alert is not None and px <= deep_alert:
-                state = "deep"
-            elif default_alert is not None and px <= default_alert:
-                state = "watch"
+    dist_sma_pct = None
+    if px is not None and s is not None and s > 0:
+        dist_sma_pct = round((px - s) / s * 100.0, 2)
+
+    # Half-open bands: (−10,−5] WATCH · (−15,−10] LOW · (−20,−15] DEEP · (−∞,−20] EXTREME
+    state: str | None = None
+    if dist_sma_pct is not None:
+        if dist_sma_pct <= -20.0:
+            state = "extreme"
+        elif dist_sma_pct <= -15.0:
+            state = "deep"
+        elif dist_sma_pct <= -10.0:
+            state = "low"
+        elif dist_sma_pct <= -5.0:
+            state = "watch"
 
     dist_pct = None
     if px is not None and active is not None and active > 0:
@@ -800,6 +949,7 @@ def build_watchlist_alert(
         "manual_alert": manual,
         "active_alert": active,
         "alert_source": source,
+        "dist_sma_pct": dist_sma_pct,
         "alert": {
             "state": state,
             "price": px,
@@ -810,6 +960,7 @@ def build_watchlist_alert(
             "manual_alert": manual,
             "alert_source": source,
             "dist_pct": dist_pct,
+            "dist_sma_pct": dist_sma_pct,
         },
         # Backward-compatible alias used by older templates/JS
         "alert_price": manual,
@@ -910,21 +1061,252 @@ def universe_count(group: str | None = None) -> int:
     return int(row["n"] if row else 0)
 
 
+def upsert_etf_universe(rows: list[dict[str, Any]], *, replace_all: bool = False) -> int:
+    """Insert/update ETF metadata. replace_all clears the table first (seed)."""
+    init_db()
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    payload: list[dict[str, Any]] = []
+    for row in rows:
+        t = str(row.get("ticker") or "").strip().upper()
+        if not t:
+            continue
+        tags = row.get("tags")
+        if isinstance(tags, str):
+            tags_json = tags
+        else:
+            tags_json = json.dumps(list(tags or []), ensure_ascii=False)
+        payload.append(
+            {
+                "ticker": t,
+                "name": row.get("name") or "",
+                "etf_category": (row.get("etf_category") or "OTHER").upper(),
+                "etf_subcategory": row.get("etf_subcategory") or "",
+                "market": (row.get("market") or "US").upper(),
+                "currency": (row.get("currency") or "USD").upper(),
+                "tags_json": tags_json,
+                "asset_type": "ETF",
+                "updated_at": now,
+            }
+        )
+    with get_conn() as conn:
+        if replace_all:
+            conn.execute("DELETE FROM etf_universe")
+        if payload:
+            conn.executemany(
+                """
+                INSERT INTO etf_universe (
+                    ticker, name, etf_category, etf_subcategory,
+                    market, currency, tags_json, asset_type, updated_at
+                ) VALUES (
+                    :ticker, :name, :etf_category, :etf_subcategory,
+                    :market, :currency, :tags_json, :asset_type, :updated_at
+                )
+                ON CONFLICT(ticker) DO UPDATE SET
+                    name = excluded.name,
+                    etf_category = excluded.etf_category,
+                    etf_subcategory = excluded.etf_subcategory,
+                    market = excluded.market,
+                    currency = excluded.currency,
+                    tags_json = excluded.tags_json,
+                    asset_type = 'ETF',
+                    updated_at = excluded.updated_at
+                """,
+                payload,
+            )
+    return len(payload)
+
+
+def etf_universe_count(*, market: str | None = None) -> int:
+    init_db()
+    sql = "SELECT COUNT(*) AS n FROM etf_universe"
+    args: list[Any] = []
+    if market:
+        sql += " WHERE UPPER(market) = ?"
+        args.append(market.upper())
+    with get_conn() as conn:
+        row = conn.execute(sql, args).fetchone()
+    return int(row["n"] if row else 0)
+
+
+def list_etf_universe(
+    *,
+    category: str | None = None,
+    q: str | None = None,
+) -> list[dict[str, Any]]:
+    """List ETF metadata. category matches primary category OR tags_json."""
+    init_db()
+    sql = (
+        "SELECT ticker, name, etf_category, etf_subcategory, market, currency, "
+        "tags_json, asset_type, updated_at FROM etf_universe"
+    )
+    where: list[str] = []
+    args: list[Any] = []
+    cat = (category or "").strip().upper()
+    if cat and cat != "ALL":
+        where.append("(UPPER(etf_category) = ? OR UPPER(tags_json) LIKE ?)")
+        args.extend([cat, f'%"{cat}"%'])
+    query = (q or "").strip()
+    if query:
+        like = f"%{query}%"
+        where.append(
+            "(UPPER(ticker) LIKE UPPER(?) OR UPPER(name) LIKE UPPER(?) "
+            "OR UPPER(etf_category) LIKE UPPER(?) OR UPPER(etf_subcategory) LIKE UPPER(?) "
+            "OR UPPER(tags_json) LIKE UPPER(?))"
+        )
+        args.extend([like, like, like, like, like])
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY ticker"
+    with get_conn() as conn:
+        rows = conn.execute(sql, args).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["tags"] = json.loads(d.get("tags_json") or "[]")
+        except (TypeError, json.JSONDecodeError):
+            d["tags"] = []
+        out.append(d)
+    return out
+
+
+def list_etf_dashboard(
+    *,
+    category: str | None = None,
+    q: str | None = None,
+    order: str = "dist_asc",
+) -> list[dict[str, Any]]:
+    """ETF universe joined with dashboard_cache price metrics."""
+    meta = list_etf_universe(category=category, q=q)
+    if not meta:
+        return []
+    tickers = [r["ticker"] for r in meta]
+    placeholders = ",".join("?" for _ in tickers)
+    with get_conn() as conn:
+        cache_rows = conn.execute(
+            f"SELECT * FROM dashboard_cache WHERE ticker IN ({placeholders})",
+            tickers,
+        ).fetchall()
+    by_t = {str(r["ticker"]).upper(): dict(r) for r in cache_rows}
+    merged: list[dict[str, Any]] = []
+    for m in meta:
+        t = m["ticker"]
+        row = dict(by_t.get(t) or {})
+        row.update(
+            {
+                "ticker": t,
+                "name": m.get("name") or row.get("name") or "",
+                "etf_category": m.get("etf_category"),
+                "etf_subcategory": m.get("etf_subcategory"),
+                "market": m.get("market"),
+                "currency": m.get("currency"),
+                "tags": m.get("tags") or [],
+                "asset_type": "ETF",
+            }
+        )
+        if m.get("name"):
+            row["name"] = m["name"]
+        merged.append(row)
+
+    def _key(r: dict[str, Any]):
+        if order == "ret_63d_desc":
+            v = r.get("ret_63d")
+            return (v is None, -(v or 0), r.get("ticker") or "")
+        if order == "ret_126d_desc":
+            v = r.get("ret_126d")
+            return (v is None, -(v or 0), r.get("ticker") or "")
+        if order == "ret_252d_desc":
+            v = r.get("ret_252d")
+            return (v is None, -(v or 0), r.get("ticker") or "")
+        if order == "avg_move_desc":
+            v = r.get("avg_move_pct")
+            return (v is None, -(v or 0), r.get("ticker") or "")
+        if order == "dollar_vol_desc":
+            v = r.get("avg_dollar_vol")
+            return (v is None, -(v or 0), r.get("ticker") or "")
+        if order == "ticker":
+            return (r.get("ticker") or "",)
+        v = r.get("dist_pct")
+        return (v is None, v if v is not None else 0, r.get("ticker") or "")
+
+    merged.sort(key=_key)
+    return merged
+
+
+def search_market_tickers(q: str, *, limit: int = 30) -> list[dict[str, Any]]:
+    """Search stock universe + ETF universe (GLD / Gold, etc.)."""
+    query = (q or "").strip()
+    if not query:
+        return []
+    like = f"%{query}%"
+    init_db()
+    hits: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    with get_conn() as conn:
+        for r in conn.execute(
+            """
+            SELECT ticker, name, etf_category AS category, market, 'ETF' AS asset_type
+            FROM etf_universe
+            WHERE UPPER(ticker) LIKE UPPER(?)
+               OR UPPER(name) LIKE UPPER(?)
+               OR UPPER(etf_category) LIKE UPPER(?)
+               OR UPPER(etf_subcategory) LIKE UPPER(?)
+               OR UPPER(tags_json) LIKE UPPER(?)
+            ORDER BY ticker LIMIT ?
+            """,
+            (like, like, like, like, like, limit),
+        ):
+            t = str(r["ticker"]).upper()
+            if t in seen:
+                continue
+            seen.add(t)
+            hits.append(dict(r))
+        for r in conn.execute(
+            """
+            SELECT ticker, name, industry AS category, NULL AS market, 'STOCK' AS asset_type
+            FROM universe
+            WHERE UPPER(ticker) LIKE UPPER(?) OR UPPER(name) LIKE UPPER(?)
+            ORDER BY ticker LIMIT ?
+            """,
+            (like, like, limit),
+        ):
+            t = str(r["ticker"]).upper()
+            if t in seen:
+                continue
+            seen.add(t)
+            hits.append(dict(r))
+    return hits[:limit]
+
+
 def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -> None:
     init_db()
-    # Ensure newer optional metrics exist so older callers don't break INSERT.
+    optional_keys = (
+        "range_63d_low",
+        "range_63d_high",
+        "range_63d_pos",
+        "target_1y",
+        "asset_type",
+        "sma63",
+        "dist_sma63_pct",
+        "ret_20d",
+        "ret_63d",
+        "ret_126d",
+        "ret_252d",
+        "avg_dollar_vol",
+        "data_quality_status",
+    )
     normalized: list[dict[str, Any]] = []
     for row in rows:
         r = dict(row)
-        for k in ("range_63d_low", "range_63d_high", "range_63d_pos", "target_1y"):
+        for k in optional_keys:
             r.setdefault(k, None)
+        if not r.get("asset_type"):
+            r["asset_type"] = "STOCK"
         normalized.append(r)
     with get_conn() as conn:
         if replace_all:
             conn.execute("DELETE FROM dashboard_cache")
         if normalized:
-            # Upsert so a group-scoped refresh only touches its own tickers,
-            # leaving the other tabs' cached rows intact.
             conn.executemany(
                 """
                 INSERT INTO dashboard_cache (
@@ -932,13 +1314,19 @@ def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -
                     range_63d_low, range_63d_high, range_63d_pos, target_1y,
                     sma, dist_pct,
                     rebound_pct, trend, market_cap, avg_vol_20d, rvol, sma_period, earnings_date,
-                    ai_note, updated_at
+                    ai_note, updated_at,
+                    asset_type, sma63, dist_sma63_pct,
+                    ret_20d, ret_63d, ret_126d, ret_252d,
+                    avg_dollar_vol, data_quality_status
                 ) VALUES (
                     :ticker, :name, :industry, :sector, :price, :change_pct, :avg_move_pct,
                     :range_63d_low, :range_63d_high, :range_63d_pos, :target_1y,
                     :sma, :dist_pct,
                     :rebound_pct, :trend, :market_cap, :avg_vol_20d, :rvol, :sma_period, :earnings_date,
-                    :ai_note, :updated_at
+                    :ai_note, :updated_at,
+                    :asset_type, :sma63, :dist_sma63_pct,
+                    :ret_20d, :ret_63d, :ret_126d, :ret_252d,
+                    :avg_dollar_vol, :data_quality_status
                 )
                 ON CONFLICT(ticker) DO UPDATE SET
                     name = excluded.name,
@@ -961,7 +1349,16 @@ def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -
                     sma_period = excluded.sma_period,
                     earnings_date = excluded.earnings_date,
                     ai_note = excluded.ai_note,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    asset_type = COALESCE(excluded.asset_type, dashboard_cache.asset_type),
+                    sma63 = excluded.sma63,
+                    dist_sma63_pct = excluded.dist_sma63_pct,
+                    ret_20d = excluded.ret_20d,
+                    ret_63d = excluded.ret_63d,
+                    ret_126d = excluded.ret_126d,
+                    ret_252d = excluded.ret_252d,
+                    avg_dollar_vol = excluded.avg_dollar_vol,
+                    data_quality_status = excluded.data_quality_status
                 """,
                 normalized,
             )

@@ -89,7 +89,7 @@ def _cfg() -> dict[str, float]:
 
 
 def ensure_portfolio() -> dict[str, Any]:
-    """Seed / return the single paper portfolio row."""
+    """Seed / return the legacy singleton paper portfolio (kept in sync with ALERT_BUY)."""
     init_db()
     cfg = _cfg()
     with get_conn() as conn:
@@ -114,6 +114,297 @@ def ensure_portfolio() -> dict[str, Any]:
         return dict(row)
 
 
+def ensure_strategy_accounts() -> dict[str, dict[str, Any]]:
+    """
+    Ensure each strategy has an independent paper account.
+    Migrates legacy paper_portfolio cash into ALERT_BUY once (preserves open experiment).
+    """
+    from strategies import (
+        DEFAULT_STRATEGY_CAPITAL,
+        DEFAULT_STRATEGY_RESERVE,
+        DEFAULT_STRATEGY_TRADING_LIMIT,
+        STRATEGY_ALERT_BUY,
+        STRATEGY_IDS,
+    )
+
+    init_db()
+    ensure_portfolio()
+    cfg = _cfg()
+    now = _utc_now_iso()
+    out: dict[str, dict[str, Any]] = {}
+    with get_conn() as conn:
+        existing = {
+            str(r["strategy_id"]).upper(): dict(r)
+            for r in conn.execute("SELECT * FROM paper_strategy_accounts").fetchall()
+        }
+        legacy = conn.execute("SELECT * FROM paper_portfolio WHERE id = 1").fetchone()
+        legacy_d = dict(legacy) if legacy else {}
+        for sid in STRATEGY_IDS:
+            if sid in existing:
+                out[sid] = existing[sid]
+                continue
+            if sid == STRATEGY_ALERT_BUY and legacy_d:
+                start = float(legacy_d.get("starting_capital") or cfg["starting_capital"])
+                limit = float(legacy_d.get("trading_limit") or cfg["trading_limit"])
+                reserve = float(legacy_d.get("reserve_cash") or cfg["reserve_cash"])
+                cash = float(legacy_d.get("cash") if legacy_d.get("cash") is not None else start)
+            else:
+                start = float(DEFAULT_STRATEGY_CAPITAL)
+                limit = float(DEFAULT_STRATEGY_TRADING_LIMIT)
+                reserve = float(DEFAULT_STRATEGY_RESERVE)
+                cash = start
+            conn.execute(
+                """
+                INSERT INTO paper_strategy_accounts
+                  (strategy_id, starting_capital, trading_limit, reserve_cash, cash, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (sid, start, limit, reserve, cash, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM paper_strategy_accounts WHERE strategy_id = ?", (sid,)
+            ).fetchone()
+            out[sid] = dict(row)
+    return out
+
+
+def get_strategy_account(strategy_id: str) -> dict[str, Any]:
+    from strategies import normalize_strategy_id
+
+    sid = normalize_strategy_id(strategy_id)
+    ensure_strategy_accounts()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM paper_strategy_accounts WHERE strategy_id = ?", (sid,)
+        ).fetchone()
+    if not row:
+        raise ValueError(f"missing strategy account: {sid}")
+    return dict(row)
+
+
+def _sync_legacy_portfolio_from_alert_buy() -> None:
+    """Keep paper_portfolio row mirrored to ALERT_BUY for older UI paths."""
+    from strategies import STRATEGY_ALERT_BUY
+
+    try:
+        acct = get_strategy_account(STRATEGY_ALERT_BUY)
+    except Exception:
+        return
+    now = _utc_now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE paper_portfolio SET
+              starting_capital = ?, trading_limit = ?, reserve_cash = ?,
+              cash = ?, updated_at = ?
+            WHERE id = 1
+            """,
+            (
+                float(acct["starting_capital"]),
+                float(acct["trading_limit"]),
+                float(acct["reserve_cash"]),
+                float(acct["cash"]),
+                now,
+            ),
+        )
+
+
+def sum_open_invested(*, strategy_id: str | None = None) -> float:
+    init_db()
+    sql = "SELECT COALESCE(SUM(cost), 0) AS s FROM paper_trades WHERE status = 'open'"
+    args: list[Any] = []
+    if strategy_id:
+        from strategies import normalize_strategy_id
+
+        sql += " AND UPPER(COALESCE(strategy_id, 'ALERT_BUY')) = ?"
+        args.append(normalize_strategy_id(strategy_id))
+    with get_conn() as conn:
+        row = conn.execute(sql, args).fetchone()
+    return float(row["s"] or 0)
+
+
+def list_open_trades(*, strategy_id: str | None = None) -> list[dict[str, Any]]:
+    init_db()
+    sql = "SELECT * FROM paper_trades WHERE status = 'open'"
+    args: list[Any] = []
+    if strategy_id:
+        from strategies import normalize_strategy_id
+
+        sql += " AND UPPER(COALESCE(strategy_id, 'ALERT_BUY')) = ?"
+        args.append(normalize_strategy_id(strategy_id))
+    sql += " ORDER BY entry_date DESC, id DESC"
+    with get_conn() as conn:
+        rows = conn.execute(sql, args).fetchall()
+    return [annotate_open_trade_levels(dict(r)) for r in rows]
+
+
+def list_closed_trades(
+    *, strategy_id: str | None = None, limit: int = 500
+) -> list[dict[str, Any]]:
+    init_db()
+    sql = "SELECT * FROM paper_trades WHERE status = 'closed'"
+    args: list[Any] = []
+    if strategy_id:
+        from strategies import normalize_strategy_id
+
+        sql += " AND UPPER(COALESCE(strategy_id, 'ALERT_BUY')) = ?"
+        args.append(normalize_strategy_id(strategy_id))
+    sql += " ORDER BY exit_date DESC, id DESC LIMIT ?"
+    args.append(int(limit))
+    with get_conn() as conn:
+        rows = conn.execute(sql, args).fetchall()
+    return [dict(r) for r in rows]
+
+
+def persist_strategy_candidates(
+    rows: list[dict[str, Any]],
+    *,
+    strategy_id: str,
+    as_of_date: str,
+    purchased_tickers: set[str] | None = None,
+) -> int:
+    """Save full ranked candidate queue (including BLOCKED) for later analysis."""
+    from strategies import normalize_block_reasons, normalize_strategy_id
+
+    sid = normalize_strategy_id(strategy_id)
+    bought = {t.upper() for t in (purchased_tickers or set())}
+    now = _utc_now_iso()
+    init_db()
+    n = 0
+    with get_conn() as conn:
+        for r in rows:
+            t = str(r.get("ticker") or "").upper()
+            if not t:
+                continue
+            reasons = normalize_block_reasons(r.get("block_reasons"))
+            meta = {
+                "price_zone": r.get("price_zone"),
+                "wl_alert_state": r.get("wl_alert_state"),
+                "timing_status": r.get("timing_status") or r.get("buy_status"),
+                "sources": r.get("sources") or r.get("source_codes"),
+            }
+            conn.execute(
+                """
+                INSERT INTO strategy_candidates (
+                  as_of_date, strategy_id, ticker, name,
+                  primary_rank, primary_metric_name, primary_metric_value,
+                  trade_status, block_reasons_json, purchased,
+                  price, dist_pct, market_cap, cap_category,
+                  knife_score, recovery_score, rising_score, buy_score,
+                  news_status, financial_status, data_quality_status,
+                  side, meta_json, updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(as_of_date, strategy_id, ticker) DO UPDATE SET
+                  name = excluded.name,
+                  primary_rank = excluded.primary_rank,
+                  primary_metric_name = excluded.primary_metric_name,
+                  primary_metric_value = excluded.primary_metric_value,
+                  trade_status = excluded.trade_status,
+                  block_reasons_json = excluded.block_reasons_json,
+                  purchased = excluded.purchased,
+                  price = excluded.price,
+                  dist_pct = excluded.dist_pct,
+                  market_cap = excluded.market_cap,
+                  cap_category = excluded.cap_category,
+                  knife_score = excluded.knife_score,
+                  recovery_score = excluded.recovery_score,
+                  rising_score = excluded.rising_score,
+                  buy_score = excluded.buy_score,
+                  news_status = excluded.news_status,
+                  financial_status = excluded.financial_status,
+                  data_quality_status = excluded.data_quality_status,
+                  side = excluded.side,
+                  meta_json = excluded.meta_json,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    as_of_date,
+                    sid,
+                    t,
+                    r.get("name") or "",
+                    r.get("primary_rank"),
+                    r.get("primary_metric_name") or "dist_sma25",
+                    r.get("primary_metric_value")
+                    if r.get("primary_metric_value") is not None
+                    else r.get("dist_pct"),
+                    (r.get("buy_status") or r.get("trade_status") or "").upper() or None,
+                    json.dumps(reasons, ensure_ascii=False),
+                    1 if t in bought else 0,
+                    r.get("price"),
+                    r.get("dist_pct"),
+                    r.get("market_cap"),
+                    r.get("cap_category"),
+                    r.get("knife_score"),
+                    r.get("recovery_score"),
+                    r.get("rising_score")
+                    if r.get("rising_score") is not None
+                    else (r.get("rising") or {}).get("score")
+                    if isinstance(r.get("rising"), dict)
+                    else None,
+                    r.get("buy_score"),
+                    r.get("news_status") or r.get("news_label"),
+                    r.get("financial_status") or r.get("financial_label"),
+                    r.get("data_quality_status"),
+                    r.get("side") or "long",
+                    json.dumps(meta, ensure_ascii=False),
+                    now,
+                ),
+            )
+            n += 1
+    return n
+
+
+def strategy_portfolio_summary(strategy_id: str) -> dict[str, Any]:
+    from strategies import strategy_label
+
+    sid = strategy_id
+    acct = get_strategy_account(sid)
+    opens = list_open_trades(strategy_id=sid)
+    invested = sum(float(t.get("cost") or 0) for t in opens)
+    mv = sum(float(t.get("market_value") or t.get("cost") or 0) for t in opens)
+    upnl = sum(float(t.get("unrealized_pnl") or 0) for t in opens)
+    closed = list_closed_trades(strategy_id=sid, limit=5000)
+    realized = sum(float(t.get("realized_pnl") or 0) for t in closed)
+    wins = sum(1 for t in closed if float(t.get("realized_pnl") or 0) > 0)
+    losses = sum(1 for t in closed if float(t.get("realized_pnl") or 0) < 0)
+    cash = float(acct["cash"])
+    start = float(acct["starting_capital"])
+    equity = cash + mv
+    return {
+        "strategy_id": sid,
+        "label": strategy_label(sid),
+        "starting_capital": start,
+        "trading_limit": float(acct["trading_limit"]),
+        "reserve_cash": float(acct["reserve_cash"]),
+        "cash": cash,
+        "invested": invested,
+        "market_value": mv,
+        "equity": equity,
+        "unrealized_pnl": upnl,
+        "realized_pnl": realized,
+        "total_pnl": upnl + realized,
+        "total_return_pct": ((equity / start) - 1.0) * 100.0 if start else 0.0,
+        "open_trades": len(opens),
+        "closed_trades": len(closed),
+        "wins": wins,
+        "losses": losses,
+        "win_rate": (wins / len(closed) * 100.0) if closed else None,
+    }
+
+
+def all_strategies_dashboard() -> list[dict[str, Any]]:
+    from strategies import STRATEGY_IDS, STRATEGY_META
+
+    ensure_strategy_accounts()
+    rows = []
+    for sid in STRATEGY_IDS:
+        s = strategy_portfolio_summary(sid)
+        s["meta"] = STRATEGY_META.get(sid) or {}
+        s["status"] = (STRATEGY_META.get(sid) or {}).get("status")
+        rows.append(s)
+    return rows
+
+
 def sync_portfolio_limits_from_settings() -> dict[str, Any]:
     """Keep limit columns aligned with Settings (does not reset cash)."""
     port = ensure_portfolio()
@@ -132,8 +423,23 @@ def sync_portfolio_limits_from_settings() -> dict[str, Any]:
                 _utc_now_iso(),
             ),
         )
+        # Also sync ALERT_BUY account limits (cash untouched).
+        conn.execute(
+            """
+            UPDATE paper_strategy_accounts SET
+              starting_capital = ?, trading_limit = ?, reserve_cash = ?, updated_at = ?
+            WHERE strategy_id = 'ALERT_BUY'
+            """,
+            (
+                cfg["starting_capital"],
+                cfg["trading_limit"],
+                cfg["reserve_cash"],
+                _utc_now_iso(),
+            ),
+        )
+    ensure_strategy_accounts()
+    _sync_legacy_portfolio_from_alert_buy()
     return ensure_portfolio()
-
 
 # ── Priority ───────────────────────────────────────────────────────────────
 
@@ -933,6 +1239,8 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
     out: list[dict[str, Any]] = []
     used = 0.0
     now = _utc_now_iso()
+    knife_blocked_n = 0
+    price_blocked_n = 0
     # Preload manual SL/TP overrides (survive candidate rebuild / price refresh).
     top_tickers = [(r.get("ticker") or "").upper() for r in top if r.get("ticker")]
     overrides = get_level_overrides(top_tickers)
@@ -1051,7 +1359,11 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
                                 "source_codes": row.get("source_codes") or "",
                                 "knife_score": row.get("knife_score"),
                                 "knife_level": row.get("knife_level"),
-                                "knife_auto_block_threshold": KNIFE_AUTO_BLOCK_THRESHOLD,
+                                "knife_auto_block_threshold": (
+                                    __import__(
+                                        "knife_risk", fromlist=["KNIFE_AUTO_BLOCK_THRESHOLD"]
+                                    ).KNIFE_AUTO_BLOCK_THRESHOLD
+                                ),
                                 "knife_blocked_pool_count": knife_blocked_n,
                                 "price_location_blocked_count": price_blocked_n,
                                 "ai_auto_max_sma25_dist": thr["sma25_dist"],
@@ -1129,24 +1441,6 @@ def list_candidates(as_of_date: str | None = None) -> list[dict[str, Any]]:
 
 
 # ── Trades ─────────────────────────────────────────────────────────────────
-
-
-def sum_open_invested() -> float:
-    init_db()
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT COALESCE(SUM(cost), 0) AS s FROM paper_trades WHERE status = 'open'"
-        ).fetchone()
-    return float(row["s"] or 0)
-
-
-def list_open_trades() -> list[dict[str, Any]]:
-    init_db()
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM paper_trades WHERE status = 'open' ORDER BY entry_date DESC, id DESC"
-        ).fetchall()
-    return [annotate_open_trade_levels(dict(r)) for r in rows]
 
 
 def annotate_open_trade_levels(tr: dict[str, Any]) -> dict[str, Any]:
@@ -1375,17 +1669,6 @@ def update_open_trade_levels(
     return annotate_open_trade_levels(dict(updated))
 
 
-def list_closed_trades(*, limit: int = 200) -> list[dict[str, Any]]:
-    init_db()
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM paper_trades WHERE status = 'closed' "
-            "ORDER BY exit_date DESC, id DESC LIMIT ?",
-            (limit,),
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
 def create_paper_orders_from_candidates(
     *, as_of_date: str | None = None, tickers: list[str] | None = None
 ) -> dict[str, Any]:
@@ -1565,14 +1848,13 @@ def create_paper_orders_from_ai_buy(
     Same ladder as legacy Create Paper Orders: ALLOC_LADDER top→bottom,
     cash / trading-limit gates, Settings stop/take % (or Admin level overrides).
     Does not place real brokerage orders.
+    Skips tickers already open. Prefers never-traded names, then allows re-entry.
     """
     from ai_buy import build_ai_buy_snapshot
-    from market_data import is_data_quality_error
 
     day = as_of_date or trading_day_pt()
     snap = build_ai_buy_snapshot(persist=True)
-    # Eligible = READY / STABILIZING timing. STALE_DATA is a warning, not a hard block.
-    # Hard blocks: data_block / corrupt-scale DATA ERROR only.
+    # Eligible = READY / STABILIZING timing. DATA quality is Admin-only (not a skip).
     trade_rows = []
     for r in snap.get("rows") or []:
         status = (r.get("buy_status") or "").upper()
@@ -1580,22 +1862,24 @@ def create_paper_orders_from_ai_buy(
             status = (r.get("timing_status") or "").upper()
         if status not in AI_BUY_TRADE_STATUSES:
             continue
-        if r.get("data_block") or is_data_quality_error(r):
-            continue
-        dq = (r.get("data_quality_status") or "PASS").upper()
-        if dq in ("ERROR", "INSUFFICIENT_DATA", "DATA_BLOCK"):
-            continue
+        # DATA quality is Admin diagnostics only — not a trade skip.
         trade_rows.append(r)
 
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
     open_tickers = {t["ticker"].upper() for t in list_open_trades()}
+    ever = _ever_traded_tickers()
+
+    # Prefer never-used names; then allow previously traded if cash still available.
+    fresh = [r for r in trade_rows if (r.get("ticker") or "").upper() not in ever]
+    reused = [r for r in trade_rows if (r.get("ticker") or "").upper() in ever]
+    ordered = fresh + reused
 
     # If dashboard prices are stale, refresh trade-row tickers once before sizing.
     try:
         stale = [
             str(r.get("ticker") or "").upper()
-            for r in trade_rows
+            for r in ordered
             if (r.get("data_quality_status") or "").upper() == "STALE_DATA"
             and r.get("ticker")
         ]
@@ -1617,7 +1901,7 @@ def create_paper_orders_from_ai_buy(
                     px = m.get("price")
                     if px is None:
                         continue
-                    for r in trade_rows:
+                    for r in ordered:
                         if (r.get("ticker") or "").upper() == tkr:
                             r["price"] = float(px)
                             if m.get("dist_pct") is not None:
@@ -1627,11 +1911,13 @@ def create_paper_orders_from_ai_buy(
     except Exception:
         log.exception("pre-buy stale refresh failed")
 
-    for i, r in enumerate(trade_rows):
+    open_n = len(open_tickers)
+    for i, r in enumerate(ordered):
         t = str(r.get("ticker") or "").upper()
         if not t:
             continue
-        target = ALLOC_LADDER[i] if i < len(ALLOC_LADDER) else 0.0
+        ladder_i = open_n + len(created)
+        target = ALLOC_LADDER[ladder_i] if ladder_i < len(ALLOC_LADDER) else 0.0
         if t in open_tickers:
             skipped.append({"ticker": t, "reason": "already_open"})
             continue
@@ -1665,7 +1951,7 @@ def create_paper_orders_from_ai_buy(
                 row,
                 as_of_date=day,
                 target_usd=float(target),
-                rank_at_entry=i + 1,
+                rank_at_entry=ladder_i + 1,
             )
             out["via"] = "ai_buy"
             out["buy_status"] = (r.get("buy_status") or "").upper()
@@ -1683,6 +1969,9 @@ def create_paper_orders_from_ai_buy(
             else:
                 reason = "no_allocation"
             skipped.append({"ticker": t, "reason": reason, "detail": msg})
+            # Stop when out of cash / limit — further names won't fit either.
+            if reason in ("insufficient_cash", "trading_limit"):
+                break
 
     now = _utc_now_iso()
     set_setting("paper_last_order_at", now)
@@ -1705,13 +1994,159 @@ def create_paper_orders_from_ai_buy(
             1
             for r in trade_rows
             if (r.get("buy_status") or "").upper() == "READY"
+            or (r.get("timing_status") or "").upper() == "READY"
         ),
         "stabilizing_count": sum(
             1
             for r in trade_rows
             if (r.get("buy_status") or "").upper() == "STABILIZING"
+            or (r.get("timing_status") or "").upper() == "STABILIZING"
         ),
     }
+
+
+def create_paper_orders_from_deep_recovery(
+    *, as_of_date: str | None = None
+) -> dict[str, Any]:
+    """
+    Paper orders for Deep Recovery — same READY/STABILIZING ladder as Alert Buy,
+    booked to DEEP_RECOVERY strategy capital (independent of Alert Buy cash).
+    """
+    from deep_recovery import build_deep_recovery_snapshot
+    from strategies import STRATEGY_DEEP_RECOVERY
+
+    day = as_of_date or trading_day_pt()
+    ensure_strategy_accounts()
+    snap = build_deep_recovery_snapshot(persist=True)
+    trade_rows = []
+    for r in snap.get("rows") or []:
+        status = (r.get("buy_status") or "").upper()
+        if status == "HOLD":
+            status = (r.get("timing_status") or "").upper()
+        if status not in AI_BUY_TRADE_STATUSES:
+            continue
+        # DATA quality is Admin diagnostics only — not a trade skip.
+        trade_rows.append(r)
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    open_tickers = {
+        t["ticker"].upper() for t in list_open_trades(strategy_id=STRATEGY_DEEP_RECOVERY)
+    }
+    ever = _ever_traded_tickers()
+    fresh = [r for r in trade_rows if (r.get("ticker") or "").upper() not in ever]
+    reused = [r for r in trade_rows if (r.get("ticker") or "").upper() in ever]
+    ordered = fresh + reused
+
+    # Slightly smaller slots — mid/small rebound names are noisier than Alert Buy.
+    deep_ladder = [250.0, 250.0, 200.0, 200.0, 150.0, 150.0]
+
+    open_n = len(open_tickers)
+    for r in ordered:
+        t = str(r.get("ticker") or "").upper()
+        if not t:
+            continue
+        ladder_i = open_n + len(created)
+        target = deep_ladder[ladder_i] if ladder_i < len(deep_ladder) else 0.0
+        if t in open_tickers:
+            skipped.append({"ticker": t, "reason": "already_open"})
+            continue
+        if target <= 0:
+            skipped.append({"ticker": t, "reason": "no_allocation"})
+            continue
+        price = r.get("price")
+        try:
+            price_f = float(price) if price is not None else 0.0
+        except (TypeError, ValueError):
+            price_f = 0.0
+        if price_f <= 0:
+            skipped.append(
+                {"ticker": t, "reason": "no_allocation", "detail": "no price"}
+            )
+            continue
+        row = dict(r)
+        row["price"] = price_f
+        if row.get("ai_score") is None:
+            row["ai_score"] = row.get("buy_score")
+        if not row.get("source_codes"):
+            row["source_codes"] = "DEEP_RECOVERY"
+        try:
+            out = _open_auto_replace_position(
+                row,
+                as_of_date=day,
+                target_usd=float(target),
+                rank_at_entry=ladder_i + 1,
+                strategy_id=STRATEGY_DEEP_RECOVERY,
+            )
+            out["via"] = "deep_recovery"
+            out["buy_status"] = (r.get("buy_status") or "").upper()
+            created.append(out)
+            open_tickers.add(t)
+        except ValueError as e:
+            msg = str(e)
+            low = msg.lower()
+            if "insufficient cash" in low:
+                reason = "insufficient_cash"
+            elif "trading limit" in low:
+                reason = "trading_limit"
+            else:
+                reason = "no_allocation"
+            skipped.append({"ticker": t, "reason": reason, "detail": msg})
+            if reason in ("insufficient_cash", "trading_limit"):
+                break
+
+    acct = get_strategy_account(STRATEGY_DEEP_RECOVERY)
+    cash = float(acct.get("cash") or 0)
+    invested = sum_open_invested(strategy_id=STRATEGY_DEEP_RECOVERY)
+    try:
+        save_equity_snapshot(as_of_date=day)
+    except Exception:
+        log.exception("equity snapshot after deep_recovery create_orders failed")
+    return {
+        "created": created,
+        "skipped": skipped,
+        "cash": cash,
+        "invested": invested,
+        "universe_count": snap.get("universe_count", 0),
+        "pool_count": snap.get("pool_count", 0),
+        "counts": snap.get("counts") or {},
+        "strategy_id": STRATEGY_DEEP_RECOVERY,
+    }
+
+
+def auto_buy_on_refresh(*, as_of_date: str | None = None) -> dict[str, Any]:
+    """
+    If paper_auto_buy_on_refresh is on and fund/limit room remains,
+    allocate READY + STABILIZING names not currently open.
+    """
+    enabled_raw = get_setting("paper_auto_buy_on_refresh", "1")
+    enabled = str(enabled_raw if enabled_raw is not None else "1").strip().lower() not in (
+        "0",
+        "false",
+        "off",
+        "no",
+        "",
+    )
+    if not enabled:
+        return {"created": [], "skipped": [], "disabled": True}
+    port = ensure_portfolio()
+    cash = float(port["cash"])
+    trading_limit = float(port["trading_limit"])
+    invested = sum_open_invested()
+    room = max(0.0, trading_limit - invested)
+    if cash < 50 or room < 50:
+        return {
+            "created": [],
+            "skipped": [],
+            "disabled": False,
+            "no_funds": True,
+            "cash": cash,
+            "room": room,
+        }
+    out = create_paper_orders_from_ai_buy(as_of_date=as_of_date)
+    out["disabled"] = False
+    out["no_funds"] = False
+    return out
 
 
 def _ever_traded_tickers() -> set[str]:
@@ -1730,12 +2165,17 @@ def _open_auto_replace_position(
     as_of_date: str,
     target_usd: float,
     rank_at_entry: int = 0,
+    strategy_id: str | None = None,
 ) -> dict[str, Any]:
     """Open one paper position from a research/eligible row using target_usd sizing."""
+    from strategies import STRATEGY_ALERT_BUY, normalize_strategy_id
+
     cfg = _cfg()
     t = str(research_row.get("ticker") or "").upper()
     if not t:
         raise ValueError("ticker required")
+    sid = normalize_strategy_id(strategy_id) if strategy_id else STRATEGY_ALERT_BUY
+    use_strategy_book = bool(strategy_id)
     # Always prefer a live Yahoo price for fills + Stop/Take (dashboard can be stale).
     live = _fetch_live_price(t)
     try:
@@ -1751,10 +2191,17 @@ def _open_auto_replace_position(
     if shares <= 0 or cost <= 0:
         raise ValueError("allocation too small")
 
-    port = ensure_portfolio()
-    cash = float(port["cash"])
-    trading_limit = float(port["trading_limit"])
-    invested = sum_open_invested()
+    if use_strategy_book:
+        ensure_strategy_accounts()
+        acct = get_strategy_account(sid)
+        cash = float(acct["cash"])
+        trading_limit = float(acct["trading_limit"])
+        invested = sum_open_invested(strategy_id=sid)
+    else:
+        port = ensure_portfolio()
+        cash = float(port["cash"])
+        trading_limit = float(port["trading_limit"])
+        invested = sum_open_invested()
     if cost > cash + 1e-6:
         raise ValueError(f"insufficient cash: need ${cost:.2f}, cash ${cash:.2f}")
     if invested + cost > trading_limit + 1e-6:
@@ -1794,11 +2241,11 @@ def _open_auto_replace_position(
               cost, stop_price, take_profit_price, stop_pct, take_profit_pct,
               ai_score_entry, mos_t_entry, financial_entry, news_entry,
               range_63d_pos_entry, financial_ok_entry, financial_known_entry,
-              news_tone_entry, source_at_entry,
+              news_tone_entry, source_at_entry, strategy_id, side,
               is_priority, rank_at_entry, current_price, market_value,
               unrealized_pnl, unrealized_pnl_pct, ai_score_current,
               created_at, updated_at
-            ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+            ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
             """,
             (
                 t,
@@ -1821,6 +2268,8 @@ def _open_auto_replace_position(
                 research_row.get("financial_known"),
                 research_row.get("news_tone"),
                 research_row.get("source_codes") or "",
+                sid if use_strategy_book else None,
+                "long",
                 int(research_row.get("is_priority") or 0),
                 int(rank_at_entry or 0),
                 price,
@@ -1830,10 +2279,25 @@ def _open_auto_replace_position(
                 now,
             ),
         )
-        conn.execute(
-            "UPDATE paper_portfolio SET cash = ?, updated_at = ? WHERE id = 1",
-            (round(cash - cost, 4), now),
-        )
+        if use_strategy_book:
+            conn.execute(
+                """
+                UPDATE paper_strategy_accounts
+                SET cash = ?, updated_at = ?
+                WHERE strategy_id = ?
+                """,
+                (round(cash - cost, 4), now, sid),
+            )
+            if sid == STRATEGY_ALERT_BUY:
+                conn.execute(
+                    "UPDATE paper_portfolio SET cash = ?, updated_at = ? WHERE id = 1",
+                    (round(cash - cost, 4), now),
+                )
+        else:
+            conn.execute(
+                "UPDATE paper_portfolio SET cash = ?, updated_at = ? WHERE id = 1",
+                (round(cash - cost, 4), now),
+            )
     clear_level_overrides([t])
     return {
         "ticker": t,
@@ -1843,6 +2307,7 @@ def _open_auto_replace_position(
         "ai_score": research_row.get("ai_score"),
         "knife_score": knife.get("score"),
         "via": "auto_replace",
+        "strategy_id": sid if use_strategy_book else STRATEGY_ALERT_BUY,
     }
 
 
@@ -1872,7 +2337,6 @@ def auto_replace_exits_with_top_unused(
 
     day = as_of_date or trading_day_pt()
     from ai_buy import build_ai_buy_snapshot
-    from market_data import is_data_quality_error
 
     try:
         snap = build_ai_buy_snapshot(persist=True)
@@ -1884,12 +2348,11 @@ def auto_replace_exits_with_top_unused(
     pick_rows: list[dict[str, Any]] = []
     for r in snap.get("rows") or []:
         st = (r.get("buy_status") or "").upper()
+        if st == "HOLD":
+            st = (r.get("timing_status") or "").upper()
         if st not in AI_BUY_TRADE_STATUSES:
             continue
-        if is_data_quality_error(r) or r.get("data_block"):
-            continue
-        if (r.get("data_quality_status") or "PASS") != "PASS":
-            continue
+        # DATA quality is Admin diagnostics only — not a trade skip.
         t = str(r.get("ticker") or "").upper()
         if not t or t in open_tickers:
             continue
@@ -3065,6 +3528,15 @@ def maybe_auto_refresh_ai_trading(
         except Exception as exc:
             log.exception("auto AI BUY rebuild failed")
             out["buy_error"] = str(exc)
+
+    # After daily settle or AI BUY rebuild: fill READY/STABILIZING if cash remains.
+    if out.get("ran_daily") or out.get("ran_buy"):
+        try:
+            out["auto_buy"] = auto_buy_on_refresh(as_of_date=day)
+            out["ran_auto_buy"] = bool(out["auto_buy"].get("created"))
+        except Exception as exc:
+            log.exception("auto-buy on refresh failed")
+            out["auto_buy_error"] = str(exc)
 
     set_setting("ai_trading_auto_refresh_at", _utc_now_iso())
     return out

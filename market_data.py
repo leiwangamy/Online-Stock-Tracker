@@ -639,14 +639,32 @@ def _next_earnings_date(ticker_obj: yf.Ticker) -> str | None:
     return None
 
 
+def _period_return_pct(series: pd.Series, lookback: int) -> float | None:
+    """Simple close-to-close return over `lookback` trading days (%)."""
+    if series is None or len(series) < lookback + 1:
+        return None
+    try:
+        a = float(series.iloc[-(lookback + 1)])
+        b = float(series.iloc[-1])
+        if a == 0 or a != a or b != b:
+            return None
+        return round((b / a - 1.0) * 100.0, 2)
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
 def fetch_metrics_for_ticker(
     ticker: str,
     *,
     sma_period: int,
     rebound_lookback: int,
     meta: dict[str, Any] | None = None,
+    asset_type: str | None = None,
 ) -> dict[str, Any] | None:
     meta = meta or {}
+    atype = (asset_type or meta.get("asset_type") or "STOCK").strip().upper()
+    if atype not in ("STOCK", "ETF"):
+        atype = "STOCK"
     try:
         closes, hist, load_meta = load_yahoo_daily_closes(ticker, period="2y")
         if closes is None or hist is None or closes.empty:
@@ -680,15 +698,36 @@ def fetch_metrics_for_ticker(
         avg_vol_20d, rvol = (
             _volume_stats(hist["Volume"]) if "Volume" in hist.columns else (None, None)
         )
-        t = yf.Ticker(ticker)
-        market_cap = _market_cap(t)
-        earnings_date = _next_earnings_date(t)
-        target_1y = _target_1y(t)
+        sma63 = _sma(closes, 63)
+        from market_data_validator import dist_sma_pct as _dist63
+
+        dist_sma63_pct = _dist63(price, sma63) if sma63 else None
+        ret_20d = _period_return_pct(closes, 20)
+        ret_63d = _period_return_pct(closes, 63)
+        ret_126d = _period_return_pct(closes, 126)
+        ret_252d = _period_return_pct(closes, 252)
+        avg_dollar_vol = None
+        if avg_vol_20d is not None and price > 0:
+            try:
+                avg_dollar_vol = round(float(avg_vol_20d) * float(price), 2)
+            except (TypeError, ValueError):
+                avg_dollar_vol = None
+
+        # Company-only fields — skip for ETFs (no fake zeros).
+        market_cap = None
+        earnings_date = None
+        target_1y = None
+        if atype != "ETF":
+            t = yf.Ticker(ticker)
+            market_cap = _market_cap(t)
+            earnings_date = _next_earnings_date(t)
+            target_1y = _target_1y(t)
+
         row = {
             "ticker": ticker,
             "name": meta.get("name") or "",
-            "industry": meta.get("industry") or "",
-            "sector": meta.get("sector") or "",
+            "industry": meta.get("industry") or meta.get("etf_subcategory") or "",
+            "sector": meta.get("sector") or meta.get("etf_category") or "",
             "price": round(price, 2),
             "change_pct": change_pct,
             "avg_move_pct": avg_move_pct,
@@ -709,6 +748,14 @@ def fetch_metrics_for_ticker(
             "target_1y": target_1y,
             "ai_note": ai_note,
             "updated_at": datetime.now(timezone.utc).isoformat(),
+            "asset_type": atype,
+            "sma63": None if sma63 is None else round(sma63, 2),
+            "dist_sma63_pct": dist_sma63_pct,
+            "ret_20d": ret_20d,
+            "ret_63d": ret_63d,
+            "ret_126d": ret_126d,
+            "ret_252d": ret_252d,
+            "avg_dollar_vol": avg_dollar_vol,
         }
         try:
             from market_data_validator import attach_data_quality_to_row
@@ -728,6 +775,59 @@ def fetch_metrics_for_ticker(
     except Exception:
         return None
 
+
+def refresh_etf_dashboard_cache(*, max_workers: int = 4) -> dict[str, Any]:
+    """
+    Refresh prices/derived metrics for LeiBot ETF Universe via the shared pipeline.
+    Does not touch equity universe membership or AI BUY pools.
+    """
+    from etf_universe import ensure_etf_universe
+    from db import get_setting, list_etf_universe, save_dashboard_rows
+
+    ensure_etf_universe()
+    universe = list_etf_universe()
+    sma_period = int(get_setting("sma_period", 25))
+    rebound_lookback = int(get_setting("rebound_lookback", sma_period))
+    if rebound_lookback < 5:
+        rebound_lookback = sma_period
+
+    rows: list[dict[str, Any]] = []
+    errors = 0
+    failed: list[str] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(
+                fetch_metrics_for_ticker,
+                row["ticker"],
+                sma_period=sma_period,
+                rebound_lookback=rebound_lookback,
+                meta=row,
+                asset_type="ETF",
+            ): row["ticker"]
+            for row in universe
+        }
+        for fut in as_completed(futures):
+            tkr = futures[fut]
+            result = fut.result()
+            if result is None:
+                errors += 1
+                failed.append(tkr)
+            else:
+                rows.append(result)
+
+    save_dashboard_rows(rows)
+    us = sum(1 for r in universe if (r.get("market") or "US").upper() == "US")
+    ca = sum(1 for r in universe if (r.get("market") or "").upper() == "CANADA")
+    return {
+        "ok": len(rows),
+        "errors": errors,
+        "failed": failed,
+        "sma_period": sma_period,
+        "universe": len(universe),
+        "us_count": us,
+        "canada_count": ca,
+        "asset_type": "ETF",
+    }
 
 def refresh_dashboard_cache(
     *,

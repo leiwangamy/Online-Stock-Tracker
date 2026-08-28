@@ -4,7 +4,7 @@ AI BUY — Stage 2: WHEN to consider a buy (short-term only).
 V1 pool (Owner definition):
   Observation = My Watchlist ∪ Nasdaq-100 ∪ AI Approved
   Buy candidates = names currently marked by Watchlist SMA Alert
-                   (🟡 WATCH / 🟢 ALERT / 🟢 DEEP)
+                   (🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME)
 
 PRICE = opportunity. BLOCK = permission.
 CORE SCORE is informational only — never merged into BUY SCORE.
@@ -31,7 +31,8 @@ META_BUY_AS_OF = "ai_buy_as_of"
 META_BUY_BUILT = "ai_buy_built_at"
 
 # Watchlist SMA Alert states that mean "marked for buy consideration"
-WL_ALERT_BUY_STATES = frozenset({"watch", "alert", "deep"})
+# Dist bands: WATCH / LOW / DEEP / EXTREME (+ legacy ALERT alias of LOW)
+WL_ALERT_BUY_STATES = frozenset({"watch", "low", "alert", "deep", "extreme"})
 
 # Dist SMA25 anchors for continuous Price Score (more negative → higher score).
 # Zone labels still use discrete bands; score interpolates between these points
@@ -137,8 +138,12 @@ def compute_buy_score(*, price_score: int | None, recovery_score: int | None) ->
 
 
 def eval_blocks(row: dict[str, Any]) -> dict[str, Any]:
-    """Hard gates — never soft-subtract into a still-allowed buy."""
-    # Prefer validation already attached on the row (DATA QUALITY ≠ trading risk).
+    """Hard gates — never soft-subtract into a still-allowed buy.
+
+    DATA quality is Admin diagnostics only — never a Status BLOCK.
+    Trading BLOCK = HIGH / Knife / News (and strategy gates elsewhere).
+    """
+    # Attach quality labels for Admin DATA column; do not gate buy_allowed.
     if row.get("data_quality_status") is None:
         try:
             from market_data_validator import attach_data_quality_to_row
@@ -161,10 +166,8 @@ def eval_blocks(row: dict[str, Any]) -> dict[str, Any]:
     knife_block = knife is not None and float(knife) >= 45
     news_status = (row.get("news_status") or "PASS").upper()
     news_block = news_status in ("BLOCK", "BLOCKED")
-    buy_allowed = not (data_block or high_block or knife_block or news_block)
+    buy_allowed = not (high_block or knife_block or news_block)
     reasons = []
-    if data_block:
-        reasons.append("DATA")
     if high_block:
         reasons.append("HIGH")
     if knife_block:
@@ -175,7 +178,7 @@ def eval_blocks(row: dict[str, Any]) -> dict[str, Any]:
         "high_block": high_block,
         "knife_block": knife_block,
         "news_block": news_block,
-        "data_block": data_block,
+        "data_block": data_block,  # diagnostic flag only — not a Status BLOCK
         "buy_allowed": buy_allowed,
         "block_reasons": reasons,
     }
@@ -295,10 +298,14 @@ def _source_label(*, in_mine: bool, in_ndx: bool, in_ai: bool = False) -> str:
 
 def _wl_alert_emoji(state: str | None) -> str:
     st = (state or "").lower()
-    if st in ("alert", "deep"):
-        return "🟢"
     if st == "watch":
         return "🟡"
+    if st in ("low", "alert"):  # alert = legacy alias of LOW
+        return "🟢"
+    if st == "deep":
+        return "🟠"
+    if st == "extreme":
+        return "🔵"
     return ""
 
 
@@ -410,34 +417,6 @@ def build_ai_buy_snapshot(*, persist: bool = True) -> dict[str, Any]:
         blocks = eval_blocks(r)
         r.update(blocks)
 
-        if blocks.get("data_block"):
-            # Do not invent attractive Price/Buy scores from bad Dist SMA25.
-            r["price_score"] = None
-            r["price_zone"] = None
-            r["recovery_score"] = None
-            r["buy_score"] = None
-            timing = "BLOCKED"
-            if bool(r.get("review_flag")):
-                timing = "REVIEW"
-            r["timing_status"] = timing
-            status = "HOLD" if r["ticker"] in held else timing
-            r["buy_status"] = status
-            r["status_emoji"] = status_emoji(status)
-            reason_parts = []
-            wl = (r.get("wl_alert_state") or "").upper()
-            if wl:
-                reason_parts.append(f"WL={wl}")
-            reason_parts.append("BLOCK:DATA")
-            if status == "HOLD":
-                reason_parts.append(f"was={timing}")
-            dq = r.get("data_quality_reason") or []
-            if dq:
-                reason_parts.append("DATA:" + "/".join(str(x) for x in dq[:3]))
-            r["reason"] = " · ".join(reason_parts)
-            counts[status] = counts.get(status, 0) + 1
-            out.append(r)
-            continue
-
         ps, zone = price_score_from_dist(r.get("dist_pct"))
         r["price_score"] = ps
         r["price_zone"] = zone
@@ -455,7 +434,7 @@ def build_ai_buy_snapshot(*, persist: bool = True) -> dict[str, Any]:
             recovery_score=rec,
             review_flag=bool(r.get("review_flag")),
         )
-        # Final READY gate on underlying timing (even if currently held).
+        # Refresh Admin DATA labels on READY candidates — never force Status BLOCK.
         if timing == "READY":
             try:
                 from market_data_validator import validate_buy_data
@@ -464,15 +443,7 @@ def build_ai_buy_snapshot(*, persist: bool = True) -> dict[str, Any]:
                 r["data_quality_status"] = final["data_quality_status"]
                 r["data_quality_reason"] = final["data_quality_reason"]
                 r["buy_data_ok"] = final.get("buy_data_ok")
-                if final.get("data_block") or not final.get("buy_data_ok"):
-                    timing = "BLOCKED"
-                    r["data_block"] = True
-                    r["buy_allowed"] = False
-                    r["buy_score"] = None
-                    br = list(r.get("block_reasons") or [])
-                    if "DATA" not in br:
-                        br.append("DATA")
-                    r["block_reasons"] = br
+                r["data_block"] = bool(final.get("data_block"))
             except Exception:
                 pass
         r["timing_status"] = timing
@@ -513,8 +484,9 @@ def build_ai_buy_snapshot(*, persist: bool = True) -> dict[str, Any]:
     }
     out.sort(
         key=lambda x: (
-            # Primary: BUY score high → low (None / blocked sink)
-            -(x.get("buy_score") if x.get("buy_score") is not None else -1),
+            # Primary rank: Dist SMA25 ascending (most negative / deepest first).
+            # BLOCK is eligibility only — never reorders this list.
+            x.get("dist_pct") if x.get("dist_pct") is not None else 9999.0,
             order.get(x.get("buy_status") or "", 9),
             x.get("ticker") or "",
         )
@@ -636,8 +608,9 @@ def load_ai_buy_view(*, recompute: bool = True) -> dict[str, Any]:
     }
     out.sort(
         key=lambda x: (
-            # Primary: BUY score high → low (None / blocked sink)
-            -(x.get("buy_score") if x.get("buy_score") is not None else -1),
+            # Primary rank: Dist SMA25 ascending (most negative / deepest first).
+            # BLOCK is eligibility only — never reorders this list.
+            x.get("dist_pct") if x.get("dist_pct") is not None else 9999.0,
             order.get(x.get("buy_status") or "", 9),
             x.get("ticker") or "",
         )

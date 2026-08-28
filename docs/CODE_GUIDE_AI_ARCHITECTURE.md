@@ -1,7 +1,7 @@
 # AI STOCK SELECTION & BUY ARCHITECTURE
 
 > Source of truth for LeiBot long-term universe + AI BUY.  
-> Last updated: 2026-08-25 (Market Data Validation layer)
+> Last updated: 2026-08-27 (Research Strategy Pools + five-strategy lab shells)
 
 ## Design principles
 
@@ -38,15 +38,29 @@ Owner: ADD / KEEP / REMOVE  →  My Watchlist (optional)
 ## OBSERVATION POOLS (parallel)
    My Watchlist  ∪  Nasdaq-100  ∪  AI Approved
         ↓
-## SMA ALERT GATE  (same rules as Watchlist tabs)
-   🟡 WATCH / 🟢 ALERT / 🟢 DEEP
+## SMA ALERT GATE  (Dist SMA25 bands — same on Watchlist + AI BUY)
+   > −5% none · 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%
         ↓
 ## AI BUY  (short-term timing on Alert-marked names only)
    DATA_BLOCK hard gate before Price/Buy Score
         ↓
 NEXT CANDIDATES / CANDIDATES (full day’s Alert-marked list, including HOLD) → READY → validate_buy_data() → Owner / Paper Trade
 WAIT / APPROACHING / STABILIZING / READY / BLOCKED / HOLD
+
+**Paper auto-buy (simulation):** On **Refresh AI BUY** (and day-roll auto refresh), if cash + trading-limit room remain, open next unused READY / STABILIZING names (prefer never-traded). Setting: `paper_auto_buy_on_refresh`.
 ```
+
+### Dist SMA25 Alert bands
+
+| Dist SMA25 | Label | Color | Meaning |
+|------------|-------|-------|---------|
+| > −5% | — | none | Normal — not highlighted |
+| −5% ~ −10% | WATCH | 🟡 | Start watching |
+| −10% ~ −15% | LOW | 🟢 | Clearly low |
+| −15% ~ −20% | DEEP | 🟠 | Deep pullback |
+| ≤ −20% | EXTREME | 🔵 | Extreme discount |
+
+`Dist_SMA25% = (Price − SMA25_D) / SMA25_D × 100`. Manual Active Alert remains optional Owner note; **colored state always follows Dist**.
 
 ### Market Data Validation
 
@@ -99,9 +113,10 @@ Owner tools on AI BUY: **CHECK DATA** (per ticker) · **Validate Market Data** (
 ### Stage 2 — AI BUY (WHEN)
 
 **Observation pool:** My Watchlist ∪ Nasdaq-100 ∪ AI Approved.  
-**Buy candidates:** only names currently **marked** by Watchlist SMA Alert (🟡 WATCH / 🟢 ALERT / 🟢 DEEP) — same Auto/Manual rules as those Watchlist tabs.  
+**Buy candidates:** only names currently **marked** by Dist SMA25 Alert (🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME).  
 **Timing:** Dist SMA25 Price Score, Recovery, HIGH/KNIFE/NEWS blocks → statuses READY → …  
-Short-term only. Never used to qualify Core Universe. No auto real orders in V1.
+**Paper fill:** Refresh AI BUY auto-opens unused READY/STABILIZING while fund/limit remain (`paper_auto_buy_on_refresh`).  
+Short-term only. Never used to qualify Core Universe. No auto **real** brokerage orders in V1.
 
 ## Watchlist navigation
 
@@ -138,6 +153,83 @@ Public visitors see metrics for research transparency; they do not see Status / 
 - Mixing Knife / Rising / SMA25 pullback into Core qualification
 - Auto-adding/removing Core Watch without Owner confirmation
 
+## WATCHLIST ↔ TRADING MODE (conceptual map)
+
+**Watchlist** stays a flat product surface (My / AI Approved / Nasdaq-100 / screens / Temp).
+AI Trading strategies *consume* lists via Strategy Pools; they do not rename the nav.
+
+| Trading mode | Typical Watchlist sources | Status |
+|---|---|---|
+| **Alert Buy** | My Watchlist · AI Approved · Nasdaq-100 | Live |
+| **Deep Recovery** | Oversold Pullback · Low 63D | Live screen |
+| **Stable Growth** | Strong ∪ Rising ∪ ETF | TBD |
+| **Safe Margin** | Target Ratio < 80% | Live screen; rank TBD |
+| **Short Sell** | Bearish mirror of Alert Buy | TBD |
+
+## RESEARCH / STRATEGY POOL ARCHITECTURE
+
+```
+MARKET DATA  →  shared price / SMA / returns / validation (calculate once)
+      ↓
+RESEARCH     →  discover · classify · approve · Strategy Pools
+      ↓
+STRATEGY POOLS  (membership = filters / unions — no duplicate downloads)
+      ├── ALERT BUY      MY ∪ NDX100 ∪ AI APPROVED
+      ├── DEEP RECOVERY  Dist SMA25 ≤ −10% (dynamic)
+      ├── STABLE GROWTH  STRONG ∪ RISING ∪ ETF
+      ├── SAFE MARGIN    TARGET-T + Financial — shell / empty
+      └── SHORT SELL     3 bearish mirrors — shell / empty
+      ↓
+AI TRADING   →  Primary Rank → BLOCK → Trade Queue → Positions
+```
+
+> Market Data owns reusable market/fundamental data.
+
+> Research owns discovery, classification and Strategy Pools.
+
+> AI Trading consumes Strategy Pools and owns ranking, eligibility, positions and exits.
+
+> Strategy Pools should reference shared ticker data rather than duplicate it.
+
+> One ticker may belong to multiple Strategy Pools.
+
+> Expensive calculations must be shared wherever practical.
+
+> System principle: **Calculate Once — Classify Many — Trade Many.**
+
+> Primary ranking is assigned before BLOCK evaluation.
+
+> BLOCK affects eligibility only and must never reorder the original rank.
+
+UI: Research → **Strategy Pools**; AI Trading Overview **Source Pool** column links back.
+
+## FIVE-STRATEGY AI TRADING ARCHITECTURE
+
+```
+AI TRADING
+├── Overview          (lab dashboard)
+├── Alert Buy         (existing — live)
+├── Deep Recovery     (shell / empty for now)
+├── Stable Growth     (shell / empty)
+├── Safe Margin       (shell / empty)
+├── Short Sell        (shell / empty)
+├── All Positions
+├── History
+└── AI Discovery
+```
+
+> Each strategy has one transparent primary ranking. Ranking describes opportunity order. BLOCK determines trade eligibility. **BLOCK must never alter the original ranking.**
+
+> Assign and persist rank before applying BLOCK filters.
+
+> The trading engine scans candidates in original rank order, skips blocked/ineligible candidates, and purchases the next eligible candidate according to available **strategy** capital.
+
+> AI Score is supplementary unless explicitly designated as a strategy's primary ranking metric.
+
+> Independent paper capital per strategy (`paper_strategy_accounts`). Same ticker may appear in multiple strategies (`ticker + strategy_id`).
+
+V1 status: **layout + accounts first**. Alert Buy remains the live experiment. Deep Recovery / Stable Growth / Safe Margin / Short Sell pages are empty shells until ranking formulas are approved.
+
 ## Modules
 
 | Module | Role |
@@ -146,6 +238,36 @@ Public visitors see metrics for research transparency; they do not see Status / 
 | `ai_select.py` | Membership helpers for `ai_approved` (ADD/REMOVE); legacy inbox deprecated |
 | `ai_buy.py` | Short-term BUY scores / blocks / status |
 | `ai_discovery.py` | Nomination / research — not qualification |
+| `etf_universe.py` | Curated LeiBot ETF Universe metadata (categories / market / currency) |
+
+## ETF DATA ARCHITECTURE
+
+> ETFs and stocks share the same price-data infrastructure but remain distinct asset types (`asset_type = STOCK | ETF`).
+
+> ETF price/technical metrics may reuse stock calculations (Yahoo daily closes → SMA25 / Dist / SMA63 / 63D / returns / dollar volume / validation).
+
+> Company fundamental metrics must not be applied to ETFs (no Revenue / EPS / FCF / MOS / earnings-as-company). Prefer N/A / skip.
+
+> ETF membership lives in `etf_universe` (separate from Wikipedia equity `universe`) so weekly stock refresh cannot wipe ETFs.
+
+> ETF data should be downloaded once into `dashboard_cache` and shared by all future strategies.
+
+> Future strategies must not independently duplicate ETF market-data downloads.
+
+> Adding a strategy should primarily add strategy logic, not another market-data pipeline.
+
+> **V1:** ETF Market Data UI only (`/dashboard/etf`). Do **not** auto-send ETF Universe into AI BUY / Alert Buy.
+
+```
+MARKET DATA
+│
+├── STOCK  (universe flags: SP500 / NDX100 / SP400 / SP600 / TSX)
+│
+└── ETF    (etf_universe → shared fetch_metrics_for_ticker)
+      ├── Broad Market · Sector · Industry · Style
+      ├── Bond · Commodity · Real Estate
+      ├── International / Country · Canada
+```
 
 ## Tuning workflow
 

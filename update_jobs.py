@@ -166,6 +166,24 @@ def job_refresh_prices(*, max_workers: int = 4) -> dict:
     wl = job_refresh_watchlist(max_workers=max_workers)
     result["watchlist_ok"] = wl.get("ok")
     result["watchlist_errors"] = wl.get("errors")
+    # LeiBot ETF Universe — same Yahoo daily pipeline; not sent to AI BUY
+    try:
+        time.sleep(1.0)
+        from market_data import refresh_etf_dashboard_cache
+
+        etf = refresh_etf_dashboard_cache(max_workers=max_workers)
+        result["etf_ok"] = etf.get("ok")
+        result["etf_errors"] = etf.get("errors")
+        result["etf_universe"] = etf.get("universe")
+        log.info(
+            "ETF prices done: ok=%s errors=%s universe=%s",
+            etf.get("ok"),
+            etf.get("errors"),
+            etf.get("universe"),
+        )
+    except Exception:
+        log.exception("ETF dashboard refresh failed (non-fatal)")
+        result["etf_error"] = 1
     # Paper Trading daily mark / stop-target (simulation only — never brokerage)
     try:
         paper = job_paper_trading_daily()
@@ -355,9 +373,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Refresh Yahoo dashboard list data + Watchlist",
     )
     parser.add_argument(
-        "--watchlist",
+        "--etf",
         action="store_true",
-        help="Refresh Watchlist tickers only (incl. MANUAL)",
+        help="Refresh LeiBot ETF Universe prices only (shared Yahoo pipeline)",
     )
     parser.add_argument(
         "--paper",
@@ -386,6 +404,7 @@ def main(argv: list[str] | None = None) -> int:
         args.universe
         or args.prices
         or args.watchlist
+        or args.etf
         or args.paper
         or args.strong
         or args.strong_backfill
@@ -403,6 +422,17 @@ def main(argv: list[str] | None = None) -> int:
             job_refresh_prices()
         elif args.watchlist:
             job_refresh_watchlist()
+        elif args.etf:
+            from market_data import refresh_etf_dashboard_cache
+
+            etf = refresh_etf_dashboard_cache(max_workers=4)
+            log.info(
+                "ETF-only refresh: ok=%s errors=%s universe=%s failed=%s",
+                etf.get("ok"),
+                etf.get("errors"),
+                etf.get("universe"),
+                etf.get("failed"),
+            )
         if args.paper and not (args.all or args.prices):
             # --prices already includes paper settle; standalone --paper for manual runs
             job_paper_trading_daily()

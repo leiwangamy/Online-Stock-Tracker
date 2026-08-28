@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from db import (
     build_watchlist_alert,
     dashboard_meta,
+    etf_universe_count,
     get_alert_prices,
     get_all_settings,
     get_conn,
@@ -25,10 +26,12 @@ from db import (
     get_universe_flags,
     init_db,
     list_dashboard,
+    list_etf_dashboard,
     list_setup,
     list_low_target_ratio,
     list_low_63d_pos,
     list_universe,
+    search_market_tickers,
     set_setting,
     universe_count,
     upsert_alert_price,
@@ -796,7 +799,107 @@ def market_dashboard():
         group=group,
         group_label=gettext(GROUP_LABELS[group]),
         tabs=tabs,
+        asset_kind="stocks",
     )
+
+
+@app.route("/dashboard/etf")
+def etf_dashboard():
+    """LeiBot ETF Universe — market data only (not AI BUY)."""
+    from etf_universe import ETF_FILTERS, ensure_etf_universe, etf_category_counts
+
+    ensure_etf_universe()
+    settings = get_all_settings()
+    category = (request.args.get("cat") or "ALL").strip().upper()
+    allowed = {k for k, _ in ETF_FILTERS}
+    if category not in allowed:
+        category = "ALL"
+    q = (request.args.get("q") or "").strip()
+    order = (request.args.get("order") or "dist_asc").strip()
+    rows = list_etf_dashboard(
+        category=None if category == "ALL" else category,
+        q=q or None,
+        order=order,
+    )
+    filters = [
+        {
+            "key": key,
+            "label": key.replace("_", " ") if key != "ALL" else "ALL",
+            "active": key == category,
+        }
+        for key, _ in ETF_FILTERS
+    ]
+    priced = sum(1 for r in rows if r.get("price") is not None)
+    return render_template(
+        "etf_dashboard.html",
+        rows=rows,
+        filters=filters,
+        category=category,
+        q=q,
+        order=order,
+        etf_count=etf_universe_count(),
+        us_count=etf_universe_count(market="US"),
+        canada_count=etf_universe_count(market="CANADA"),
+        priced_count=priced,
+        category_counts=etf_category_counts(),
+        sma_period=int(settings.get("sma_period", 25)),
+        asset_kind="etf",
+    )
+
+
+@app.route("/dashboard/etf/refresh", methods=["POST"])
+def refresh_etf_dashboard():
+    from market_data import refresh_etf_dashboard_cache
+
+    cat = (request.form.get("cat") or "ALL").strip().upper()
+    try:
+        result = refresh_etf_dashboard_cache(max_workers=4)
+        flash(
+            ngettext_format(
+                "ETF prices refreshed: ok {ok} / errors {errors} (universe {universe})",
+                ok=result.get("ok", 0),
+                errors=result.get("errors", 0),
+                universe=result.get("universe", 0),
+            ),
+            "ok",
+        )
+        failed = result.get("failed") or []
+        if failed:
+            flash(
+                ngettext_format(
+                    "ETF download failed: {tickers}",
+                    tickers=", ".join(failed[:12]) + ("…" if len(failed) > 12 else ""),
+                ),
+                "warning",
+            )
+    except Exception as exc:
+        flash(ngettext_format("ETF price refresh failed: {exc}", exc=exc), "warning")
+    return redirect(url_for("etf_dashboard", cat=cat if cat != "ALL" else None))
+
+
+@app.route("/dashboard/etf/reseed", methods=["POST"])
+def reseed_etf_universe():
+    from etf_universe import ensure_etf_universe
+
+    try:
+        out = ensure_etf_universe(force_seed=True)
+        flash(
+            ngettext_format(
+                "ETF universe seeded: {n} tickers",
+                n=out.get("count", 0),
+            ),
+            "ok",
+        )
+    except Exception as exc:
+        flash(ngettext_format("ETF universe seed failed: {exc}", exc=exc), "warning")
+    return redirect(url_for("etf_dashboard"))
+
+
+@app.route("/api/market/search")
+def api_market_search():
+    q = (request.args.get("q") or "").strip()
+    hits = search_market_tickers(q, limit=25)
+    return jsonify({"q": q, "results": hits})
 
 
 @app.route("/dashboard/refresh-universe", methods=["POST"])
@@ -1004,12 +1107,19 @@ def settings():
 # Group ③ — long-term saved names (see watchlist_config; shared with update_jobs).
 from watchlist_config import (
     MY_WATCHLIST,
+    add_growth_watchlist_ticker,
     add_my_watchlist_ticker,
+    add_short_watchlist_ticker,
     add_trade_candidate,
     collect_watchlist_tickers,
+    get_growth_watchlist,
     get_my_watchlist,
+    get_short_watchlist,
     get_trade_candidates,
+    is_fund_like,
+    remove_growth_watchlist_ticker,
     remove_my_watchlist_ticker,
+    remove_short_watchlist_ticker,
     remove_trade_candidate,
     validate_ticker_token,
 )
@@ -1290,15 +1400,29 @@ def watchlist():
             session["temp_watchlist"] = temp[:MAX_TEMP_TICKERS]
         elif action == "clear_temp":
             session.pop("temp_watchlist", None)
-        elif action in ("add_mine", "remove_mine", "approve_to_mine"):
+        elif action in (
+            "add_mine",
+            "remove_mine",
+            "approve_to_mine",
+            "add_growth",
+            "remove_growth",
+            "add_short",
+            "remove_short",
+        ):
+            pool_tab = "mine"
+            if action in ("add_growth", "remove_growth"):
+                pool_tab = "growth"
+            elif action in ("add_short", "remove_short"):
+                pool_tab = "short"
             if not is_owner():
                 raw_pending = (
                     request.form.get("mine_tickers", "")
+                    or request.form.get("pool_tickers", "")
                     or request.form.get("ticker", "")
                 )
-                if action in ("add_mine", "approve_to_mine"):
+                if action in ("add_mine", "approve_to_mine", "add_growth", "add_short"):
                     queued = _queue_pending_mine_tickers(parse_ticker_input(raw_pending))
-                    if queued:
+                    if queued and action in ("add_mine", "approve_to_mine"):
                         flash(
                             ngettext_format(
                                 "Sign in to save {n} ticker(s) to My Watchlist",
@@ -1307,11 +1431,11 @@ def watchlist():
                             "warning",
                         )
                     else:
-                        flash(gettext("Please sign in to edit My Watchlist"), "warning")
+                        flash(gettext("Please sign in to edit Watchlist pools"), "warning")
                 else:
-                    flash(gettext("Please sign in to edit My Watchlist"), "warning")
+                    flash(gettext("Please sign in to edit Watchlist pools"), "warning")
                 return redirect(
-                    url_for("owner_login", next=url_for("watchlist", tab="mine"))
+                    url_for("owner_login", next=url_for("watchlist", tab=pool_tab))
                 )
             try:
                 if action in ("add_mine", "approve_to_mine"):
@@ -1320,7 +1444,6 @@ def watchlist():
                         or request.form.get("ticker", "")
                     )
                     raw_parts = parse_ticker_input(raw)
-                    # Single-ticker APPROVAL may post without commas
                     if not raw_parts and (request.form.get("ticker") or "").strip():
                         raw_parts = [(request.form.get("ticker") or "").strip().upper()]
                     added: list[str] = []
@@ -1349,9 +1472,119 @@ def watchlist():
                                 "ok",
                             )
                     _flash_mine_add_result(added, existed, invalid)
-                else:
+                elif action == "remove_mine":
                     remove_my_watchlist_ticker(request.form.get("ticker", ""))
                     flash(gettext("Removed from My Watchlist"), "ok")
+                elif action == "add_growth":
+                    raw = (
+                        request.form.get("pool_tickers", "")
+                        or request.form.get("mine_tickers", "")
+                        or request.form.get("ticker", "")
+                    )
+                    added, existed, invalid = [], [], []
+                    cur = set(get_growth_watchlist())
+                    for t in parse_ticker_input(raw):
+                        t = (t or "").strip().upper()
+                        if not validate_ticker_token(t):
+                            invalid.append(t)
+                            continue
+                        if t in cur:
+                            existed.append(t)
+                            continue
+                        add_growth_watchlist_ticker(t)
+                        cur.add(t)
+                        added.append(t)
+                    if added:
+                        refreshed = _force_refresh_mine_tickers(added)
+                        if refreshed:
+                            flash(
+                                ngettext_format(
+                                    "Live data refreshed for: {tickers}",
+                                    tickers=", ".join(refreshed),
+                                ),
+                                "ok",
+                            )
+                        flash(
+                            ngettext_format(
+                                "Added to GROWTH: {tickers}",
+                                tickers=", ".join(added),
+                            ),
+                            "ok",
+                        )
+                    if existed:
+                        flash(
+                            ngettext_format(
+                                "Already in GROWTH: {tickers}",
+                                tickers=", ".join(existed),
+                            ),
+                            "warning",
+                        )
+                    if invalid:
+                        flash(
+                            ngettext_format(
+                                "Invalid tickers: {tickers}",
+                                tickers=", ".join(invalid),
+                            ),
+                            "warning",
+                        )
+                elif action == "remove_growth":
+                    remove_growth_watchlist_ticker(request.form.get("ticker", ""))
+                    flash(gettext("Removed from GROWTH"), "ok")
+                elif action == "add_short":
+                    raw = (
+                        request.form.get("pool_tickers", "")
+                        or request.form.get("mine_tickers", "")
+                        or request.form.get("ticker", "")
+                    )
+                    added, existed, invalid = [], [], []
+                    cur = set(get_short_watchlist())
+                    for t in parse_ticker_input(raw):
+                        t = (t or "").strip().upper()
+                        if not validate_ticker_token(t):
+                            invalid.append(t)
+                            continue
+                        if t in cur:
+                            existed.append(t)
+                            continue
+                        add_short_watchlist_ticker(t)
+                        cur.add(t)
+                        added.append(t)
+                    if added:
+                        refreshed = _force_refresh_mine_tickers(added)
+                        if refreshed:
+                            flash(
+                                ngettext_format(
+                                    "Live data refreshed for: {tickers}",
+                                    tickers=", ".join(refreshed),
+                                ),
+                                "ok",
+                            )
+                        flash(
+                            ngettext_format(
+                                "Added to SHORT: {tickers}",
+                                tickers=", ".join(added),
+                            ),
+                            "ok",
+                        )
+                    if existed:
+                        flash(
+                            ngettext_format(
+                                "Already in SHORT: {tickers}",
+                                tickers=", ".join(existed),
+                            ),
+                            "warning",
+                        )
+                    if invalid:
+                        flash(
+                            ngettext_format(
+                                "Invalid tickers: {tickers}",
+                                tickers=", ".join(invalid),
+                            ),
+                            "warning",
+                        )
+                elif action == "remove_short":
+                    remove_short_watchlist_ticker(request.form.get("ticker", ""))
+                    flash(gettext("Removed from SHORT"), "ok")
             except ValueError as exc:
                 flash(str(exc), "warning")
             # APPROVAL always lands on My Watchlist so the add is visible.
@@ -1359,20 +1592,23 @@ def watchlist():
                 next_tab = "mine"
             else:
                 next_tab = (
-                    request.form.get("next_tab") or request.args.get("tab") or "mine"
+                    request.form.get("next_tab") or request.args.get("tab") or pool_tab
                 ).strip()
             if next_tab not in (
                 "mine",
+                "growth",
+                "short",
                 "ai_approved",
                 "core_universe",
                 "ndx100",
                 "ai_discovery",
+                "ai_news",
                 "setup",
                 "low_target",
                 "low_63d",
                 "temp",
             ):
-                next_tab = "mine"
+                next_tab = pool_tab
             return redirect(url_for("watchlist", tab=next_tab))
         elif action in (
             "approve_ai",
@@ -1387,6 +1623,14 @@ def watchlist():
         ):
             # Handled below after imports / tab context.
             pass
+        elif action.startswith("discovery_") or action in (
+            "news_priority_toggle",
+            "news_history_delete",
+        ):
+            handled = handle_ai_news_post()
+            if handled is not None:
+                return handled
+            return redirect(url_for("watchlist", tab="ai_news"))
         else:
             return redirect(url_for("watchlist", tab=request.args.get("tab") or "temp"))
 
@@ -1399,6 +1643,8 @@ def watchlist():
         if added or existed:
             _flash_mine_add_result(added, existed, [])
     mine_list = get_my_watchlist()
+    growth_list = get_growth_watchlist()
+    short_list = get_short_watchlist()
     show_valuation = is_owner()
 
     tab = request.args.get("tab", "mine")
@@ -1410,8 +1656,11 @@ def watchlist():
         return redirect(url_for("strong_stock_monitor", tab=tab))
     if tab not in (
         "mine",
+        "growth",
+        "short",
         "ai_approved",
         "ai_discovery",
+        "ai_news",
         "core_universe",
         "ndx100",
         "ai_select",  # legacy alias → redirect below
@@ -1545,6 +1794,10 @@ def watchlist():
         fund_cache_only = True
     elif tab == "mine":
         rows = _rows_for_tickers(mine_list)
+    elif tab == "growth":
+        rows = _rows_for_tickers(growth_list)
+    elif tab == "short":
+        rows = _rows_for_tickers(short_list)
     elif tab == "ai_approved":
         rows = _rows_for_tickers(approved_list)
         by_ap = {r["ticker"]: r for r in list_ai_approved_rows()}
@@ -1561,6 +1814,11 @@ def watchlist():
         fund_cache_only = True
     elif tab == "core_universe":
         # Dedicated Core Universe UI — skip heavy wl_table fetch
+        rows = []
+        skip_heavy = True
+        fund_cache_only = True
+    elif tab == "ai_news":
+        # AI News pool UI (ex-AI Trading Discovery) — dedicated panel, no wl_table
         rows = []
         skip_heavy = True
         fund_cache_only = True
@@ -1639,23 +1897,47 @@ def watchlist():
     elif not skip_heavy:
         # Live enrich a bounded prefix (keeps Oversold page latency in check).
         # My Watchlist: always fetch Financial + News for resolvable names (regular holdings).
+        # GROWTH/SHORT: funds/ETFs skip Financial + News; equities behave like My Watchlist.
         live_rows = rows[:MAX_AUTO_ROWS] if tab == "setup" else rows
         overflow_rows = rows[MAX_AUTO_ROWS:] if tab == "setup" else []
 
-        live_tickers = [
-            r["ticker"]
-            for r in live_rows
-            if r.get("ticker") and not r.get("not_found")
-        ]
-        signals = get_signals(live_tickers, force_news=(tab == "mine"))
+        if tab in ("growth", "short"):
+            for r in live_rows:
+                if r.get("not_found"):
+                    continue
+                if is_fund_like(r.get("ticker") or "", r):
+                    r["_skip_fund_news"] = True
+                    r["fund"] = None
+                    r["news"] = make_news_skipped(
+                        reason="fund/ETF — Financial & News not loaded"
+                    )
+            live_tickers = [
+                r["ticker"]
+                for r in live_rows
+                if r.get("ticker")
+                and not r.get("not_found")
+                and not r.get("_skip_fund_news")
+            ]
+        else:
+            live_tickers = [
+                r["ticker"]
+                for r in live_rows
+                if r.get("ticker") and not r.get("not_found")
+            ]
+        signals = get_signals(
+            live_tickers,
+            force_news=(tab in ("mine", "growth", "short")),
+        )
         tickers_shown = list(live_tickers)
         # Est / MOS / CLV only for logged-in owner (methods still under development).
+        # Skip valuation for funds on GROWTH/SHORT.
         if show_valuation:
+            val_tickers = tickers_shown
             try:
                 from valuation_engine import ensure_valuations
 
                 iv_results = ensure_valuations(
-                    tickers_shown, force=False, max_new=VALUATION_MAX_NEW_PER_REQUEST
+                    val_tickers, force=False, max_new=VALUATION_MAX_NEW_PER_REQUEST
                 )
             except Exception:
                 iv_results = {}
@@ -1663,7 +1945,7 @@ def watchlist():
                 from clv_engine import ensure_clvs
 
                 clv_results = ensure_clvs(
-                    tickers_shown, force=False, max_new=CLV_MAX_NEW_PER_REQUEST
+                    val_tickers, force=False, max_new=CLV_MAX_NEW_PER_REQUEST
                 )
             except Exception:
                 clv_results = {}
@@ -1684,6 +1966,21 @@ def watchlist():
 
     for r in rows:
         if skip_heavy:
+            continue
+        if r.get("_skip_fund_news"):
+            # Funds on GROWTH/SHORT: keep skipped news; no DCF/CLV/AI invent from empty fund.
+            r["est_value"] = None
+            r["bear_value"] = None
+            r["bull_value"] = None
+            r["mos_pct"] = None
+            r["est_tooltip"] = "Fund/ETF — valuation skipped"
+            r["clv"] = None
+            r["clv_pct_price"] = None
+            r["clv_tooltip"] = "Fund/ETF — CLV skipped"
+            r["dcf_below_clv"] = False
+            if not r.get("not_found"):
+                r.update(compute_target_proxy_mos(r.get("price"), r.get("target_1y")))
+                r["ai"] = compute_ai_score(r)
             continue
 
         sig = signals.get(r.get("ticker"))
@@ -1793,34 +2090,62 @@ def watchlist():
             r.update(compute_target_proxy_mos(r.get("price"), r.get("target_1y")))
 
     tabs = [
-        {"key": "mine", "label": gettext("My Watchlist"), "count": len(mine_list)},
-        {"key": "ai_approved", "label": "🤖 " + gettext("AI Approved"), "count": len(approved_list)},
+        {"key": "mine", "label": gettext("My Watchlist"), "count": len(mine_list), "group": "main"},
+        {"key": "ndx100", "label": "📗 " + gettext("Nasdaq-100"), "count": len(ndx100_list), "group": "main"},
+        {
+            "key": "ai_news",
+            "label": "📰 " + gettext("AI News"),
+            "count": 0,
+            "group": "ai_select",
+        },
+        {
+            "key": "ai_discovery",
+            "label": "🔭 " + gettext("AI Discovery"),
+            "count": 0,
+            "group": "ai_select",
+        },
         {
             "key": "core_universe",
             "label": "📐 " + gettext("Core Universe"),
             "count": int((core_run or {}).get("qualified_count") or 0),
+            "group": "ai_select",
         },
-        {"key": "ndx100", "label": "📗 " + gettext("Nasdaq-100"), "count": len(ndx100_list)},
-        {"key": "ai_discovery", "label": "🔭 " + gettext("AI Discovery"), "count": 0},
-        {"key": "setup", "label": "🔻 " + gettext("Oversold pullback"), "count": len(setup)},
-        {"key": "low_target", "label": "🎯 " + gettext("Target Ratio < 80%"), "count": len(low_target)},
-        {"key": "low_63d", "label": "📉 " + gettext("63D Position < 25%"), "count": len(low_63d)},
-        {"key": "temp", "label": "🕒 " + gettext("Temp"), "count": len(temp_tickers)},
+        {
+            "key": "ai_approved",
+            "label": "🤖 " + gettext("AI Approved"),
+            "count": len(approved_list),
+            "group": "ai_select",
+        },
+        {"key": "setup", "label": "🔻 " + gettext("Oversold pullback"), "count": len(setup), "group": "screens"},
+        {"key": "growth", "label": "📈 " + gettext("GROWTH"), "count": len(growth_list), "group": "screens"},
+        {"key": "short", "label": "📉 " + gettext("SHORT"), "count": len(short_list), "group": "screens"},
+        {"key": "low_target", "label": "🎯 " + gettext("Target Ratio < 80%"), "count": len(low_target), "group": "screens"},
+        {"key": "low_63d", "label": "📉 " + gettext("63D Position < 25%"), "count": len(low_63d), "group": "screens"},
+        {"key": "temp", "label": "🕒 " + gettext("Temp"), "count": len(temp_tickers), "group": "scratch"},
     ]
-    # Discovery count from rows when active, else cheap query
+    # AI News + Discovery badge counts
+    try:
+        from ai_discovery import discovery_pool_counts, get_min_event_score_display, list_discovery_candidates
+
+        _ms = get_min_event_score_display()
+        tabs[2]["count"] = int(
+            (discovery_pool_counts(min_event_score=_ms) or {}).get("qualifying_events") or 0
+        )
+    except Exception:
+        tabs[2]["count"] = 0
     if tab == "ai_discovery":
-        tabs[4]["count"] = len(rows)
+        tabs[3]["count"] = len(rows)
     else:
         try:
             from ai_discovery import list_discovery_candidates
 
-            tabs[4]["count"] = len(
+            tabs[3]["count"] = len(
                 list_discovery_candidates(
                     limit=150, recent_only=True, exclude_negative=False, history_mode=False
                 )
             )
         except Exception:
-            tabs[4]["count"] = 0
+            tabs[3]["count"] = 0
 
     desc = tab_description(
         tab,
@@ -1902,6 +2227,13 @@ def watchlist():
         except Exception:
             app.logger.exception("core universe diff failed")
 
+    ai_news_ctx = load_ai_news_context() if tab == "ai_news" else {}
+    if tab == "ai_news" and ai_news_ctx.get("discovery_count") is not None:
+        for t in tabs:
+            if t.get("key") == "ai_news":
+                t["count"] = int(ai_news_ctx.get("discovery_count") or 0)
+                break
+
     return render_template(
         "watchlist.html",
         sma_period=sma_period,
@@ -1911,6 +2243,8 @@ def watchlist():
         temp_tickers=temp_tickers,
         max_temp=MAX_TEMP_TICKERS,
         mine_list=mine_list,
+        growth_list=growth_list,
+        short_list=short_list,
         mine_list_label="、".join(mine_list) if get_lang() == "zh" else ", ".join(mine_list),
         fund_cache_hits=fund_cache_hits,
         fund_cache_total=fund_cache_total,
@@ -1919,6 +2253,7 @@ def watchlist():
         show_alert=(tab in ("mine", "ndx100", "ai_approved")),
         show_valuation=show_valuation,
         can_edit_mine=is_owner(),
+        can_edit_pool=is_owner(),
         can_edit_alert=(is_owner() and tab in ("mine", "ndx100", "ai_approved")),
         show_ai_select_actions=(tab == "ai_discovery" and is_owner()),
         show_ai_approved_actions=(tab == "ai_approved" and is_owner()),
@@ -1932,6 +2267,8 @@ def watchlist():
         core_still=core_still,
         core_no_longer=core_no_longer,
         approved_list=approved_list,
+        can_manage=is_owner(),
+        **ai_news_ctx,
     )
 
 
@@ -2234,6 +2571,252 @@ def _normalize_discovery_channel_stats(stats: dict) -> dict:
     return out
 
 
+def _ai_news_layer() -> str:
+    layer = (request.form.get("layer") or request.args.get("layer") or "official").strip().lower()
+    return layer if layer in ("broad", "official") else "official"
+
+
+def _ai_news_redirect(*, news_hist: bool = False, fragment: str | None = None):
+    kw = {"tab": "ai_news", "layer": _ai_news_layer()}
+    if news_hist or request.args.get("news_hist"):
+        kw["news_hist"] = 1
+    url = url_for("watchlist", **kw)
+    if fragment:
+        url += fragment
+    return redirect(url)
+
+
+def load_ai_news_context() -> dict:
+    """Shared AI News (ex-AI Trading Discovery) template payload."""
+    discovery_rows = []
+    discovery_broad_rows = []
+    discovery_official_rows = []
+    discovery_perf = None
+    discovery_unresolved = []
+    discovery_unresolved_count = 0
+    discovery_resolved_today = 0
+    discovery_min_score = 70.0
+    discovery_channel_stats = {}
+    discovery_count = 0
+    news_history_rows = []
+    news_history_count = 0
+    discovery_layer = _ai_news_layer()
+    try:
+        from ai_discovery import (
+            count_news_history,
+            count_resolved_unresolved_today,
+            count_unresolved_discoveries,
+            discovery_performance,
+            discovery_pool_counts,
+            get_min_event_score_display,
+            list_discovery_candidates,
+            list_unresolved_discoveries,
+            maybe_retry_unresolved,
+            partition_discovery_by_layer,
+        )
+        from db import get_setting as _gs
+
+        discovery_min_score = get_min_event_score_display()
+        pool0 = discovery_pool_counts(min_event_score=discovery_min_score)
+        discovery_count = int(pool0.get("qualifying_events") or 0)
+        news_history_count = count_news_history(min_event_score=discovery_min_score)
+        discovery_channel_stats = _normalize_discovery_channel_stats(
+            _gs("ai_discovery_last_channel_stats", {}) or {}
+        )
+        try:
+            maybe_retry_unresolved(force=False)
+        except Exception:
+            app.logger.exception("unresolved retry failed")
+        discovery_rows = list_discovery_candidates(limit=300, exclude_negative=False)
+        parts = partition_discovery_by_layer(discovery_rows)
+        discovery_broad_rows = parts.get("broad") or []
+        discovery_official_rows = parts.get("official") or []
+        discovery_count = len(discovery_rows)
+        discovery_perf = discovery_performance()
+        discovery_unresolved = list_unresolved_discoveries(limit=80)
+        discovery_unresolved_count = count_unresolved_discoveries()
+        discovery_resolved_today = count_resolved_unresolved_today()
+        discovery_channel_stats = _normalize_discovery_channel_stats(
+            _gs("ai_discovery_last_channel_stats", {}) or {}
+        )
+        news_history_rows = list_discovery_candidates(
+            limit=500,
+            recent_only=False,
+            exclude_negative=False,
+            history_mode=True,
+        )
+        news_history_count = len(news_history_rows)
+    except Exception:
+        app.logger.exception("AI News load failed")
+    news_history_priority_rows = [
+        r for r in news_history_rows if int(r.get("is_news_priority") or 0)
+    ]
+    news_history_archive_rows = [
+        r for r in news_history_rows if not int(r.get("is_news_priority") or 0)
+    ]
+    return {
+        "discovery_rows": discovery_rows,
+        "discovery_broad_rows": discovery_broad_rows,
+        "discovery_official_rows": discovery_official_rows,
+        "discovery_perf": discovery_perf,
+        "discovery_unresolved": discovery_unresolved,
+        "discovery_unresolved_count": discovery_unresolved_count,
+        "discovery_resolved_today": discovery_resolved_today,
+        "discovery_min_score": discovery_min_score,
+        "discovery_channel_stats": discovery_channel_stats,
+        "discovery_count": discovery_count,
+        "discovery_layer": discovery_layer,
+        "news_history_rows": news_history_rows,
+        "news_history_count": news_history_count,
+        "news_history_priority_rows": news_history_priority_rows,
+        "news_history_archive_rows": news_history_archive_rows,
+    }
+
+
+def handle_ai_news_post():
+    """Owner AI News / Discovery POSTs. Returns a redirect response or None."""
+    action = (request.form.get("action") or "").strip()
+    if not action.startswith("discovery_") and action not in (
+        "news_priority_toggle",
+        "news_history_delete",
+    ):
+        return None
+    if not is_owner():
+        flash(gettext("Please sign in to manage Paper Trading"), "warning")
+        return redirect(url_for("owner_login", next=url_for("watchlist", tab="ai_news")))
+    try:
+        if action == "discovery_set_min_score":
+            from ai_discovery import (
+                discovery_pool_counts,
+                set_min_event_score_display,
+            )
+
+            raw = (request.form.get("min_event_score") or "70").strip()
+            try:
+                score = float(raw)
+            except ValueError:
+                score = 70.0
+            score = set_min_event_score_display(score)
+            pool = discovery_pool_counts(min_event_score=score)
+            flash(
+                ngettext_format(
+                    "Min Event Score {score} · Qualifying Events {e} · Unique Stocks {s}",
+                    score=int(score) if score == int(score) else score,
+                    e=pool.get("qualifying_events"),
+                    s=pool.get("unique_stocks"),
+                ),
+                "ok",
+            )
+            return _ai_news_redirect()
+        if action == "discovery_run":
+            from ai_discovery import run_discovery_cycle
+
+            result = run_discovery_cycle(create_orders=False)
+            h = result.get("harvest") or {}
+            cc = h.get("channel_counts") or {}
+            flash(
+                ngettext_format(
+                    "Discovery: Broad {b} · USA {u} · DoD {d} · SEC {s} · FDA {f} · Gov {g} · raw {r} · today {t} · unresolved {x}",
+                    b=cc.get("broad"),
+                    u=cc.get("usaspending"),
+                    d=cc.get("dod"),
+                    s=cc.get("sec"),
+                    f=cc.get("fda"),
+                    g=cc.get("gov_transactions"),
+                    r=h.get("raw_total"),
+                    t=h.get("admitted_today"),
+                    x=h.get("unresolved"),
+                ),
+                "ok",
+            )
+            return _ai_news_redirect()
+        if action == "discovery_add_event":
+            from ai_discovery import add_manual_discovery_event
+
+            ticker = (request.form.get("ticker") or "").strip().upper()
+            summary = (request.form.get("event_summary") or "").strip()
+            result = add_manual_discovery_event(ticker=ticker, summary=summary)
+            flash(
+                ngettext_format(
+                    "Discovery event added: {ticker} · Event Score {score}",
+                    ticker=ticker,
+                    score=(result.get("event") or {}).get("event_score"),
+                ),
+                "ok",
+            )
+            return _ai_news_redirect()
+        if action == "discovery_analyze":
+            from ai_discovery import analyze_discovery_candidate
+
+            cid = int(request.form.get("candidate_id") or 0)
+            row = analyze_discovery_candidate(cid)
+            flash(
+                ngettext_format(
+                    "Analyzed {ticker}: {status}",
+                    ticker=row.get("ticker"),
+                    status=row.get("status"),
+                ),
+                "ok",
+            )
+            return _ai_news_redirect(fragment=f"#disc-row-{cid}")
+        if action == "news_priority_toggle":
+            from ai_discovery import set_news_priority
+
+            cid = int(request.form.get("candidate_id") or 0)
+            on = (request.form.get("on") or "1") == "1"
+            row = set_news_priority(cid, on=on)
+            flash(
+                ngettext_format(
+                    "News Priority {state}: {ticker}",
+                    state=gettext("on") if on else gettext("off"),
+                    ticker=row.get("ticker"),
+                ),
+                "ok",
+            )
+            return _ai_news_redirect(fragment=f"#disc-row-{cid}")
+        if action == "news_history_delete":
+            from ai_discovery import delete_news_history_candidate
+
+            cid = int(request.form.get("candidate_id") or 0)
+            row = delete_news_history_candidate(cid)
+            if row.get("mode") == "blocked_retain":
+                flash(
+                    ngettext_format(
+                        "News History keeps items for {days} full days — delete is disabled until then ({ticker}, day {age}).",
+                        days=row.get("retain_days") or 7,
+                        ticker=row.get("ticker"),
+                        age=row.get("news_age_days") or 0,
+                    ),
+                    "warning",
+                )
+            else:
+                flash(
+                    ngettext_format(
+                        "Removed from News History: {ticker}",
+                        ticker=row.get("ticker"),
+                    ),
+                    "ok",
+                )
+            return _ai_news_redirect(news_hist=True, fragment="#news-history-dock")
+        if action == "discovery_create_orders":
+            from ai_discovery import create_discovery_paper_orders
+
+            result = create_discovery_paper_orders(auto_only=True)
+            flash(
+                ngettext_format(
+                    "Discovery paper orders: created {n} · skipped {s}",
+                    n=result.get("count"),
+                    s=len(result.get("skipped") or []),
+                ),
+                "ok",
+            )
+            return _ai_news_redirect()
+    except Exception as exc:
+        flash(ngettext_format("Paper Trading action failed: {exc}", exc=exc), "warning")
+        return _ai_news_redirect()
+    return None
+
+
 @app.route("/ai-trading/export.xlsx", methods=["GET"])
 def ai_trading_export_xlsx():
     """Admin: download AI Trading experiment snapshot (.xlsx). Does not modify data."""
@@ -2277,11 +2860,15 @@ def ai_trading():
     """
     from paper_trading import (
         _ai_auto_thresholds,
+        all_strategies_dashboard,
         build_candidates,
         clear_priority,
         create_paper_orders_from_ai_buy,
+        create_paper_orders_from_deep_recovery,
         create_paper_orders_from_candidates,
         ensure_portfolio,
+        ensure_strategy_accounts,
+        get_strategy_account,
         history_report,
         list_candidates,
         list_closed_trades,
@@ -2291,26 +2878,83 @@ def ai_trading():
         manual_buy_candidate,
         manual_close_trade,
         maybe_auto_refresh_ai_trading,
+        auto_buy_on_refresh,
         portfolio_summary,
         rebuy_from_closed_trade,
         run_daily_update,
         set_priority,
+        strategy_portfolio_summary,
         trading_day_pt,
     )
     from knife_risk import KNIFE_AUTO_BLOCK_THRESHOLD
+    from strategies import (
+        STRATEGY_ALERT_BUY,
+        STRATEGY_DEEP_RECOVERY,
+        STRATEGY_SAFE_MARGIN,
+        STRATEGY_SHORT_SELL,
+        STRATEGY_STABLE_GROWTH,
+        STRATEGY_META,
+        normalize_strategy_id,
+        strategy_label,
+    )
 
     ensure_portfolio()
-    tab = (request.args.get("tab") or request.form.get("tab") or "buy").strip().lower()
+    ensure_strategy_accounts()
+    tab = (request.args.get("tab") or request.form.get("tab") or "overview").strip().lower()
     if tab in ("today", "legacy"):
-        # Legacy Top-10 / today → AI BUY (new architecture)
+        tab = "buy"
+    if tab in ("alert", "alert_buy", "ai_buy"):
         tab = "buy"
     if tab == "news_history":
-        # Legacy top-tab URL → dock under AI Discovery.
         return redirect(
-            url_for("ai_trading", tab="discovery", news_hist=1) + "#news-history-dock"
+            url_for("watchlist", tab="ai_news", news_hist=1) + "#news-history-dock"
         )
-    if tab not in ("buy", "open", "history", "discovery", "select"):
-        tab = "buy"
+    if tab == "discovery":
+        # AI Discovery pool moved to Watchlist → AI News
+        layer = (request.args.get("layer") or "official").strip().lower()
+        if layer not in ("broad", "official"):
+            layer = "official"
+        kw = {"tab": "ai_news", "layer": layer}
+        if request.args.get("news_hist"):
+            kw["news_hist"] = 1
+        frag = ""
+        if request.args.get("news_hist"):
+            frag = "#news-history-dock"
+        return redirect(url_for("watchlist", **kw) + frag)
+    _strategy_tabs = {
+        "deep": "deep_recovery",
+        "deep_recovery": "deep_recovery",
+        "stable": "stable_growth",
+        "stable_growth": "stable_growth",
+        "safe": "safe_margin",
+        "safe_margin": "safe_margin",
+        "short": "short_sell",
+        "short_sell": "short_sell",
+    }
+    if tab in _strategy_tabs:
+        tab = _strategy_tabs[tab]
+    if tab not in (
+        "overview",
+        "buy",
+        "deep_recovery",
+        "stable_growth",
+        "safe_margin",
+        "short_sell",
+        "open",
+        "history",
+        "select",
+    ):
+        tab = "overview"
+
+    # Map UI tab → strategy_id for shell / filtered views
+    _tab_strategy = {
+        "buy": STRATEGY_ALERT_BUY,
+        "deep_recovery": STRATEGY_DEEP_RECOVERY,
+        "stable_growth": STRATEGY_STABLE_GROWTH,
+        "safe_margin": STRATEGY_SAFE_MARGIN,
+        "short_sell": STRATEGY_SHORT_SELL,
+    }
+    active_strategy_id = _tab_strategy.get(tab)
 
     if request.method == "POST":
         action = (request.form.get("action") or "").strip()
@@ -2322,6 +2966,8 @@ def ai_trading():
                 from ai_buy import build_ai_buy_snapshot
 
                 built = build_ai_buy_snapshot(persist=True)
+                fill = auto_buy_on_refresh()
+                created = fill.get("created") or []
                 flash(
                     ngettext_format(
                         "AI BUY refreshed: Alert-marked {n} (pool {p}) · READY {r}",
@@ -2331,7 +2977,35 @@ def ai_trading():
                     ),
                     "ok",
                 )
+                if created:
+                    flash(
+                        ngettext_format(
+                            "Auto-buy on refresh: opened {n} · cash left {cash}",
+                            n=len(created),
+                            cash=f"{float(fill.get('cash') or 0):.2f}",
+                        ),
+                        "ok",
+                    )
+                elif fill.get("no_funds"):
+                    flash(
+                        gettext("Auto-buy skipped — no fund / trading-limit room"),
+                        "warning",
+                    )
                 return redirect(url_for("ai_trading", tab="buy"))
+            if action == "refresh_deep_recovery":
+                from deep_recovery import build_deep_recovery_snapshot
+
+                built = build_deep_recovery_snapshot(persist=True)
+                flash(
+                    ngettext_format(
+                        "Deep Recovery refreshed: top {n} of Oversold pool {p} · READY {r}",
+                        n=built.get("universe_count", 0),
+                        p=built.get("pool_count", 0),
+                        r=(built.get("counts") or {}).get("READY", 0),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="deep_recovery"))
             if action == "check_data":
                 from db import get_dashboard_by_tickers
                 from market_data_validator import (
@@ -2478,6 +3152,28 @@ def ai_trading():
                 )
                 if created and tab == "buy":
                     return redirect(url_for("ai_trading", tab="open"))
+            elif action == "create_deep_recovery_orders":
+                result = create_paper_orders_from_deep_recovery()
+                created = result.get("created") or []
+                skipped = result.get("skipped") or []
+                if created:
+                    flash(
+                        ngettext_format(
+                            "Deep Recovery paper orders: {n} · skipped {s}",
+                            n=len(created),
+                            s=len(skipped),
+                        ),
+                        "ok",
+                    )
+                else:
+                    flash(
+                        ngettext_format(
+                            "No Deep Recovery orders · skipped {s}. Need READY/STABILIZING on Oversold top-N.",
+                            s=len(skipped),
+                        ),
+                        "warning",
+                    )
+                return redirect(url_for("ai_trading", tab="deep_recovery"))
             elif action == "daily_update":
                 result = run_daily_update(refresh_candidates=True)
                 auto_n = len(result.get("auto_created") or [])
@@ -2601,7 +3297,7 @@ def ai_trading():
                     ),
                     "ok",
                 )
-                return redirect(url_for("ai_trading", tab="discovery"))
+                return redirect(url_for("watchlist", tab="ai_news"))
             elif action == "discovery_run":
                 from ai_discovery import run_discovery_cycle
 
@@ -2624,7 +3320,7 @@ def ai_trading():
                     ),
                     "ok",
                 )
-                return redirect(url_for("ai_trading", tab="discovery"))
+                return redirect(url_for("watchlist", tab="ai_news"))
             elif action == "discovery_add_event":
                 from ai_discovery import add_manual_discovery_event
 
@@ -2639,7 +3335,7 @@ def ai_trading():
                     ),
                     "ok",
                 )
-                return redirect(url_for("ai_trading", tab="discovery"))
+                return redirect(url_for("watchlist", tab="ai_news"))
             elif action == "discovery_analyze":
                 from ai_discovery import analyze_discovery_candidate
 
@@ -2659,7 +3355,7 @@ def ai_trading():
                 if _layer not in ("broad", "official"):
                     _layer = "official"
                 return redirect(
-                    url_for("ai_trading", tab="discovery", layer=_layer)
+                    url_for("watchlist", tab="ai_news", layer=_layer)
                     + f"#disc-row-{cid}"
                 )
             elif action == "news_priority_toggle":
@@ -2680,7 +3376,7 @@ def ai_trading():
                 if layer not in ("broad", "official"):
                     layer = "official"
                 return redirect(
-                    url_for("ai_trading", tab="discovery", layer=layer)
+                    url_for("watchlist", tab="ai_news", layer=layer)
                     + f"#disc-row-{cid}"
                 )
             elif action == "news_history_delete":
@@ -2711,8 +3407,8 @@ def ai_trading():
                     layer = "official"
                 return redirect(
                     url_for(
-                        "ai_trading",
-                        tab="discovery",
+                        "watchlist",
+                        tab="ai_news",
                         layer=layer,
                         news_hist=1,
                     )
@@ -2744,7 +3440,7 @@ def ai_trading():
                     ),
                     "ok",
                 )
-                return redirect(url_for("ai_trading", tab="discovery"))
+                return redirect(url_for("watchlist", tab="ai_news"))
             else:
                 flash(gettext("Unknown action"), "warning")
         except Exception as exc:
@@ -2773,7 +3469,23 @@ def ai_trading():
     except Exception:
         app.logger.exception("AI BUY view failed")
 
-    if not candidates and tab not in ("buy", "select"):
+    deep_recovery_view: dict = {
+        "as_of": "",
+        "universe_count": 0,
+        "pool_count": 0,
+        "top_n": 15,
+        "counts": {},
+        "rows": [],
+    }
+    if tab == "deep_recovery":
+        try:
+            from deep_recovery import load_deep_recovery_view
+
+            deep_recovery_view = load_deep_recovery_view(recompute=True)
+        except Exception:
+            app.logger.exception("Deep Recovery view failed")
+
+    if not candidates and tab not in ("buy", "select", "deep_recovery"):
         try:
             candidates = build_candidates(persist=True)
         except Exception:
@@ -2790,8 +3502,59 @@ def ai_trading():
     trade_candidates = []
 
     summary = portfolio_summary()
-    opens = list_open_trades()
-    history = list_closed_trades(limit=300)
+    # Overview + shell pages: per-strategy accounts (layout first; calc later).
+    strategy_dashboard = []
+    strategy_shell = None
+    try:
+        strategy_dashboard = all_strategies_dashboard()
+    except Exception:
+        app.logger.exception("strategy dashboard failed")
+    if active_strategy_id:
+        try:
+            strategy_shell = {
+                "strategy_id": active_strategy_id,
+                "label": strategy_label(active_strategy_id),
+                "meta": STRATEGY_META.get(active_strategy_id) or {},
+                "account": get_strategy_account(active_strategy_id),
+                "summary": strategy_portfolio_summary(active_strategy_id),
+            }
+        except Exception:
+            app.logger.exception("strategy shell load failed for %s", active_strategy_id)
+
+    strategy_pipeline = None
+    if active_strategy_id:
+        try:
+            from strategy_pools import strategy_source_pipeline
+
+            strategy_pipeline = strategy_source_pipeline(active_strategy_id)
+        except Exception:
+            app.logger.exception("strategy pipeline header failed")
+            strategy_pipeline = {
+                "source": (STRATEGY_META.get(active_strategy_id) or {}).get(
+                    "source_pool_label"
+                ),
+                "filter": "—",
+                "rank": (STRATEGY_META.get(active_strategy_id) or {}).get(
+                    "primary_metric_label"
+                ),
+                "block": "Data / News / Knife / strategy gates",
+                "member_count": None,
+            }
+
+    # Open/history: strategy pages filter to that book; overview/open show all.
+    if active_strategy_id and tab != "buy":
+        opens = list_open_trades(strategy_id=active_strategy_id)
+        history = list_closed_trades(strategy_id=active_strategy_id, limit=300)
+    elif tab == "buy":
+        opens = list_open_trades(strategy_id=STRATEGY_ALERT_BUY)
+        history = list_closed_trades(strategy_id=STRATEGY_ALERT_BUY, limit=300)
+    else:
+        opens = list_open_trades()
+        history = list_closed_trades(limit=300)
+    try:
+        open_count_all = len(list_open_trades())
+    except Exception:
+        open_count_all = len(opens)
     priority = list_priority_tickers()
     if is_owner():
         rebuy_pool = list_rebuy_candidates(top_n=8, lookback_trading_days=63)
@@ -2944,10 +3707,17 @@ def ai_trading():
             "ai_trading.html",
             tab=tab,
             summary=summary,
+            strategy_dashboard=strategy_dashboard,
+            strategy_shell=strategy_shell,
+            strategy_pipeline=strategy_pipeline,
+            active_strategy_id=active_strategy_id,
+            strategy_meta=STRATEGY_META,
             ai_buy_view=ai_buy_view,
+            deep_recovery_view=deep_recovery_view,
             candidates=candidates,
             trade_candidates=trade_candidates,
             opens=opens,
+            open_count_all=open_count_all,
             history=history,
             hist_report=hist_report,
             rebuy_pool=rebuy_pool,
@@ -3165,8 +3935,13 @@ def strong_stock_monitor():
         "multi_signal",
         "rotation",
         "rotation_detail",
+        "discovery",
     ):
         tab = "candidates"
+
+    if tab == "discovery":
+        # Legacy Research bookmark → Watchlist AI News
+        return redirect(url_for("watchlist", tab="ai_news"))
 
     if request.method == "POST":
         action = (request.form.get("action") or "").strip()
