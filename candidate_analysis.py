@@ -182,6 +182,48 @@ def _signals_label(tags: list[dict[str, str]]) -> str:
     return " · ".join(parts) if parts else "—"
 
 
+def financial_badge_counts() -> dict[str, int]:
+    """
+    Lightweight Research tab badges for Financial 6/6 and ≥5/6.
+
+    Same universe as build_candidate_analysis, but fund-cache only — no AI/News fill.
+    """
+    setup = [dict(r) for r in list_setup(-10.0)]
+    low_target = [dict(r) for r in list_low_target_ratio(0.8)]
+    low_63d = [dict(r) for r in list_low_63d_pos(25.0)]
+    rising = list_rising_now()
+    strong_syms = active_strong_symbols()
+
+    by_ticker: dict[str, dict[str, Any]] = {}
+    for src in (setup, low_target, low_63d, rising):
+        for t, row in _index_rows(src).items():
+            if t not in by_ticker:
+                by_ticker[t] = row
+    for s in strong_syms:
+        by_ticker.setdefault(s, {"ticker": s})
+
+    tickers = sorted(by_ticker.keys())
+    fund_map = get_fund_cached_only(tickers)
+    fin_6 = 0
+    fin_ge5 = 0
+    for t in tickers:
+        fin = _financial_display(fund_map.get(t))
+        ok = fin.get("ok")
+        known = fin.get("known")
+        if ok is None or not known:
+            continue
+        try:
+            known_i = int(known)
+            ok_i = int(ok)
+        except (TypeError, ValueError):
+            continue
+        if known_i == 6 and ok_i == 6:
+            fin_6 += 1
+        if known_i > 0 and (float(ok_i) / float(known_i)) >= (5 / 6):
+            fin_ge5 += 1
+    return {"fin_6": fin_6, "fin_ge5": fin_ge5, "universe": len(tickers)}
+
+
 def build_candidate_analysis(
     *,
     fill_ai: bool = True,

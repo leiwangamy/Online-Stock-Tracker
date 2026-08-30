@@ -4182,7 +4182,7 @@ def strong_stock_monitor():
         remove_my_watchlist_ticker,
         remove_trade_candidate,
     )
-    from candidate_analysis import build_candidate_analysis
+    from candidate_analysis import build_candidate_analysis, financial_badge_counts
     from market_data import ensure_fund_cache, ensure_news_cache
 
     raw_tab = (
@@ -4470,8 +4470,30 @@ def strong_stock_monitor():
     data["badge_rising"] = data_badge_rising
     data["badge_multi"] = data_badge_multi
     data["badge_candidates"] = badge_candidates
+
+    # Financial / Sector Rotation badges must stay correct on every Research tab
+    # (previously only filled when that tab was active → often showed 0).
+    if tab not in ("fin6", "fin5"):
+        try:
+            fc = financial_badge_counts()
+            badge_fin6 = int(fc.get("fin_6") or 0)
+            badge_fin5 = int(fc.get("fin_ge5") or 0)
+        except Exception:
+            app.logger.exception("financial badge counts failed")
     data["badge_fin6"] = badge_fin6
     data["badge_fin5"] = badge_fin5
+
+    badge_rotation = len((rotation_data or {}).get("rows") or [])
+    if tab not in ("rotation", "rotation_detail"):
+        try:
+            from sector_rotation import load_latest_sector_rotation
+
+            rot_snap = load_latest_sector_rotation(recompute_if_missing=False)
+            badge_rotation = len((rot_snap or {}).get("rows") or [])
+        except Exception:
+            app.logger.exception("sector rotation badge failed")
+            badge_rotation = 0
+
     data["rising_rows"] = rising_rows
     data["multi_rows"] = multi_rows
     data["multi_summary"] = multi_summary
@@ -4479,7 +4501,7 @@ def strong_stock_monitor():
     data["ca_counts"] = ca_counts
     data["rotation"] = rotation_data
     data["rotation_detail"] = rotation_detail
-    data["badge_rotation"] = len((rotation_data or {}).get("rows") or [])
+    data["badge_rotation"] = badge_rotation
     lang = get_lang()
     data["rising_headline"] = rising_count_label(data_badge_rising, lang=lang)
     data["rising_rules"] = rising_rule_summary(lang=lang)

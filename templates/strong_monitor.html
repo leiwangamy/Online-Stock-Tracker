@@ -323,7 +323,7 @@
     <a class="tab {% if tab in ('rotation', 'rotation_detail') %}active{% endif %}"
        href="{{ url_for('strong_stock_monitor', tab='rotation') }}">
       {{ _('Sector Rotation') }}
-      <span class="count">({{ data.badge_rotation if data.badge_rotation is defined else 11 }})</span>
+      <span class="count">({{ data.badge_rotation if data.badge_rotation is defined else 0 }})</span>
     </a>
     <a class="tab {% if tab == 'multi_signal' %}active{% endif %}"
        href="{{ url_for('strong_stock_monitor', tab='multi_signal') }}">
