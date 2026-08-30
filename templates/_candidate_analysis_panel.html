@@ -1,49 +1,30 @@
-{# Candidate Analysis panel — primary Research view (no shortcut buttons). #}
+{# Financial Analysis panel — Financial 6/6 / ≥5/6 only (other signals live elsewhere). #}
 {% set counts = data.ca_counts or {} %}
 {% set rows = data.ca_rows or [] %}
-{% set ca_post = url_for('strong_stock_monitor', tab='candidates') %}
+{% set ca_post = url_for('strong_stock_monitor', tab=tab) %}
+{% set fin_title = _('Financial 6/6') if tab == 'fin6' else _('Financial ≥5/6') %}
 
-    <p class="hint">{{ _('Add names to My Watchlist for research. Prefer Priority Buy on AI Trading when you want earlier allocation — nothing auto-selects for AI Trading.') }}</p>
-
-<div class="ca-summary">
-  <span><strong>{{ _('All Candidates') }}:</strong> {{ counts.total or 0 }}</span>
-  <span>Oversold: {{ counts.oversold or 0 }}</span>
-  <span>63D Low: {{ counts.low_63d or 0 }}</span>
-  <span>Rising: {{ counts.rising or 0 }}</span>
-  <span>Multi: {{ counts.multi or 0 }}</span>
-  <span>Strong: {{ counts.strong or 0 }}</span>
-  <span>Retention: {{ counts.retention or 0 }}</span>
-  <span>Financial 6/6: {{ counts.fin_6 or 0 }}</span>
-  <span>Financial ≥5/6: {{ counts.fin_ge5 or 0 }}</span>
-  <span>{{ _('My Watchlist') }}: {{ counts.mine or 0 }}</span>
-</div>
-
-{% if can_manage %}
-<div class="actions" style="margin-bottom:10px">
-  <form method="post" action="{{ ca_post }}" style="display:inline"
+<div class="ca-section-head">
+  <h2>{{ fin_title }}</h2>
+  {% if can_manage %}
+  <form method="post" action="{{ ca_post }}" style="display:inline;margin:0"
         onsubmit="this.querySelector('button').disabled=true;">
     <input type="hidden" name="action" value="ensure_research">
-    <button class="btn primary" type="submit" title="{{ _('Fill missing Financial/News from cache/fetch for current candidates (bounded)') }}">{{ _('Refresh Candidate Analysis') }}</button>
+    <button class="btn" type="submit" title="{{ _('Fill missing Financial/News from cache/fetch for current candidates (bounded)') }}">{{ _('Refresh') }}</button>
   </form>
+  {% endif %}
 </div>
-{% endif %}
 
-<div class="ca-filters" id="ca-filters">
-  <button type="button" class="btn ca-filter active" data-filter="all">{{ _('All Candidates') }}</button>
-  <button type="button" class="btn ca-filter" data-filter="oversold">{{ _('Oversold') }}</button>
-  <button type="button" class="btn ca-filter" data-filter="low63">{{ _('63D Low') }}</button>
-  <button type="button" class="btn ca-filter" data-filter="rising">{{ _('Rising') }}</button>
-  <button type="button" class="btn ca-filter" data-filter="multi">{{ _('Multi-Signal') }}</button>
-  <button type="button" class="btn ca-filter" data-filter="strong">{{ _('Strong') }}</button>
-  <button type="button" class="btn ca-filter" data-filter="retention">{{ _('Retention') }}</button>
-  <button type="button" class="btn ca-filter" data-filter="fin6">{{ _('Financial 6/6') }}</button>
-  <button type="button" class="btn ca-filter" data-filter="fin5">{{ _('Financial ≥5/6') }}</button>
-  <button type="button" class="btn ca-filter" data-filter="mine">{{ _('My Watchlist') }}</button>
-  <span class="hint" id="ca-filter-count"></span>
+<div class="ca-summary">
+  <span><strong>{{ _('Financial 6/6') }}:</strong> {{ counts.fin_6 or 0 }}</span>
+  <span><strong>{{ _('Financial ≥5/6') }}:</strong> {{ counts.fin_ge5 or 0 }}</span>
+  <span>{{ _('Showing') }}: {{ rows|length }}</span>
 </div>
+
+<p class="hint">{{ _('Quality screen from cached fundamentals. Add names to My Watchlist for research — nothing auto-selects for AI Trading.') }}</p>
 
 {% if not rows %}
-  <p class="empty">{{ _('No candidates yet. Refresh Market Dashboard / Research first.') }}</p>
+  <p class="empty">{{ _('No names in this financial screen yet. Refresh Market Dashboard / Research first.') }}</p>
 {% else %}
 <div class="panel wl-panel">
   <table class="data" id="ca-table">
@@ -229,39 +210,5 @@
         rows.forEach(function (r) { tbody.appendChild(r); });
       });
     });
-
-    var bar = document.getElementById("ca-filters");
-    if (!bar) return;
-    function match(tr, key) {
-      if (key === "all") return true;
-      if (key === "oversold") return tr.dataset.oversold === "1";
-      if (key === "low63") return tr.dataset.low63 === "1";
-      if (key === "rising") return tr.dataset.rising === "1";
-      if (key === "multi") return tr.dataset.multi === "1";
-      if (key === "strong") return tr.dataset.strong === "1";
-      if (key === "retention") return tr.dataset.retention === "1";
-      if (key === "fin6") return tr.dataset.fin6 === "1";
-      if (key === "fin5") return tr.dataset.fin5 === "1";
-      if (key === "mine") return tr.dataset.mine === "1";
-      return true;
-    }
-    function apply(key) {
-      var n = 0;
-      Array.prototype.forEach.call(tbody.rows, function (tr) {
-        var ok = match(tr, key);
-        tr.style.display = ok ? "" : "none";
-        if (ok) n += 1;
-      });
-      var el = document.getElementById("ca-filter-count");
-      if (el) el.textContent = n + " / " + tbody.rows.length;
-    }
-    bar.querySelectorAll(".ca-filter").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        bar.querySelectorAll(".ca-filter").forEach(function (b) { b.classList.remove("active"); });
-        btn.classList.add("active");
-        apply(btn.dataset.filter || "all");
-      });
-    });
-    apply("all");
   })();
 </script>

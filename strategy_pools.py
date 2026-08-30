@@ -67,10 +67,10 @@ POOL_META: dict[str, dict[str, Any]] = {
         "name": "Stable Growth Pool",
         "short": "STABLE GROWTH",
         "pool_type": "DYNAMIC / RESEARCH",
-        "source_label": "STRONG ∪ RISING ∪ ETF — TBD",
-        "source_detail": "Sustained strength names — membership UI empty until rules approved.",
-        "filter_label": "Union membership (no score yet)",
-        "rank_label": "Stable Growth Rank — TBD",
+        "source_label": "Watchlist GROWTH",
+        "source_detail": "Long-horizon GROWTH sleeve; Dist SMA25 ascending queue (top 10–20).",
+        "filter_label": "Top 10–20 by Dist SMA25 ASC",
+        "rank_label": "Dist SMA25 ascending (deepest first)",
         "used_by": STRATEGY_STABLE_GROWTH,
         "dynamic": True,
         "empty_ok": True,
@@ -80,23 +80,30 @@ POOL_META: dict[str, dict[str, Any]] = {
         "short": "SAFE MARGIN",
         "pool_type": "LONG-TERM / HYBRID",
         "source_label": "TARGET RATIO < 80%",
-        "source_detail": "Patient value screen (low price vs target). MOS / TARGET-T ranking TBD.",
-        "filter_label": "Target Ratio < 80%",
-        "rank_label": "Safe Margin Rank — TBD",
+        "source_detail": (
+            "Watchlist Target Ratio screen; risk filters then Target ASC "
+            "queue (top 10–20)."
+        ),
+        "filter_label": (
+            "MCap>$2B · Price>$5 · AvgVol<3% · Fin≥60% · Knife≠HIGH → top 10–20"
+        ),
+        "rank_label": "Target Ratio ascending (cheapest vs target first)",
         "used_by": STRATEGY_SAFE_MARGIN,
-        "dynamic": False,
+        "dynamic": True,
         "empty_ok": True,
     },
     POOL_SHORT_SELL: {
         "name": "Short Sell Pool",
         "short": "SHORT SELL",
-        "pool_type": "RESEARCH SHELL",
-        "source_label": "Bearish mirror of Alert Buy — TBD",
-        "source_detail": "Inverse / mirror of Alert Buy observation logic — not simply −1×. Empty for now.",
-        "filter_label": "Bearish groups — TBD",
-        "rank_label": "Short Rank — TBD",
+        "pool_type": "DYNAMIC / RESEARCH",
+        "source_label": "Watchlist SHORT",
+        "source_detail": (
+            "ETF-heavy SHORT sleeve + stables; Dist DESC after 63D>80% and Day%<0."
+        ),
+        "filter_label": "63D Position > 80% · Day % < 0 → top 10–20",
+        "rank_label": "Dist SMA25 descending (most extended first)",
         "used_by": STRATEGY_SHORT_SELL,
-        "dynamic": False,
+        "dynamic": True,
         "empty_ok": True,
     },
 }
@@ -199,73 +206,50 @@ def list_deep_recovery_pool_rows(*, limit: int = 15) -> list[dict[str, Any]]:
 
 
 def list_stable_growth_pool_tickers() -> list[dict[str, Any]]:
-    """STRONG ∪ RISING ∪ ETF — set union only; no downloads."""
-    from db import get_conn, init_db, list_etf_universe
+    """Watchlist GROWTH sleeve — Dist will be applied by stable_growth.py."""
+    from watchlist_config import get_growth_watchlist
 
-    init_db()
-    by_t: dict[str, dict[str, Any]] = {}
+    out: list[dict[str, Any]] = []
+    for t in get_growth_watchlist() or []:
+        u = str(t or "").strip().upper()
+        if not u:
+            continue
+        out.append({"ticker": u, "asset_type": "STOCK", "source": "GROWTH"})
+    return out
 
-    # Strong membership
-    try:
-        with get_conn() as conn:
-            for r in conn.execute(
-                "SELECT symbol AS ticker FROM strong_membership"
-            ).fetchall():
-                t = str(r["ticker"] or "").upper()
-                if not t:
-                    continue
-                by_t[t] = {
-                    "ticker": t,
-                    "asset_type": "STOCK",
-                    "source": "STRONG",
-                }
-    except Exception:
-        pass
 
-    # Rising Now
-    try:
-        from rising_now import list_rising_now
+def list_safe_margin_pool_tickers() -> list[dict[str, Any]]:
+    """Target Ratio < 80% screen — risk filter applied by safe_margin.py."""
+    from db import list_low_target_ratio
 
-        for r in list_rising_now() or []:
-            t = str(r.get("ticker") or "").upper()
-            if not t:
-                continue
-            if t in by_t:
-                src = by_t[t].get("source") or ""
-                if "RISING" not in src:
-                    by_t[t]["source"] = (src + "+RISING").strip("+")
-            else:
-                by_t[t] = {
-                    "ticker": t,
-                    "asset_type": "STOCK",
-                    "source": "RISING",
-                    "name": r.get("name") or "",
-                }
-    except Exception:
-        pass
+    out: list[dict[str, Any]] = []
+    for r in list_low_target_ratio(0.8) or []:
+        u = str(r.get("ticker") or "").strip().upper()
+        if not u:
+            continue
+        out.append(
+            {
+                "ticker": u,
+                "asset_type": "STOCK",
+                "source": "TARGET",
+                "price": r.get("price"),
+                "target_1y": r.get("target_1y"),
+            }
+        )
+    return out
 
-    # ETF universe
-    try:
-        for r in list_etf_universe() or []:
-            t = str(r.get("ticker") or "").upper()
-            if not t:
-                continue
-            if t in by_t:
-                src = by_t[t].get("source") or ""
-                if "ETF" not in src:
-                    by_t[t]["source"] = (src + "+ETF").strip("+")
-                by_t[t]["asset_type"] = "ETF"
-            else:
-                by_t[t] = {
-                    "ticker": t,
-                    "asset_type": "ETF",
-                    "source": "ETF",
-                    "name": r.get("name") or "",
-                }
-    except Exception:
-        pass
 
-    return sorted(by_t.values(), key=lambda x: x["ticker"])
+def list_short_sell_pool_tickers() -> list[dict[str, Any]]:
+    """Watchlist SHORT sleeve — Dist / filters applied by short_sell.py."""
+    from watchlist_config import get_short_watchlist
+
+    out: list[dict[str, Any]] = []
+    for t in get_short_watchlist() or []:
+        u = str(t or "").strip().upper()
+        if not u:
+            continue
+        out.append({"ticker": u, "asset_type": "STOCK", "source": "SHORT"})
+    return out
 
 
 def list_manual_pool_members(pool_id: str) -> list[dict[str, Any]]:
@@ -290,7 +274,6 @@ def list_manual_pool_members(pool_id: str) -> list[dict[str, Any]]:
 def refresh_dynamic_pools() -> dict[str, Any]:
     """
     Refresh pool meta counts from shared data (no Yahoo calls).
-    Safe Margin / Short Sell stay empty until rules exist.
     """
     ensure_pool_tables()
     out: dict[str, Any] = {}
@@ -307,11 +290,13 @@ def refresh_dynamic_pools() -> dict[str, Any]:
     _set_pool_meta(POOL_STABLE_GROWTH, stable_n)
     out[POOL_STABLE_GROWTH] = stable_n
 
-    # Shells: count manual membership only (usually 0)
-    for pid in (POOL_SAFE_MARGIN, POOL_SHORT_SELL):
-        n = len(list_manual_pool_members(pid))
-        _set_pool_meta(pid, n)
-        out[pid] = n
+    safe_n = len(list_safe_margin_pool_tickers())
+    _set_pool_meta(POOL_SAFE_MARGIN, safe_n)
+    out[POOL_SAFE_MARGIN] = safe_n
+
+    short_n = len(list_short_sell_pool_tickers())
+    _set_pool_meta(POOL_SHORT_SELL, short_n)
+    out[POOL_SHORT_SELL] = short_n
 
     return out
 
@@ -330,6 +315,10 @@ def pool_summary(pool_id: str) -> dict[str, Any]:
             count = len(list_deep_recovery_pool_rows(limit=15))
         elif pid == POOL_STABLE_GROWTH:
             count = len(list_stable_growth_pool_tickers())
+        elif pid == POOL_SAFE_MARGIN:
+            count = len(list_safe_margin_pool_tickers())
+        elif pid == POOL_SHORT_SELL:
+            count = len(list_short_sell_pool_tickers())
         else:
             count = len(list_manual_pool_members(pid))
     return {
@@ -374,6 +363,10 @@ def list_pool_members_preview(pool_id: str, *, limit: int = 40) -> list[dict[str
         return list_deep_recovery_pool_rows(limit=limit)
     if pid == POOL_STABLE_GROWTH:
         return list_stable_growth_pool_tickers()[:limit]
+    if pid == POOL_SAFE_MARGIN:
+        return list_safe_margin_pool_tickers()[:limit]
+    if pid == POOL_SHORT_SELL:
+        return list_short_sell_pool_tickers()[:limit]
     return list_manual_pool_members(pid)[:limit]
 
 

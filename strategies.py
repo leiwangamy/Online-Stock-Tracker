@@ -92,43 +92,51 @@ STRATEGY_META: dict[str, dict[str, Any]] = {
     STRATEGY_STABLE_GROWTH: {
         "name": "Stable Growth",
         "short": "STABLE GROWTH",
-        "hypothesis": "Persistent, orderly upward trends continue long enough to trade.",
-        "primary_metric": "stable_growth_rank",  # TBD — proposed before auto-trade
-        "primary_metric_label": "Stable Growth Rank (TBD)",
-        "rank_direction": "desc",
-        "status": "shell",
+        "hypothesis": (
+            "GROWTH sleeve names bought on Dist SMA25 pullbacks (deepest first) "
+            "compound with a tight −3% stop and no take-profit; rotate to the "
+            "next unused queue name on exit."
+        ),
+        "primary_metric": "dist_sma25",
+        "primary_metric_label": "Dist SMA25 (ASC)",
+        "rank_direction": "asc",
+        "status": "active",
         "side": "long",
-        "universe": "broad_stock",
-        "source_pool_label": "STRONG ∪ RISING ∪ ETF — TBD",
+        "universe": "watchlist_growth",
+        "source_pool_label": "Watchlist GROWTH (Dist ASC top 10–20)",
     },
     STRATEGY_SAFE_MARGIN: {
         "name": "Safe Margin",
         "short": "SAFE MARGIN",
         "hypothesis": (
-            "Financially sound companies bought with sufficient valuation "
-            "margin (MOS) outperform."
+            "Target Ratio < 80% names with risk filters (large-cap, price, "
+            "low vol, Financial ≥60%, Knife ≠ HIGH), bought Target ASC with "
+            "a 10% trailing stop and no take-profit; rotate to the next "
+            "unused queue name on exit."
         ),
-        "primary_metric": "mos",  # TBD after valuation audit
-        "primary_metric_label": "Margin of Safety (TBD)",
-        "rank_direction": "desc",
-        "status": "shell",
+        "primary_metric": "target_ratio",
+        "primary_metric_label": "Target Ratio (ASC)",
+        "rank_direction": "asc",
+        "status": "active",
         "side": "long",
-        "universe": "valued_stock",
-        "source_pool_label": "TARGET RATIO < 80%",
+        "universe": "target_ratio_lt_80",
+        "source_pool_label": "TARGET RATIO < 80% (risk-filtered top 10–20)",
     },
     STRATEGY_SHORT_SELL: {
         "name": "Short Sell",
         "short": "SHORT SELL",
         "hypothesis": (
-            "Overextended / weakening structures provide profitable short opportunities."
+            "SHORT-sleeve names extended above SMA25 (Dist DESC) with 63D>80% "
+            "and a red day are sold short; a unified 5% trailing cover above "
+            "the trough exits; rotate to the next unused queue name on cover."
         ),
-        "primary_metric": "short_rank",  # TBD — not a simple reverse of long
-        "primary_metric_label": "Short Rank (TBD)",
+        "primary_metric": "dist_sma25",
+        "primary_metric_label": "Dist SMA25 (DESC)",
         "rank_direction": "desc",
-        "status": "shell",
+        "status": "active",
         "side": "short",
-        "universe": "broad_stock",
-        "source_pool_label": "Bearish mirror of Alert Buy — TBD",
+        "universe": "watchlist_short",
+        "source_pool_label": "Watchlist SHORT (Dist DESC · 63D>80% · Day%<0)",
     },
 }
 

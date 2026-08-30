@@ -370,6 +370,12 @@ def strategy_portfolio_summary(strategy_id: str) -> dict[str, Any]:
     cash = float(acct["cash"])
     start = float(acct["starting_capital"])
     equity = cash + mv
+    day = trading_day_pt()
+    realized_today = sum(
+        float(t.get("realized_pnl") or 0)
+        for t in closed
+        if (t.get("exit_date") or "") == day
+    )
     return {
         "strategy_id": sid,
         "label": strategy_label(sid),
@@ -389,6 +395,45 @@ def strategy_portfolio_summary(strategy_id: str) -> dict[str, Any]:
         "wins": wins,
         "losses": losses,
         "win_rate": (wins / len(closed) * 100.0) if closed else None,
+        "realized_today": realized_today,
+        "today_pnl": realized_today + upnl,
+    }
+
+
+def portfolio_summary_for_strategy(strategy_id: str | None = None) -> dict[str, Any]:
+    """
+    KPI strip for one strategy book (cash / positions / P&L never mixed).
+    Default: Alert Buy.
+    """
+    from strategies import STRATEGY_ALERT_BUY, normalize_strategy_id
+
+    ensure_strategy_accounts()
+    sid = normalize_strategy_id(strategy_id or STRATEGY_ALERT_BUY)
+    if sid == STRATEGY_ALERT_BUY:
+        _sync_legacy_portfolio_from_alert_buy()
+    s = strategy_portfolio_summary(sid)
+    wr = s.get("win_rate")
+    return {
+        "starting_capital": round(float(s["starting_capital"]), 2),
+        "trading_limit": round(float(s["trading_limit"]), 2),
+        "reserve_cash": round(float(s["reserve_cash"]), 2),
+        "cash": round(float(s["cash"]), 2),
+        "invested": round(float(s["invested"]), 2),
+        "current_equity": round(float(s["equity"]), 2),
+        "today_realized_pnl": round(float(s.get("realized_today") or 0), 2),
+        "total_realized_pnl": round(float(s["realized_pnl"]), 2),
+        "total_unrealized_pnl": round(float(s["unrealized_pnl"]), 2),
+        "today_pnl": round(float(s.get("today_pnl") or 0), 2),
+        "total_return_pct": round(float(s["total_return_pct"]), 2),
+        "win_rate": round(wr, 1) if wr is not None else None,
+        "closed_trades": int(s["closed_trades"]),
+        "open_trades": int(s["open_trades"]),
+        "strategy_id": sid,
+        "strategy_label": s.get("label"),
+        "updated_at": get_setting("paper_last_daily_update")
+        or get_setting("paper_candidates_updated_at"),
+        "candidates_as_of": get_setting("paper_candidates_as_of"),
+        "last_daily_update": get_setting("paper_last_daily_update"),
     }
 
 
@@ -760,14 +805,65 @@ def risk_reward_metrics(
     return {"stop_risk_pct": risk, "reward_pct": reward, "rr_ratio": rr}
 
 
-def validate_long_levels(entry: float, stop: float, take: float) -> str | None:
-    """Return error message if LONG levels are invalid; else None."""
-    if not (stop < entry < take):
+def validate_long_levels(
+    entry: float, stop: float, take: float | None = None
+) -> str | None:
+    """Return error message if LONG levels are invalid; else None.
+
+    Take Profit may be omitted (None) for strategies that run stop-only.
+    """
+    try:
+        e = float(entry)
+        s = float(stop)
+    except (TypeError, ValueError):
+        return "Entry and Stop Loss are required"
+    if not (s < e):
+        return f"Stop Loss ({s:.2f}) must be below entry ({e:.2f})"
+    if take is None:
+        return None
+    try:
+        t = float(take)
+    except (TypeError, ValueError):
+        return "Take Profit must be a number or omitted"
+    if not (e < t):
         return (
-            f"Stop Loss ({stop:.2f}) must be below entry ({entry:.2f}) "
-            f"and Take Profit ({take:.2f}) above entry"
+            f"Stop Loss ({s:.2f}) must be below entry ({e:.2f}) "
+            f"and Take Profit ({t:.2f}) above entry"
         )
     return None
+
+
+def validate_short_levels(
+    entry: float, stop: float, take: float | None = None
+) -> str | None:
+    """Return error message if SHORT cover levels are invalid; else None.
+
+    Cover stop must be above entry. Take (buy-to-cover profit) may be omitted.
+    """
+    try:
+        e = float(entry)
+        s = float(stop)
+    except (TypeError, ValueError):
+        return "Entry and Cover Stop are required"
+    if not (s > e):
+        return f"Cover Stop ({s:.2f}) must be above short entry ({e:.2f})"
+    if take is None:
+        return None
+    try:
+        t = float(take)
+    except (TypeError, ValueError):
+        return "Take Profit must be a number or omitted"
+    if not (t < e):
+        return (
+            f"Cover Stop ({s:.2f}) must be above entry ({e:.2f}) "
+            f"and Take Profit cover ({t:.2f}) below entry"
+        )
+    return None
+
+
+def _trade_side(tr: dict[str, Any] | None) -> str:
+    side = ((tr or {}).get("side") or "long").strip().lower()
+    return "short" if side == "short" else "long"
 
 
 def get_level_overrides(
@@ -917,8 +1013,8 @@ def apply_level_override_to_row(
     row["levels_valid"] = (
         entry is not None
         and row["stop_price"] is not None
-        and row["take_profit_price"] is not None
-        and validate_long_levels(entry, row["stop_price"], row["take_profit_price"]) is None
+        and validate_long_levels(entry, row["stop_price"], row["take_profit_price"])
+        is None
     )
     return row
 
@@ -1456,6 +1552,84 @@ def annotate_open_trade_levels(tr: dict[str, Any]) -> dict[str, Any]:
         )
     except (TypeError, ValueError):
         stop_pct = float(cfg["stop_loss_pct"])
+    # Stop-only books: take_profit_pct stored as NULL.
+    stop_only = tr.get("take_profit_pct") is None
+    trailing = bool(int(tr.get("trailing_stop") or 0))
+    is_short = _trade_side(tr) == "short"
+    tr["stop_pct"] = stop_pct
+    tr["no_take_profit"] = bool(stop_only)
+    tr["is_trailing_stop"] = trailing
+    tr["is_short"] = is_short
+    if stop_only:
+        tr["take_profit_pct"] = None
+        try:
+            peak = (
+                float(tr["peak_price"])
+                if tr.get("peak_price") is not None
+                else (float(entry) if entry is not None else None)
+            )
+        except (TypeError, ValueError):
+            peak = float(entry) if entry is not None else None
+        tr["peak_price"] = peak
+        # Long trail: stop below peak. Short trail: cover stop above trough
+        # (peak_price stores the trough for shorts).
+        if trailing and peak is not None and peak > 0:
+            if is_short:
+                d_stop = round(peak * (1.0 + stop_pct / 100.0), 2)
+            else:
+                d_stop = round(peak * (1.0 - stop_pct / 100.0), 2)
+        elif entry is not None and entry > 0:
+            if is_short:
+                d_stop = round(entry * (1.0 + stop_pct / 100.0), 2)
+            else:
+                d_stop = round(entry * (1.0 - stop_pct / 100.0), 2)
+        else:
+            d_stop = None
+        tr["default_stop"] = d_stop
+        tr["default_take"] = None
+        try:
+            cur_stop = (
+                float(tr["stop_price"]) if tr.get("stop_price") is not None else None
+            )
+        except (TypeError, ValueError):
+            cur_stop = None
+        # Hide unreachable DB placeholder from UI / R:R.
+        tr["take_profit_price"] = None
+        if trailing:
+            tr["stop_source"] = "trail"
+        else:
+            tr["stop_source"] = (
+                "manual"
+                if (
+                    cur_stop is not None
+                    and d_stop is not None
+                    and abs(cur_stop - d_stop) > 0.009
+                )
+                else "default"
+            )
+        tr["take_source"] = "none"
+        if is_short:
+            # Risk % for short cover = distance above entry toward stop.
+            risk = None
+            if entry is not None and cur_stop is not None and entry > 0:
+                risk = round((cur_stop - entry) / entry * 100.0, 2)
+            tr["stop_risk_pct"] = risk
+            tr["reward_pct"] = None
+            tr["rr_ratio"] = None
+            tr["levels_valid"] = (
+                entry is not None
+                and cur_stop is not None
+                and validate_short_levels(entry, cur_stop, None) is None
+            )
+        else:
+            tr.update(risk_reward_metrics(entry, cur_stop, None))
+            tr["levels_valid"] = (
+                entry is not None
+                and cur_stop is not None
+                and validate_long_levels(entry, cur_stop, None) is None
+            )
+        return tr
+
     try:
         take_pct = float(
             tr["take_profit_pct"]
@@ -1464,7 +1638,6 @@ def annotate_open_trade_levels(tr: dict[str, Any]) -> dict[str, Any]:
         )
     except (TypeError, ValueError):
         take_pct = float(cfg["take_profit_pct"])
-    tr["stop_pct"] = stop_pct
     tr["take_profit_pct"] = take_pct
     if entry is not None and entry > 0:
         d_stop, d_take = stop_take_prices(entry, stop_pct, take_pct)
@@ -2114,6 +2287,687 @@ def create_paper_orders_from_deep_recovery(
     }
 
 
+def create_paper_orders_from_stable_growth(
+    *, as_of_date: str | None = None
+) -> dict[str, Any]:
+    """
+    Paper orders for Stable Growth — Dist ASC GROWTH queue, STABLE_GROWTH book.
+    Stop −3%, no Take Profit.
+    """
+    from stable_growth import STOP_LOSS_PCT, build_stable_growth_snapshot
+    from strategies import STRATEGY_STABLE_GROWTH
+
+    day = as_of_date or trading_day_pt()
+    ensure_strategy_accounts()
+    snap = build_stable_growth_snapshot(persist=True)
+    trade_rows = []
+    for r in snap.get("rows") or []:
+        status = (r.get("buy_status") or "").upper()
+        if status == "HOLD":
+            status = (r.get("timing_status") or "").upper()
+        if status != "READY":
+            continue
+        trade_rows.append(r)
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    open_tickers = {
+        t["ticker"].upper()
+        for t in list_open_trades(strategy_id=STRATEGY_STABLE_GROWTH)
+    }
+    ever = _ever_traded_tickers(strategy_id=STRATEGY_STABLE_GROWTH)
+    # Prefer never-used on this book, then Dist order among reused.
+    fresh = [r for r in trade_rows if (r.get("ticker") or "").upper() not in ever]
+    reused = [r for r in trade_rows if (r.get("ticker") or "").upper() in ever]
+    ordered = fresh + reused
+
+    stable_ladder = [250.0, 250.0, 200.0, 200.0, 150.0, 150.0]
+    open_n = len(open_tickers)
+    for r in ordered:
+        t = str(r.get("ticker") or "").upper()
+        if not t:
+            continue
+        ladder_i = open_n + len(created)
+        target = stable_ladder[ladder_i] if ladder_i < len(stable_ladder) else 0.0
+        if t in open_tickers:
+            skipped.append({"ticker": t, "reason": "already_open"})
+            continue
+        if target <= 0:
+            skipped.append({"ticker": t, "reason": "no_allocation"})
+            continue
+        try:
+            price_f = float(r.get("price") or 0)
+        except (TypeError, ValueError):
+            price_f = 0.0
+        if price_f <= 0:
+            skipped.append(
+                {"ticker": t, "reason": "no_allocation", "detail": "no price"}
+            )
+            continue
+        row = dict(r)
+        row["price"] = price_f
+        if row.get("ai_score") is None:
+            row["ai_score"] = row.get("buy_score") or row.get("setup_rank")
+        if not row.get("source_codes"):
+            row["source_codes"] = "STABLE_GROWTH"
+        try:
+            out = _open_auto_replace_position(
+                row,
+                as_of_date=day,
+                target_usd=float(target),
+                rank_at_entry=ladder_i + 1,
+                strategy_id=STRATEGY_STABLE_GROWTH,
+                stop_loss_pct=STOP_LOSS_PCT,
+                no_take_profit=True,
+            )
+            out["via"] = "stable_growth"
+            out["buy_status"] = (r.get("buy_status") or "").upper()
+            created.append(out)
+            open_tickers.add(t)
+        except ValueError as e:
+            msg = str(e)
+            low = msg.lower()
+            if "insufficient cash" in low:
+                reason = "insufficient_cash"
+            elif "trading limit" in low:
+                reason = "trading_limit"
+            else:
+                reason = "no_allocation"
+            skipped.append({"ticker": t, "reason": reason, "detail": msg})
+            if reason in ("insufficient_cash", "trading_limit"):
+                break
+
+    acct = get_strategy_account(STRATEGY_STABLE_GROWTH)
+    cash = float(acct.get("cash") or 0)
+    invested = sum_open_invested(strategy_id=STRATEGY_STABLE_GROWTH)
+    try:
+        save_equity_snapshot(as_of_date=day)
+    except Exception:
+        log.exception("equity snapshot after stable_growth create_orders failed")
+    return {
+        "created": created,
+        "skipped": skipped,
+        "cash": cash,
+        "invested": invested,
+        "universe_count": snap.get("universe_count", 0),
+        "pool_count": snap.get("pool_count", 0),
+        "counts": snap.get("counts") or {},
+        "strategy_id": STRATEGY_STABLE_GROWTH,
+        "stop_loss_pct": STOP_LOSS_PCT,
+        "take_profit_pct": None,
+    }
+
+
+def auto_replace_stable_growth_exits(
+    *,
+    max_new: int,
+    as_of_date: str | None = None,
+) -> dict[str, Any]:
+    """
+    After any STABLE_GROWTH exit: buy up to max_new names from the then-current
+    GROWTH Dist ASC queue — prefer never-used on this book, skip currently open.
+    """
+    from stable_growth import STOP_LOSS_PCT, build_stable_growth_snapshot
+    from strategies import STRATEGY_STABLE_GROWTH
+
+    n = max(0, int(max_new or 0))
+    if n <= 0:
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+    enabled_raw = get_setting("paper_auto_replace_on_exit", "1")
+    enabled = str(enabled_raw if enabled_raw is not None else "1").strip().lower() not in (
+        "0",
+        "false",
+        "off",
+        "no",
+        "",
+    )
+    if not enabled:
+        return {"created": [], "skipped": [], "picks": [], "disabled": True}
+
+    day = as_of_date or trading_day_pt()
+    try:
+        snap = build_stable_growth_snapshot(persist=True)
+    except Exception:
+        log.exception("Stable Growth rebuild before auto-replace failed")
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+
+    open_tickers = {
+        t["ticker"].upper()
+        for t in list_open_trades(strategy_id=STRATEGY_STABLE_GROWTH)
+    }
+    ever = _ever_traded_tickers(strategy_id=STRATEGY_STABLE_GROWTH)
+    candidates: list[dict[str, Any]] = []
+    for r in snap.get("rows") or []:
+        st = (r.get("buy_status") or "").upper()
+        if st == "HOLD":
+            st = (r.get("timing_status") or "").upper()
+        if st != "READY":
+            continue
+        t = str(r.get("ticker") or "").upper()
+        if not t or t in open_tickers:
+            continue
+        try:
+            if float(r.get("price") or 0) <= 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        candidates.append(r)
+
+    # Prefer never-used; keep Dist order within each bucket.
+    fresh = [r for r in candidates if (r.get("ticker") or "").upper() not in ever]
+    reused = [r for r in candidates if (r.get("ticker") or "").upper() in ever]
+    pick_rows = (fresh + reused)[:n]
+
+    if not pick_rows:
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    slot_usd = 250.0
+    for i, r in enumerate(pick_rows):
+        t = str(r.get("ticker") or "").upper()
+        acct = get_strategy_account(STRATEGY_STABLE_GROWTH)
+        cash = float(acct.get("cash") or 0)
+        trading_limit = float(acct.get("trading_limit") or 0)
+        invested = sum_open_invested(strategy_id=STRATEGY_STABLE_GROWTH)
+        room = max(0.0, trading_limit - invested)
+        target = min(slot_usd, room, cash)
+        if target < 1.0:
+            skipped.append(
+                {
+                    "ticker": t,
+                    "reason": "no_room",
+                    "detail": f"cash ${cash:.2f}, room ${room:.2f}",
+                }
+            )
+            break
+        row = dict(r)
+        if row.get("ai_score") is None:
+            row["ai_score"] = row.get("buy_score") or row.get("setup_rank")
+        if not row.get("source_codes"):
+            row["source_codes"] = "STABLE_GROWTH"
+        try:
+            out = _open_auto_replace_position(
+                row,
+                as_of_date=day,
+                target_usd=target,
+                rank_at_entry=i + 1,
+                strategy_id=STRATEGY_STABLE_GROWTH,
+                stop_loss_pct=STOP_LOSS_PCT,
+                no_take_profit=True,
+            )
+            out["via"] = "stable_growth_auto_replace"
+            created.append(out)
+            open_tickers.add(t)
+            ever.add(t)
+        except ValueError as e:
+            skipped.append({"ticker": t, "reason": "no_allocation", "detail": str(e)})
+    return {
+        "created": created,
+        "skipped": skipped,
+        "picks": [str(r.get("ticker") or "").upper() for r in pick_rows],
+        "disabled": False,
+        "strategy_id": STRATEGY_STABLE_GROWTH,
+    }
+
+
+def create_paper_orders_from_safe_margin(
+    *, as_of_date: str | None = None
+) -> dict[str, Any]:
+    """
+    Paper orders for Safe Margin — Target ASC risk-filtered queue, SAFE_MARGIN book.
+    10% trailing stop, no Take Profit.
+    """
+    from safe_margin import STOP_LOSS_PCT, build_safe_margin_snapshot
+    from strategies import STRATEGY_SAFE_MARGIN
+
+    day = as_of_date or trading_day_pt()
+    ensure_strategy_accounts()
+    snap = build_safe_margin_snapshot(persist=True)
+    trade_rows = []
+    for r in snap.get("rows") or []:
+        status = (r.get("buy_status") or "").upper()
+        if status == "HOLD":
+            status = (r.get("timing_status") or "").upper()
+        if status != "READY":
+            continue
+        trade_rows.append(r)
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    open_tickers = {
+        t["ticker"].upper()
+        for t in list_open_trades(strategy_id=STRATEGY_SAFE_MARGIN)
+    }
+    ever = _ever_traded_tickers(strategy_id=STRATEGY_SAFE_MARGIN)
+    fresh = [r for r in trade_rows if (r.get("ticker") or "").upper() not in ever]
+    reused = [r for r in trade_rows if (r.get("ticker") or "").upper() in ever]
+    ordered = fresh + reused
+
+    safe_ladder = [250.0, 250.0, 200.0, 200.0, 150.0, 150.0]
+    open_n = len(open_tickers)
+    for r in ordered:
+        t = str(r.get("ticker") or "").upper()
+        if not t:
+            continue
+        ladder_i = open_n + len(created)
+        target = safe_ladder[ladder_i] if ladder_i < len(safe_ladder) else 0.0
+        if t in open_tickers:
+            skipped.append({"ticker": t, "reason": "already_open"})
+            continue
+        if target <= 0:
+            skipped.append({"ticker": t, "reason": "no_allocation"})
+            continue
+        try:
+            price_f = float(r.get("price") or 0)
+        except (TypeError, ValueError):
+            price_f = 0.0
+        if price_f <= 0:
+            skipped.append(
+                {"ticker": t, "reason": "no_allocation", "detail": "no price"}
+            )
+            continue
+        row = dict(r)
+        row["price"] = price_f
+        if row.get("ai_score") is None:
+            row["ai_score"] = row.get("buy_score") or row.get("setup_rank")
+        if not row.get("source_codes"):
+            row["source_codes"] = "SAFE_MARGIN"
+        try:
+            out = _open_auto_replace_position(
+                row,
+                as_of_date=day,
+                target_usd=float(target),
+                rank_at_entry=ladder_i + 1,
+                strategy_id=STRATEGY_SAFE_MARGIN,
+                stop_loss_pct=STOP_LOSS_PCT,
+                no_take_profit=True,
+                trailing_stop=True,
+            )
+            out["via"] = "safe_margin"
+            out["buy_status"] = (r.get("buy_status") or "").upper()
+            created.append(out)
+            open_tickers.add(t)
+        except ValueError as e:
+            msg = str(e)
+            low = msg.lower()
+            if "insufficient cash" in low:
+                reason = "insufficient_cash"
+            elif "trading limit" in low:
+                reason = "trading_limit"
+            else:
+                reason = "no_allocation"
+            skipped.append({"ticker": t, "reason": reason, "detail": msg})
+            if reason in ("insufficient_cash", "trading_limit"):
+                break
+
+    acct = get_strategy_account(STRATEGY_SAFE_MARGIN)
+    cash = float(acct.get("cash") or 0)
+    invested = sum_open_invested(strategy_id=STRATEGY_SAFE_MARGIN)
+    try:
+        save_equity_snapshot(as_of_date=day)
+    except Exception:
+        log.exception("equity snapshot after safe_margin create_orders failed")
+    return {
+        "created": created,
+        "skipped": skipped,
+        "cash": cash,
+        "invested": invested,
+        "universe_count": snap.get("universe_count", 0),
+        "pool_count": snap.get("pool_count", 0),
+        "passed_count": snap.get("passed_count", 0),
+        "counts": snap.get("counts") or {},
+        "strategy_id": STRATEGY_SAFE_MARGIN,
+        "stop_loss_pct": STOP_LOSS_PCT,
+        "trailing_stop": True,
+        "take_profit_pct": None,
+    }
+
+
+def auto_replace_safe_margin_exits(
+    *,
+    max_new: int,
+    as_of_date: str | None = None,
+) -> dict[str, Any]:
+    """
+    After any SAFE_MARGIN exit: buy up to max_new names from the then-current
+    Target ASC risk-filtered queue — prefer never-used on this book.
+    """
+    from safe_margin import STOP_LOSS_PCT, build_safe_margin_snapshot
+    from strategies import STRATEGY_SAFE_MARGIN
+
+    n = max(0, int(max_new or 0))
+    if n <= 0:
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+    enabled_raw = get_setting("paper_auto_replace_on_exit", "1")
+    enabled = str(enabled_raw if enabled_raw is not None else "1").strip().lower() not in (
+        "0",
+        "false",
+        "off",
+        "no",
+        "",
+    )
+    if not enabled:
+        return {"created": [], "skipped": [], "picks": [], "disabled": True}
+
+    day = as_of_date or trading_day_pt()
+    try:
+        snap = build_safe_margin_snapshot(persist=True)
+    except Exception:
+        log.exception("Safe Margin rebuild before auto-replace failed")
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+
+    open_tickers = {
+        t["ticker"].upper()
+        for t in list_open_trades(strategy_id=STRATEGY_SAFE_MARGIN)
+    }
+    ever = _ever_traded_tickers(strategy_id=STRATEGY_SAFE_MARGIN)
+    candidates: list[dict[str, Any]] = []
+    for r in snap.get("rows") or []:
+        st = (r.get("buy_status") or "").upper()
+        if st == "HOLD":
+            st = (r.get("timing_status") or "").upper()
+        if st != "READY":
+            continue
+        t = str(r.get("ticker") or "").upper()
+        if not t or t in open_tickers:
+            continue
+        try:
+            if float(r.get("price") or 0) <= 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        candidates.append(r)
+
+    fresh = [r for r in candidates if (r.get("ticker") or "").upper() not in ever]
+    reused = [r for r in candidates if (r.get("ticker") or "").upper() in ever]
+    pick_rows = (fresh + reused)[:n]
+
+    if not pick_rows:
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    slot_usd = 250.0
+    for i, r in enumerate(pick_rows):
+        t = str(r.get("ticker") or "").upper()
+        acct = get_strategy_account(STRATEGY_SAFE_MARGIN)
+        cash = float(acct.get("cash") or 0)
+        trading_limit = float(acct.get("trading_limit") or 0)
+        invested = sum_open_invested(strategy_id=STRATEGY_SAFE_MARGIN)
+        room = max(0.0, trading_limit - invested)
+        target = min(slot_usd, room, cash)
+        if target < 1.0:
+            skipped.append(
+                {
+                    "ticker": t,
+                    "reason": "no_room",
+                    "detail": f"cash ${cash:.2f}, room ${room:.2f}",
+                }
+            )
+            break
+        row = dict(r)
+        if row.get("ai_score") is None:
+            row["ai_score"] = row.get("buy_score") or row.get("setup_rank")
+        if not row.get("source_codes"):
+            row["source_codes"] = "SAFE_MARGIN"
+        try:
+            out = _open_auto_replace_position(
+                row,
+                as_of_date=day,
+                target_usd=target,
+                rank_at_entry=i + 1,
+                strategy_id=STRATEGY_SAFE_MARGIN,
+                stop_loss_pct=STOP_LOSS_PCT,
+                no_take_profit=True,
+                trailing_stop=True,
+            )
+            out["via"] = "safe_margin_auto_replace"
+            created.append(out)
+            open_tickers.add(t)
+            ever.add(t)
+        except ValueError as e:
+            skipped.append({"ticker": t, "reason": "no_allocation", "detail": str(e)})
+    return {
+        "created": created,
+        "skipped": skipped,
+        "picks": [str(r.get("ticker") or "").upper() for r in pick_rows],
+        "disabled": False,
+        "strategy_id": STRATEGY_SAFE_MARGIN,
+    }
+
+
+def create_paper_orders_from_short_sell(
+    *, as_of_date: str | None = None
+) -> dict[str, Any]:
+    """
+    Paper SELL SHORT orders — Dist DESC SHORT queue, SHORT_SELL book.
+    5% trailing cover above trough, no Take Profit.
+    """
+    from short_sell import STOP_LOSS_PCT, build_short_sell_snapshot
+    from strategies import STRATEGY_SHORT_SELL
+
+    day = as_of_date or trading_day_pt()
+    ensure_strategy_accounts()
+    snap = build_short_sell_snapshot(persist=True)
+    trade_rows = []
+    for r in snap.get("rows") or []:
+        status = (r.get("buy_status") or "").upper()
+        if status == "HOLD":
+            status = (r.get("timing_status") or "").upper()
+        if status != "READY":
+            continue
+        trade_rows.append(r)
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    open_tickers = {
+        t["ticker"].upper()
+        for t in list_open_trades(strategy_id=STRATEGY_SHORT_SELL)
+    }
+    ever = _ever_traded_tickers(strategy_id=STRATEGY_SHORT_SELL)
+    fresh = [r for r in trade_rows if (r.get("ticker") or "").upper() not in ever]
+    reused = [r for r in trade_rows if (r.get("ticker") or "").upper() in ever]
+    ordered = fresh + reused
+
+    short_ladder = [250.0, 250.0, 200.0, 200.0, 150.0, 150.0]
+    open_n = len(open_tickers)
+    for r in ordered:
+        t = str(r.get("ticker") or "").upper()
+        if not t:
+            continue
+        ladder_i = open_n + len(created)
+        target = short_ladder[ladder_i] if ladder_i < len(short_ladder) else 0.0
+        if t in open_tickers:
+            skipped.append({"ticker": t, "reason": "already_open"})
+            continue
+        if target <= 0:
+            skipped.append({"ticker": t, "reason": "no_allocation"})
+            continue
+        try:
+            price_f = float(r.get("price") or 0)
+        except (TypeError, ValueError):
+            price_f = 0.0
+        if price_f <= 0:
+            skipped.append(
+                {"ticker": t, "reason": "no_allocation", "detail": "no price"}
+            )
+            continue
+        row = dict(r)
+        row["price"] = price_f
+        row["side"] = "short"
+        if row.get("ai_score") is None:
+            row["ai_score"] = row.get("buy_score") or row.get("setup_rank")
+        if not row.get("source_codes"):
+            row["source_codes"] = "SHORT_SELL"
+        try:
+            out = _open_auto_replace_position(
+                row,
+                as_of_date=day,
+                target_usd=float(target),
+                rank_at_entry=ladder_i + 1,
+                strategy_id=STRATEGY_SHORT_SELL,
+                stop_loss_pct=STOP_LOSS_PCT,
+                no_take_profit=True,
+                trailing_stop=True,
+                side="short",
+            )
+            out["via"] = "short_sell"
+            out["buy_status"] = (r.get("buy_status") or "").upper()
+            created.append(out)
+            open_tickers.add(t)
+        except ValueError as e:
+            msg = str(e)
+            low = msg.lower()
+            if "insufficient cash" in low:
+                reason = "insufficient_cash"
+            elif "trading limit" in low:
+                reason = "trading_limit"
+            else:
+                reason = "no_allocation"
+            skipped.append({"ticker": t, "reason": reason, "detail": msg})
+            if reason in ("insufficient_cash", "trading_limit"):
+                break
+
+    acct = get_strategy_account(STRATEGY_SHORT_SELL)
+    cash = float(acct.get("cash") or 0)
+    invested = sum_open_invested(strategy_id=STRATEGY_SHORT_SELL)
+    try:
+        save_equity_snapshot(as_of_date=day)
+    except Exception:
+        log.exception("equity snapshot after short_sell create_orders failed")
+    return {
+        "created": created,
+        "skipped": skipped,
+        "cash": cash,
+        "invested": invested,
+        "universe_count": snap.get("universe_count", 0),
+        "pool_count": snap.get("pool_count", 0),
+        "passed_count": snap.get("passed_count", 0),
+        "counts": snap.get("counts") or {},
+        "strategy_id": STRATEGY_SHORT_SELL,
+        "stop_loss_pct": STOP_LOSS_PCT,
+        "trailing_stop": True,
+        "take_profit_pct": None,
+        "side": "short",
+    }
+
+
+def auto_replace_short_sell_exits(
+    *,
+    max_new: int,
+    as_of_date: str | None = None,
+) -> dict[str, Any]:
+    """
+    After any SHORT_SELL cover: open up to max_new shorts from the then-current
+    Dist DESC candidate queue — prefer never-used on this book.
+    """
+    from short_sell import STOP_LOSS_PCT, build_short_sell_snapshot
+    from strategies import STRATEGY_SHORT_SELL
+
+    n = max(0, int(max_new or 0))
+    if n <= 0:
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+    enabled_raw = get_setting("paper_auto_replace_on_exit", "1")
+    enabled = str(enabled_raw if enabled_raw is not None else "1").strip().lower() not in (
+        "0",
+        "false",
+        "off",
+        "no",
+        "",
+    )
+    if not enabled:
+        return {"created": [], "skipped": [], "picks": [], "disabled": True}
+
+    day = as_of_date or trading_day_pt()
+    try:
+        snap = build_short_sell_snapshot(persist=True)
+    except Exception:
+        log.exception("Short Sell rebuild before auto-replace failed")
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+
+    open_tickers = {
+        t["ticker"].upper()
+        for t in list_open_trades(strategy_id=STRATEGY_SHORT_SELL)
+    }
+    ever = _ever_traded_tickers(strategy_id=STRATEGY_SHORT_SELL)
+    candidates: list[dict[str, Any]] = []
+    for r in snap.get("rows") or []:
+        st = (r.get("buy_status") or "").upper()
+        if st == "HOLD":
+            st = (r.get("timing_status") or "").upper()
+        if st != "READY":
+            continue
+        t = str(r.get("ticker") or "").upper()
+        if not t or t in open_tickers:
+            continue
+        try:
+            if float(r.get("price") or 0) <= 0:
+                continue
+        except (TypeError, ValueError):
+            continue
+        candidates.append(r)
+
+    fresh = [r for r in candidates if (r.get("ticker") or "").upper() not in ever]
+    reused = [r for r in candidates if (r.get("ticker") or "").upper() in ever]
+    pick_rows = (fresh + reused)[:n]
+
+    if not pick_rows:
+        return {"created": [], "skipped": [], "picks": [], "disabled": False}
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    slot_usd = 250.0
+    for i, r in enumerate(pick_rows):
+        t = str(r.get("ticker") or "").upper()
+        acct = get_strategy_account(STRATEGY_SHORT_SELL)
+        cash = float(acct.get("cash") or 0)
+        trading_limit = float(acct.get("trading_limit") or 0)
+        invested = sum_open_invested(strategy_id=STRATEGY_SHORT_SELL)
+        room = max(0.0, trading_limit - invested)
+        target = min(slot_usd, room, cash)
+        if target < 1.0:
+            skipped.append(
+                {
+                    "ticker": t,
+                    "reason": "no_room",
+                    "detail": f"cash ${cash:.2f}, room ${room:.2f}",
+                }
+            )
+            break
+        row = dict(r)
+        row["side"] = "short"
+        if row.get("ai_score") is None:
+            row["ai_score"] = row.get("buy_score") or row.get("setup_rank")
+        if not row.get("source_codes"):
+            row["source_codes"] = "SHORT_SELL"
+        try:
+            out = _open_auto_replace_position(
+                row,
+                as_of_date=day,
+                target_usd=target,
+                rank_at_entry=i + 1,
+                strategy_id=STRATEGY_SHORT_SELL,
+                stop_loss_pct=STOP_LOSS_PCT,
+                no_take_profit=True,
+                trailing_stop=True,
+                side="short",
+            )
+            out["via"] = "short_sell_auto_replace"
+            created.append(out)
+            open_tickers.add(t)
+            ever.add(t)
+        except ValueError as e:
+            skipped.append({"ticker": t, "reason": "no_allocation", "detail": str(e)})
+    return {
+        "created": created,
+        "skipped": skipped,
+        "picks": [str(r.get("ticker") or "").upper() for r in pick_rows],
+        "disabled": False,
+        "strategy_id": STRATEGY_SHORT_SELL,
+    }
+
+
 def auto_buy_on_refresh(*, as_of_date: str | None = None) -> dict[str, Any]:
     """
     If paper_auto_buy_on_refresh is on and fund/limit room remains,
@@ -2149,13 +3003,18 @@ def auto_buy_on_refresh(*, as_of_date: str | None = None) -> dict[str, Any]:
     return out
 
 
-def _ever_traded_tickers() -> set[str]:
-    """Tickers that already appear in paper_trades (open or closed) this experiment."""
+def _ever_traded_tickers(*, strategy_id: str | None = None) -> set[str]:
+    """Tickers that already appear in paper_trades (open or closed)."""
+    from strategies import normalize_strategy_id
+
     init_db()
+    sql = "SELECT DISTINCT UPPER(ticker) AS t FROM paper_trades WHERE ticker IS NOT NULL"
+    args: list[Any] = []
+    if strategy_id:
+        sql += " AND UPPER(COALESCE(strategy_id, 'ALERT_BUY')) = ?"
+        args.append(normalize_strategy_id(strategy_id))
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT DISTINCT UPPER(ticker) AS t FROM paper_trades WHERE ticker IS NOT NULL"
-        ).fetchall()
+        rows = conn.execute(sql, args).fetchall()
     return {str(r["t"]).upper() for r in rows if r["t"]}
 
 
@@ -2166,6 +3025,11 @@ def _open_auto_replace_position(
     target_usd: float,
     rank_at_entry: int = 0,
     strategy_id: str | None = None,
+    stop_loss_pct: float | None = None,
+    take_profit_pct: float | None = None,
+    no_take_profit: bool = False,
+    trailing_stop: bool = False,
+    side: str | None = None,
 ) -> dict[str, Any]:
     """Open one paper position from a research/eligible row using target_usd sizing."""
     from strategies import STRATEGY_ALERT_BUY, normalize_strategy_id
@@ -2176,6 +3040,7 @@ def _open_auto_replace_position(
         raise ValueError("ticker required")
     sid = normalize_strategy_id(strategy_id) if strategy_id else STRATEGY_ALERT_BUY
     use_strategy_book = bool(strategy_id)
+    trade_side = _trade_side({"side": side or research_row.get("side") or "long"})
     # Always prefer a live Yahoo price for fills + Stop/Take (dashboard can be stale).
     live = _fetch_live_price(t)
     try:
@@ -2210,9 +3075,32 @@ def _open_auto_replace_position(
             f"need ${cost:.2f}, limit ${trading_limit:.2f}"
         )
 
-    stop_pct = float(cfg["stop_loss_pct"])
-    take_pct = float(cfg["take_profit_pct"])
-    auto_stop, auto_take = stop_take_prices(price, stop_pct, take_pct)
+    stop_pct = float(
+        stop_loss_pct if stop_loss_pct is not None else cfg["stop_loss_pct"]
+    )
+    if trade_side == "short":
+        if no_take_profit:
+            take_pct = None
+            # Cover stop above entry; placeholder take far below (ignored at runtime).
+            auto_stop = round(price * (1.0 + stop_pct / 100.0), 4)
+            auto_take = round(price * 0.01, 4)
+        else:
+            take_pct = float(
+                take_profit_pct if take_profit_pct is not None else cfg["take_profit_pct"]
+            )
+            auto_stop = round(price * (1.0 + stop_pct / 100.0), 4)
+            auto_take = round(price * (1.0 - take_pct / 100.0), 4)
+    elif no_take_profit:
+        take_pct = None
+        auto_stop = round(price * (1.0 - stop_pct / 100.0), 4)
+        # DB column take_profit_price is NOT NULL — store an unreachable
+        # placeholder; runtime exits ignore Take when take_profit_pct is None.
+        auto_take = round(price * 100.0, 4)
+    else:
+        take_pct = float(
+            take_profit_pct if take_profit_pct is not None else cfg["take_profit_pct"]
+        )
+        auto_stop, auto_take = stop_take_prices(price, stop_pct, take_pct)
     ov = get_level_overrides([t]).get(t)
     row_levels = {
         "stop_price": auto_stop,
@@ -2223,15 +3111,37 @@ def _open_auto_replace_position(
         row_levels, ov, default_stop=auto_stop, default_take=auto_take
     )
     stop = float(row_levels["stop_price"])
-    take = float(row_levels["take_profit_price"])
+    take_raw = row_levels.get("take_profit_price")
+    take = float(take_raw) if take_raw is not None else None
+    if no_take_profit:
+        # Keep NOT NULL placeholder; pct=None is the stop-only signal.
+        take = float(auto_take)
+        take_pct = None
     if price > 0:
-        stop_pct = round((price - stop) / price * 100.0, 4)
-        take_pct = round((take - price) / price * 100.0, 4)
-    level_err = validate_long_levels(price, stop, take)
+        if trade_side == "short":
+            stop_pct = round((stop - price) / price * 100.0, 4)
+            if not no_take_profit and take is not None:
+                take_pct = round((price - take) / price * 100.0, 4)
+        else:
+            stop_pct = round((price - stop) / price * 100.0, 4)
+            if not no_take_profit and take is not None:
+                take_pct = round((take - price) / price * 100.0, 4)
+    # Validate stop always; skip take check when stop-only.
+    if trade_side == "short":
+        level_err = validate_short_levels(
+            price, stop, None if no_take_profit else take
+        )
+    else:
+        level_err = validate_long_levels(
+            price, stop, None if no_take_profit else take
+        )
     if level_err:
         raise ValueError(level_err)
 
     knife = research_row.get("knife") if isinstance(research_row.get("knife"), dict) else {}
+    # peak_price = high for long trail; trough for short trail.
+    peak_price = float(price) if trailing_stop else None
+    trail_flag = 1 if trailing_stop else 0
     now = _utc_now_iso()
     with get_conn() as conn:
         conn.execute(
@@ -2244,8 +3154,9 @@ def _open_auto_replace_position(
               news_tone_entry, source_at_entry, strategy_id, side,
               is_priority, rank_at_entry, current_price, market_value,
               unrealized_pnl, unrealized_pnl_pct, ai_score_current,
+              peak_price, trailing_stop,
               created_at, updated_at
-            ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
+            ) VALUES (?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)
             """,
             (
                 t,
@@ -2269,12 +3180,14 @@ def _open_auto_replace_position(
                 research_row.get("news_tone"),
                 research_row.get("source_codes") or "",
                 sid if use_strategy_book else None,
-                "long",
+                trade_side,
                 int(research_row.get("is_priority") or 0),
                 int(rank_at_entry or 0),
                 price,
                 cost,
                 research_row.get("ai_score"),
+                peak_price,
+                trail_flag,
                 now,
                 now,
             ),
@@ -2308,6 +3221,11 @@ def _open_auto_replace_position(
         "knife_score": knife.get("score"),
         "via": "auto_replace",
         "strategy_id": sid if use_strategy_book else STRATEGY_ALERT_BUY,
+        "stop_pct": stop_pct,
+        "take_profit_pct": take_pct,
+        "trailing_stop": bool(trailing_stop),
+        "peak_price": peak_price,
+        "side": trade_side,
     }
 
 
@@ -2729,7 +3647,10 @@ def _close_trade(
     day_high: float | None = None,
     day_low: float | None = None,
 ) -> dict[str, Any]:
+    from strategies import STRATEGY_ALERT_BUY, normalize_strategy_id
+
     init_db()
+    ensure_strategy_accounts()
     now = _utc_now_iso()
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM paper_trades WHERE id = ?", (trade_id,)).fetchone()
@@ -2740,9 +3661,21 @@ def _close_trade(
             raise ValueError("trade already closed")
         shares = float(tr["shares"])
         entry = float(tr["entry_price"])
-        proceeds = round(exit_price * shares, 4)
-        realized = round((exit_price - entry) * shares, 4)
-        ret_pct = round((exit_price - entry) / entry * 100.0, 4) if entry else 0.0
+        is_short = _trade_side(tr) == "short"
+        if is_short:
+            # Cover: return reserved notional + short P&L.
+            realized = round((entry - exit_price) * shares, 4)
+            ret_pct = (
+                round((entry - exit_price) / entry * 100.0, 4) if entry else 0.0
+            )
+            proceeds = round(float(tr.get("cost") or (entry * shares)) + realized, 4)
+        else:
+            proceeds = round(exit_price * shares, 4)
+            realized = round((exit_price - entry) * shares, 4)
+            ret_pct = (
+                round((exit_price - entry) / entry * 100.0, 4) if entry else 0.0
+            )
+        sid = normalize_strategy_id(tr.get("strategy_id") or STRATEGY_ALERT_BUY)
         conn.execute(
             """
             UPDATE paper_trades SET
@@ -2770,12 +3703,33 @@ def _close_trade(
                 trade_id,
             ),
         )
-        port = conn.execute("SELECT cash FROM paper_portfolio WHERE id = 1").fetchone()
-        cash = float(port["cash"]) + proceeds
-        conn.execute(
-            "UPDATE paper_portfolio SET cash = ?, updated_at = ? WHERE id = 1",
-            (round(cash, 4), now),
-        )
+        acct = conn.execute(
+            "SELECT cash FROM paper_strategy_accounts WHERE strategy_id = ?",
+            (sid,),
+        ).fetchone()
+        if acct:
+            cash = float(acct["cash"]) + proceeds
+            conn.execute(
+                """
+                UPDATE paper_strategy_accounts
+                SET cash = ?, updated_at = ?
+                WHERE strategy_id = ?
+                """,
+                (round(cash, 4), now, sid),
+            )
+        # Legacy singleton mirrors ALERT_BUY only (never other strategy books).
+        if sid == STRATEGY_ALERT_BUY:
+            port = conn.execute("SELECT cash FROM paper_portfolio WHERE id = 1").fetchone()
+            legacy_cash = float(port["cash"]) + proceeds if port else cash
+            conn.execute(
+                "UPDATE paper_portfolio SET cash = ?, updated_at = ? WHERE id = 1",
+                (round(legacy_cash, 4), now),
+            )
+        elif acct:
+            # Keep legacy in sync with ALERT_BUY after non-ALERT closes (no cash move).
+            pass
+    if sid != STRATEGY_ALERT_BUY:
+        _sync_legacy_portfolio_from_alert_buy()
     return {
         "id": trade_id,
         "ticker": tr["ticker"],
@@ -2783,6 +3737,7 @@ def _close_trade(
         "realized_pnl": realized,
         "exit_reason": exit_reason,
         "exit_note": exit_note,
+        "strategy_id": sid,
     }
 
 
@@ -3175,16 +4130,61 @@ def evaluate_open_trade_vs_ohlc(tr: dict[str, Any], ohlc: dict[str, Any]) -> dic
     """
     Apply V1 daily stop/target rules using OHLC.
     Same-day both hit → conservative: Stop Loss first.
+    Take Profit omitted (None) → stop-only strategies never exit on take.
+    Long trailing: ratchet peak to day high, stop = peak × (1 − stop_pct/100).
+    Short trailing: ratchet trough to day low, cover = trough × (1 + stop_pct/100).
     """
-    stop = float(tr["stop_price"])
-    take = float(tr["take_profit_price"])
     high = float(ohlc["high"])
     low = float(ohlc["low"])
     close = float(ohlc["close"])
-    hit_stop = low <= stop
-    hit_take = high >= take
+    trailing = bool(int(tr.get("trailing_stop") or 0))
+    is_short = _trade_side(tr) == "short"
+    try:
+        stop_pct = float(tr["stop_pct"]) if tr.get("stop_pct") is not None else 10.0
+    except (TypeError, ValueError):
+        stop_pct = 10.0
+
+    peak_out = None
+    stop_out = None
+    if trailing:
+        try:
+            anchor = (
+                float(tr["peak_price"])
+                if tr.get("peak_price") is not None
+                else float(tr["entry_price"])
+            )
+        except (TypeError, ValueError, KeyError):
+            anchor = float(tr["entry_price"])
+        if is_short:
+            # peak_price stores trough (lowest) for shorts.
+            trough = min(anchor, low)
+            stop = round(trough * (1.0 + stop_pct / 100.0), 4)
+            peak_out = trough
+            stop_out = stop
+        else:
+            peak = max(anchor, high)
+            stop = round(peak * (1.0 - stop_pct / 100.0), 4)
+            peak_out = peak
+            stop_out = stop
+    else:
+        stop = float(tr["stop_price"])
+
+    # Stop-only books: take_profit_pct is NULL → never take.
+    if tr.get("take_profit_pct") is None:
+        take = None
+    else:
+        take_raw = tr.get("take_profit_price")
+        take = float(take_raw) if take_raw is not None else None
+
+    if is_short:
+        hit_stop = high >= stop  # buy-to-cover
+        hit_take = take is not None and low <= take
+    else:
+        hit_stop = low <= stop
+        hit_take = take is not None and high >= take
+
     if hit_stop and hit_take:
-        return {
+        out = {
             "action": "close",
             "exit_price": stop,
             "exit_reason": EXIT_STOP,
@@ -3193,32 +4193,64 @@ def evaluate_open_trade_vs_ohlc(tr: dict[str, Any], ohlc: dict[str, Any]) -> dic
             "day_low": low,
             "current_price": close,
         }
+        if peak_out is not None:
+            out["peak_price"] = peak_out
+            out["stop_price"] = stop_out
+        return out
     if hit_stop:
-        return {
+        note = (
+            "daily_high_hit_trailing_cover"
+            if is_short and trailing
+            else (
+                "daily_high_hit_cover_stop"
+                if is_short
+                else (
+                    "daily_low_hit_trailing_stop"
+                    if trailing
+                    else "daily_low_hit_stop"
+                )
+            )
+        )
+        out = {
             "action": "close",
             "exit_price": stop,
             "exit_reason": EXIT_STOP,
-            "exit_note": "daily_low_hit_stop",
+            "exit_note": note,
             "day_high": high,
             "day_low": low,
             "current_price": close,
         }
+        if peak_out is not None:
+            out["peak_price"] = peak_out
+            out["stop_price"] = stop_out
+        return out
     if hit_take:
         return {
             "action": "close",
             "exit_price": take,
             "exit_reason": EXIT_TAKE,
-            "exit_note": "daily_high_hit_take_profit",
+            "exit_note": (
+                "daily_low_hit_short_take"
+                if is_short
+                else "daily_high_hit_take_profit"
+            ),
             "day_high": high,
             "day_low": low,
             "current_price": close,
         }
     entry = float(tr["entry_price"])
     shares = float(tr["shares"])
-    mv = round(close * shares, 4)
-    upnl = round((close - entry) * shares, 4)
-    upct = round((close - entry) / entry * 100.0, 4) if entry else 0.0
-    return {
+    cost = float(tr.get("cost") or (entry * shares))
+    if is_short:
+        upnl = round((entry - close) * shares, 4)
+        upct = round((entry - close) / entry * 100.0, 4) if entry else 0.0
+        # Reserve model: MV = cost + upnl so equity = cash + MV stays consistent.
+        mv = round(cost + upnl, 4)
+    else:
+        mv = round(close * shares, 4)
+        upnl = round((close - entry) * shares, 4)
+        upct = round((close - entry) / entry * 100.0, 4) if entry else 0.0
+    out = {
         "action": "mark",
         "current_price": close,
         "day_high": high,
@@ -3227,6 +4259,10 @@ def evaluate_open_trade_vs_ohlc(tr: dict[str, Any], ohlc: dict[str, Any]) -> dic
         "unrealized_pnl": upnl,
         "unrealized_pnl_pct": upct,
     }
+    if peak_out is not None:
+        out["peak_price"] = peak_out
+        out["stop_price"] = stop_out
+    return out
 
 
 def run_daily_update(*, refresh_candidates: bool = True) -> dict[str, Any]:
@@ -3270,9 +4306,15 @@ def run_daily_update(*, refresh_candidates: bool = True) -> dict[str, Any]:
                     continue
                 entry = float(tr["entry_price"])
                 shares = float(tr["shares"])
-                mv = round(px * shares, 4)
-                upnl = round((px - entry) * shares, 4)
-                upct = round((px - entry) / entry * 100.0, 4) if entry else 0.0
+                cost = float(tr.get("cost") or (entry * shares))
+                if _trade_side(tr) == "short":
+                    upnl = round((entry - px) * shares, 4)
+                    upct = round((entry - px) / entry * 100.0, 4) if entry else 0.0
+                    mv = round(cost + upnl, 4)
+                else:
+                    mv = round(px * shares, 4)
+                    upnl = round((px - entry) * shares, 4)
+                    upct = round((px - entry) / entry * 100.0, 4) if entry else 0.0
                 with get_conn() as conn:
                     conn.execute(
                         """
@@ -3310,26 +4352,53 @@ def run_daily_update(*, refresh_candidates: bool = True) -> dict[str, Any]:
                 )
             else:
                 with get_conn() as conn:
-                    conn.execute(
-                        """
-                        UPDATE paper_trades SET
-                          current_price = ?, day_high = ?, day_low = ?,
-                          market_value = ?, unrealized_pnl = ?, unrealized_pnl_pct = ?,
-                          ai_score_current = ?, updated_at = ?
-                        WHERE id = ?
-                        """,
-                        (
-                            decision["current_price"],
-                            decision.get("day_high"),
-                            decision.get("day_low"),
-                            decision["market_value"],
-                            decision["unrealized_pnl"],
-                            decision["unrealized_pnl_pct"],
-                            ai_map.get(tr["ticker"].upper()),
-                            _utc_now_iso(),
-                            tr["id"],
-                        ),
-                    )
+                    if decision.get("peak_price") is not None and decision.get(
+                        "stop_price"
+                    ) is not None:
+                        conn.execute(
+                            """
+                            UPDATE paper_trades SET
+                              current_price = ?, day_high = ?, day_low = ?,
+                              market_value = ?, unrealized_pnl = ?, unrealized_pnl_pct = ?,
+                              ai_score_current = ?, peak_price = ?, stop_price = ?,
+                              updated_at = ?
+                            WHERE id = ?
+                            """,
+                            (
+                                decision["current_price"],
+                                decision.get("day_high"),
+                                decision.get("day_low"),
+                                decision["market_value"],
+                                decision["unrealized_pnl"],
+                                decision["unrealized_pnl_pct"],
+                                ai_map.get(tr["ticker"].upper()),
+                                decision["peak_price"],
+                                decision["stop_price"],
+                                _utc_now_iso(),
+                                tr["id"],
+                            ),
+                        )
+                    else:
+                        conn.execute(
+                            """
+                            UPDATE paper_trades SET
+                              current_price = ?, day_high = ?, day_low = ?,
+                              market_value = ?, unrealized_pnl = ?, unrealized_pnl_pct = ?,
+                              ai_score_current = ?, updated_at = ?
+                            WHERE id = ?
+                            """,
+                            (
+                                decision["current_price"],
+                                decision.get("day_high"),
+                                decision.get("day_low"),
+                                decision["market_value"],
+                                decision["unrealized_pnl"],
+                                decision["unrealized_pnl_pct"],
+                                ai_map.get(tr["ticker"].upper()),
+                                _utc_now_iso(),
+                                tr["id"],
+                            ),
+                        )
                 marked += 1
         except Exception as exc:
             log.exception("daily update failed for trade %s", tr.get("id"))
@@ -3346,31 +4415,97 @@ def run_daily_update(*, refresh_candidates: bool = True) -> dict[str, Any]:
     auto_created: list[dict[str, Any]] = []
     if closed:
         try:
-            # Only Stop/Take from this daily pass free slots for unused Top names.
-            replaceable = [
-                c
-                for c in closed
-                if normalize_exit_reason(c.get("exit_reason")) in (EXIT_STOP, EXIT_TAKE)
-            ]
-            if replaceable:
-                rep = auto_replace_exits_with_top_unused(
-                    max_new=len(replaceable), as_of_date=day
-                )
-                auto_created = list(rep.get("created") or [])
-                if rep.get("disabled"):
-                    log.info("Auto-replace disabled in settings")
-                elif auto_created:
-                    log.info(
-                        "Auto-replace created %s after %s exits",
-                        len(auto_created),
-                        len(replaceable),
+            from strategies import (
+                STRATEGY_ALERT_BUY,
+                STRATEGY_DEEP_RECOVERY,
+                STRATEGY_SAFE_MARGIN,
+                STRATEGY_STABLE_GROWTH,
+                STRATEGY_SHORT_SELL,
+                normalize_strategy_id,
+            )
+
+            # Any EXIT frees a slot; route refill to the same strategy book.
+            by_sid: dict[str, list] = {}
+            for c in closed:
+                sid = normalize_strategy_id(c.get("strategy_id") or STRATEGY_ALERT_BUY)
+                by_sid.setdefault(sid, []).append(c)
+
+            if by_sid.get(STRATEGY_ALERT_BUY):
+                replaceable = [
+                    c
+                    for c in by_sid[STRATEGY_ALERT_BUY]
+                    if normalize_exit_reason(c.get("exit_reason"))
+                    in (EXIT_STOP, EXIT_TAKE, EXIT_MANUAL)
+                ]
+                if replaceable:
+                    rep = auto_replace_exits_with_top_unused(
+                        max_new=len(replaceable), as_of_date=day
                     )
-                # Candidates may have changed after new orders — optional light refresh
-                if auto_created and refresh_candidates:
-                    try:
-                        candidates = build_candidates(as_of_date=day, persist=True)
-                    except Exception:
-                        log.exception("candidate rebuild after auto-replace failed")
+                    auto_created.extend(list(rep.get("created") or []))
+
+            if by_sid.get(STRATEGY_STABLE_GROWTH):
+                rep_sg = auto_replace_stable_growth_exits(
+                    max_new=len(by_sid[STRATEGY_STABLE_GROWTH]), as_of_date=day
+                )
+                auto_created.extend(list(rep_sg.get("created") or []))
+
+            if by_sid.get(STRATEGY_SAFE_MARGIN):
+                rep_sm = auto_replace_safe_margin_exits(
+                    max_new=len(by_sid[STRATEGY_SAFE_MARGIN]), as_of_date=day
+                )
+                auto_created.extend(list(rep_sm.get("created") or []))
+
+            if by_sid.get(STRATEGY_SHORT_SELL):
+                rep_ss = auto_replace_short_sell_exits(
+                    max_new=len(by_sid[STRATEGY_SHORT_SELL]), as_of_date=day
+                )
+                auto_created.extend(list(rep_ss.get("created") or []))
+
+            # Deep Recovery: refill from Oversold queue (same book).
+            if by_sid.get(STRATEGY_DEEP_RECOVERY):
+                try:
+                    from deep_recovery import build_deep_recovery_snapshot
+
+                    snap_d = build_deep_recovery_snapshot(persist=True)
+                    open_d = {
+                        t["ticker"].upper()
+                        for t in list_open_trades(strategy_id=STRATEGY_DEEP_RECOVERY)
+                    }
+                    need = len(by_sid[STRATEGY_DEEP_RECOVERY])
+                    picks = []
+                    for r in snap_d.get("rows") or []:
+                        st = (r.get("buy_status") or "").upper()
+                        if st == "HOLD":
+                            st = (r.get("timing_status") or "").upper()
+                        if st not in AI_BUY_TRADE_STATUSES:
+                            continue
+                        tk = str(r.get("ticker") or "").upper()
+                        if not tk or tk in open_d:
+                            continue
+                        picks.append(r)
+                        if len(picks) >= need:
+                            break
+                    for i, r in enumerate(picks):
+                        try:
+                            out = _open_auto_replace_position(
+                                dict(r),
+                                as_of_date=day,
+                                target_usd=250.0,
+                                rank_at_entry=i + 1,
+                                strategy_id=STRATEGY_DEEP_RECOVERY,
+                            )
+                            out["via"] = "deep_recovery_auto_replace"
+                            auto_created.append(out)
+                        except ValueError:
+                            break
+                except Exception:
+                    log.exception("Deep Recovery auto-replace failed")
+
+            if auto_created and refresh_candidates:
+                try:
+                    candidates = build_candidates(as_of_date=day, persist=True)
+                except Exception:
+                    log.exception("candidate rebuild after auto-replace failed")
         except Exception as exc:
             log.exception("auto-replace after exits failed")
             errors.append({"ticker": "*", "error": f"auto_replace: {exc}"})
@@ -3779,40 +4914,42 @@ def backfill_entry_research_from_candidates() -> int:
     return updated
 
 
-def history_report(*, range_key: str = "ALL") -> dict[str, Any]:
-    """Build History tab payload for the selected time range."""
-    ensure_portfolio()
+def history_report(
+    *, range_key: str = "ALL", strategy_id: str | None = None
+) -> dict[str, Any]:
+    """
+    History for one strategy book only (trades / P&L / equity never mixed).
+    Equity curve is rebuilt from that strategy's closed trades + live marks.
+    """
+    from strategies import STRATEGY_ALERT_BUY, normalize_strategy_id, strategy_label
+
+    ensure_strategy_accounts()
     try:
         backfill_entry_research_from_candidates()
     except Exception:
         log.exception("entry research backfill skipped")
-    # Ensure today's snapshot exists so the equity curve is not empty.
-    try:
-        save_equity_snapshot()
-    except Exception:
-        log.exception("history equity snapshot skipped")
 
+    sid = normalize_strategy_id(strategy_id or STRATEGY_ALERT_BUY)
     key = (range_key or "ALL").upper()
     if key not in ("7D", "30D", "3M", "6M", "1Y", "ALL"):
         key = "ALL"
     start = range_start_date(key)
-    port = ensure_portfolio()
-    starting = float(port["starting_capital"])
 
-    snaps = list_equity_snapshots(start_date=start)
-    closed_all = list_closed_trades(limit=5000)
+    live = strategy_portfolio_summary(sid)
+    starting = float(live["starting_capital"])
+    ending = float(live["equity"])
+
+    closed_all = list_closed_trades(strategy_id=sid, limit=5000)
     if start:
         closed = [t for t in closed_all if (t.get("exit_date") or "") >= start]
     else:
-        closed = closed_all
+        closed = list(closed_all)
 
-    # Enrich trades for display (do not mutate DB entry fields).
     trades_out = []
     for t in closed:
         row = dict(t)
         row["exit_reason_norm"] = normalize_exit_reason(t.get("exit_reason"))
         row["holding_days"] = holding_days_calendar(t.get("entry_date"), t.get("exit_date"))
-        # Financial score display: prefer ok/known; else label
         ok = t.get("financial_ok_entry")
         known = t.get("financial_known_entry")
         if ok is not None and known is not None:
@@ -3821,6 +4958,7 @@ def history_report(*, range_key: str = "ALL") -> dict[str, Any]:
             row["financial_score_entry"] = t.get("financial_entry") or None
         row["news_grade_entry"] = t.get("news_entry") or t.get("news_tone_entry") or None
         row["source_label_entry"] = format_source_label(t.get("source_at_entry"))
+        row["strategy_id"] = sid
         trades_out.append(row)
 
     wins = [t for t in closed if float(t.get("realized_pnl") or 0) > 0]
@@ -3837,27 +4975,115 @@ def history_report(*, range_key: str = "ALL") -> dict[str, Any]:
     gross_loss_abs = abs(sum(float(t.get("realized_pnl") or 0) for t in losses))
     if gross_loss_abs > 0:
         profit_factor = round(gross_profit / gross_loss_abs, 2)
+        profit_factor_inf = False
     elif gross_profit > 0:
-        profit_factor = None  # no losses — display as — or ∞ later in UI
+        profit_factor = None
         profit_factor_inf = True
     else:
         profit_factor = None
         profit_factor_inf = False
-    if gross_loss_abs > 0 or gross_profit <= 0:
-        profit_factor_inf = False
 
     realized_total = sum(float(t.get("realized_pnl") or 0) for t in closed)
-    # Ending equity: last snapshot in range, else live portfolio.
-    if snaps:
-        ending = float(snaps[-1]["total_equity"])
-    else:
-        ending = float(portfolio_summary()["current_equity"])
-    total_return_pct = (
-        (ending - starting) / starting * 100.0 if starting else None
-    )
-    max_dd = _max_drawdown_pct([float(s["total_equity"]) for s in snaps])
+    total_return_pct = ((ending - starting) / starting * 100.0) if starting else None
 
-    # Exit analysis
+    # Daily rows from this strategy's closes only (realized path) + live equity today.
+    by_day: dict[str, list[dict[str, Any]]] = {}
+    for t in closed_all:
+        d = (t.get("exit_date") or "").strip()
+        if not d:
+            continue
+        by_day.setdefault(d, []).append(t)
+
+    all_dates = sorted(by_day.keys())
+    cum = 0.0
+    for d in all_dates:
+        if start and d < start:
+            cum += sum(float(x.get("realized_pnl") or 0) for x in by_day[d])
+
+    daily_asc: list[dict[str, Any]] = []
+    for d in all_dates:
+        if start and d < start:
+            continue
+        group = by_day[d]
+        day_pnl = sum(float(x.get("realized_pnl") or 0) for x in group)
+        day_wins = sum(1 for x in group if float(x.get("realized_pnl") or 0) > 0)
+        day_losses = sum(1 for x in group if float(x.get("realized_pnl") or 0) < 0)
+        prev_eq = starting + cum
+        cum += day_pnl
+        eq = starting + cum
+        daily_ret = None
+        if prev_eq > 0:
+            daily_ret = round((eq - prev_eq) / prev_eq * 100.0, 4)
+        daily_asc.append(
+            {
+                "as_of_date": d,
+                "trades_closed": len(group),
+                "wins": day_wins,
+                "losses": day_losses,
+                "realized_pnl_day": round(day_pnl, 2),
+                "daily_return_pct": daily_ret,
+                "cash": None,
+                "open_market_value": None,
+                "total_equity": round(eq, 2),
+            }
+        )
+
+    today = trading_day_pt()
+    live_row = {
+        "as_of_date": today,
+        "trades_closed": sum(
+            1 for t in closed_all if (t.get("exit_date") or "") == today
+        ),
+        "wins": sum(
+            1
+            for t in closed_all
+            if (t.get("exit_date") or "") == today
+            and float(t.get("realized_pnl") or 0) > 0
+        ),
+        "losses": sum(
+            1
+            for t in closed_all
+            if (t.get("exit_date") or "") == today
+            and float(t.get("realized_pnl") or 0) < 0
+        ),
+        "realized_pnl_day": round(
+            sum(
+                float(t.get("realized_pnl") or 0)
+                for t in closed_all
+                if (t.get("exit_date") or "") == today
+            ),
+            2,
+        ),
+        "daily_return_pct": None,
+        "cash": round(float(live["cash"]), 2),
+        "open_market_value": round(float(live["market_value"]), 2),
+        "total_equity": round(ending, 2),
+    }
+    if daily_asc and daily_asc[-1]["as_of_date"] == today:
+        prev_eq = (
+            daily_asc[-2]["total_equity"] if len(daily_asc) > 1 else starting
+        )
+        if prev_eq and float(prev_eq) > 0:
+            live_row["daily_return_pct"] = round(
+                (ending - float(prev_eq)) / float(prev_eq) * 100.0, 4
+            )
+        daily_asc[-1] = live_row
+    else:
+        prev_eq = daily_asc[-1]["total_equity"] if daily_asc else starting
+        if prev_eq and float(prev_eq) > 0:
+            live_row["daily_return_pct"] = round(
+                (ending - float(prev_eq)) / float(prev_eq) * 100.0, 4
+            )
+        daily_asc.append(live_row)
+
+    # Seed chart with starting capital on first point when we have activity.
+    eq_vals = [round(float(r["total_equity"]), 2) for r in daily_asc]
+    dates = [r["as_of_date"] for r in daily_asc]
+    if not eq_vals:
+        eq_vals = [round(ending, 2)]
+        dates = [today]
+    max_dd = _max_drawdown_pct(eq_vals)
+
     by_reason: dict[str, list] = {}
     for t in closed:
         reason = normalize_exit_reason(t.get("exit_reason"))
@@ -3880,12 +5106,7 @@ def history_report(*, range_key: str = "ALL") -> dict[str, Any]:
             }
         )
 
-    # Daily table newest first
-    daily = list(reversed(snaps))
-
-    # Chart points (oldest → newest) + precomputed SVG polyline
-    eq_vals = [round(float(s["total_equity"]), 2) for s in snaps]
-    dates = [s["as_of_date"] for s in snaps]
+    daily = list(reversed(daily_asc))
     svg_points = ""
     if eq_vals:
         W, H, L, R, T, B = 640, 200, 48, 12, 12, 28
@@ -3917,6 +5138,8 @@ def history_report(*, range_key: str = "ALL") -> dict[str, Any]:
     return {
         "range_key": key,
         "range_start": start,
+        "strategy_id": sid,
+        "strategy_label": strategy_label(sid),
         "perf": {
             "starting_capital": round(starting, 2),
             "ending_equity": round(ending, 2),
@@ -3940,41 +5163,7 @@ def history_report(*, range_key: str = "ALL") -> dict[str, Any]:
 
 
 def portfolio_summary() -> dict[str, Any]:
-    port = ensure_portfolio()
-    opens = list_open_trades()
-    closed = list_closed_trades(limit=5000)
-    invested = sum(float(t.get("cost") or 0) for t in opens)
-    unrealized = sum(float(t.get("unrealized_pnl") or 0) for t in opens)
-    realized_total = sum(float(t.get("realized_pnl") or 0) for t in closed)
-    day = trading_day_pt()
-    realized_today = sum(
-        float(t.get("realized_pnl") or 0) for t in closed if (t.get("exit_date") or "") == day
-    )
-    cash = float(port["cash"])
-    equity = cash + sum(float(t.get("market_value") or 0) for t in opens)
-    starting = float(port["starting_capital"])
-    total_return_pct = ((equity - starting) / starting * 100.0) if starting else 0.0
-    wins = sum(1 for t in closed if float(t.get("realized_pnl") or 0) > 0)
-    win_rate = (wins / len(closed) * 100.0) if closed else None
+    """Default KPI strip = Alert Buy book only (no cross-strategy mixing)."""
+    from strategies import STRATEGY_ALERT_BUY
 
-    return {
-        "starting_capital": starting,
-        "trading_limit": float(port["trading_limit"]),
-        "reserve_cash": float(port["reserve_cash"]),
-        "cash": round(cash, 2),
-        "invested": round(invested, 2),
-        "current_equity": round(equity, 2),
-        "today_realized_pnl": round(realized_today, 2),
-        "total_realized_pnl": round(realized_total, 2),
-        "total_unrealized_pnl": round(unrealized, 2),
-        "today_pnl": round(realized_today + unrealized, 2),
-        "total_return_pct": round(total_return_pct, 2),
-        "win_rate": round(win_rate, 1) if win_rate is not None else None,
-        "closed_trades": len(closed),
-        "open_trades": len(opens),
-        "updated_at": port.get("updated_at")
-        or get_setting("paper_last_daily_update")
-        or get_setting("paper_candidates_updated_at"),
-        "candidates_as_of": get_setting("paper_candidates_as_of"),
-        "last_daily_update": get_setting("paper_last_daily_update"),
-    }
+    return portfolio_summary_for_strategy(STRATEGY_ALERT_BUY)

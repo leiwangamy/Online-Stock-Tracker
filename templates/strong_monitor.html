@@ -25,16 +25,25 @@
     background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;
     line-height: 1.55;
   }
-  .tabs {
-    display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px;
+  .tabs.research-tabs {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    align-items: center; margin: 0 0 14px;
   }
   .tab {
-    display: inline-block; padding: 7px 14px; border-radius: 999px;
+    display: inline-block; padding: 8px 14px; border-radius: 999px;
     border: 1px solid var(--border); background: var(--panel);
-    color: var(--muted); text-decoration: none; font-weight: 600; font-size: 0.9rem;
+    color: var(--muted); text-decoration: none; font-weight: 600;
+    font-size: 0.9rem; line-height: 1.25; white-space: nowrap;
   }
   .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .tab .count { font-weight: 400; opacity: 0.85; }
+  .tab .count { font-weight: 400; opacity: 0.7; font-size: inherit; }
+  .ca-section-head {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+    margin: 0 0 10px;
+  }
+  .ca-section-head h2 {
+    margin: 0; font-size: 1.05rem; font-weight: 700; color: #0f172a;
+  }
   /* Match Watchlist: vertical scroll in panel; horizontal via base .hscroll-top.
      Do NOT override sticky z-index / border-collapse — that causes header bleed. */
   .panel.wl-panel {
@@ -256,18 +265,26 @@
     <p class="rules" style="margin-top:0">{{ data.rising_rules or _('Up Days ≥ 3/5 · 5D Return ≥ +3%. Dynamic daily group; no retention. Research candidates only — not a Buy signal.') }}</p>
   {% elif tab == 'multi_signal' %}
     <p class="rules" style="margin-top:0">{{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Strong is a separate indicator. Research candidates only — not a Buy signal.') }}</p>
+  {% elif tab in ('fin6', 'fin5') %}
+    <p class="rules" style="margin-top:0">
+      {% if tab == 'fin6' %}
+        {{ _('Financial 6/6 — all six fundamentals known and passing. Quality research screen only; not a Buy signal.') }}
+      {% else %}
+        {{ _('Financial ≥5/6 — pass rate at least 5/6 among known fundamentals. Quality research screen only; not a Buy signal.') }}
+      {% endif %}
+    </p>
   {% endif %}
 
   <details class="ops-details">
     <summary>{{ _('Guide') }}</summary>
     <div class="ops-details-body">
-      <p><strong>{{ _('Candidate Analysis') }}:</strong> {{ _('Deduplicated research universe combining valuation, position, momentum, strength and financial signals. Manual My Watchlist only — nothing auto-selects for AI Trading. Use Priority Buy on AI Trading for earlier allocation.') }}</p>
       <p><strong>{{ _('Daily Strong Stocks') }}:</strong> {{ _('Stocks meeting the Strong Day Position threshold that day — research candidates for monitoring, not immediate Buy signals. Column lengths differ by day.') }}</p>
       <p><strong>{{ _('COUNT20 Ranking') }}:</strong> {{ _('Historical frequency over the latest 20 trading days. Research ranking only; not a Buy list. Current Position may be below the Strong Day threshold.') }}</p>
       <p><strong>{{ _('Strong Watchlist') }}:</strong> {{ _('COUNT ≥ threshold qualifies; retain N trading days after last qualify. For monitoring pullbacks — not automatic Buy. Renew resets retention.') }}</p>
       <p><strong>{{ _('Rising Now') }}:</strong> {{ _('Up Days ≥ 3/5 · 5D Return ≥ +3% (weak entry only). Rising Score 0–100 then ranks uptrend strength/persistence (Speed 17 · Rel 18 · 10D/20D Trend 35 · Strong Up 20D 12 · 63D Pos 18). Independent of Knife — not 100−Knife. High Rising can still be Knife-BLOCKED. Research only; no retention; not a Buy signal.') }}</p>
       <p><strong>{{ _('Sector Rotation') }}:</strong> {{ _('Which GICS sectors are becoming stronger/weaker (research only). ETF 5D/20D + RS vs SPY + SMA25 slope; Rising % = Rising Now share of sector stocks (e.g. 25/80); Strong % = Strong Watchlist share. Rotation Score = 30% trend · 25% RS · 20% Rising · 15% Strong · 10% SMA25. Status uses score + direction (LEADING / RISING / NEUTRAL / WEAKENING / FALLING) with daily history for Score Δ / Rank Δ. Not a Buy signal; does not change Rising/Strong/Knife.') }}</p>
       <p><strong>{{ _('Multi-Signal') }}:</strong> {{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Overlap research screen only — not a Buy signal. Strong is a separate indicator.') }}</p>
+      <p><strong>{{ _('Financial 6/6') }} / {{ _('Financial ≥5/6') }}:</strong> {{ _('Quality screens from cached fundamentals. Other signal groups live on Watchlist.') }}</p>
       <p>{{ _('Workflow: Find strong stocks → Monitor → Wait for pullback → Reassess → Consider entry. Signal ≠ research decision ≠ trade decision. Nothing auto-selects for AI Trading.') }}</p>
     </div>
   </details>
@@ -282,14 +299,7 @@
   </div>
   {% endif %}
 
-  <div class="tabs">
-    <a class="tab {% if tab == 'candidates' %}active{% endif %}"
-       href="{{ url_for('strong_stock_monitor', tab='candidates') }}">
-      {{ _('Candidate Analysis') }}
-      {% if data.badge_candidates is defined and data.badge_candidates %}
-        <span class="count">({{ data.badge_candidates }})</span>
-      {% endif %}
-    </a>
+  <div class="tabs research-tabs">
     <a class="tab {% if tab == 'daily' %}active{% endif %}"
        href="{{ url_for('strong_stock_monitor', tab='daily') }}">
       {{ _('Daily Strong Stocks') }}
@@ -320,9 +330,15 @@
       {{ _('Multi-Signal') }}
       <span class="count">({{ data.badge_multi if data.badge_multi is defined else 0 }})</span>
     </a>
-    <a class="tab"
-       href="{{ url_for('watchlist', tab='ai_news') }}">
-      {{ _('AI News') }}
+    <a class="tab {% if tab == 'fin6' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='fin6') }}">
+      {{ _('Financial 6/6') }}
+      <span class="count">({{ data.badge_fin6 if data.badge_fin6 is defined else 0 }})</span>
+    </a>
+    <a class="tab {% if tab == 'fin5' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='fin5') }}">
+      {{ _('Financial ≥5/6') }}
+      <span class="count">({{ data.badge_fin5 if data.badge_fin5 is defined else 0 }})</span>
     </a>
   </div>
 
@@ -875,7 +891,6 @@
       {% endif %}
     </div>
 
-  {# ── Tab 5: Multi-Signal ── #}
   {% elif tab == 'multi_signal' %}
     {% set ms = data.multi_summary or {} %}
     <div class="hero-line">{{ _('Multi-Signal') }}: <span class="n">{{ data.multi_rows|length }}</span></div>
@@ -965,7 +980,7 @@
       </table>
       {% endif %}
     </div>
-  {% elif tab == 'candidates' %}
+  {% elif tab in ('fin6', 'fin5') %}
     {% include "_candidate_analysis_panel.html" %}
   {% endif %}
 

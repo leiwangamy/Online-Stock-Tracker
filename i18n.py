@@ -438,10 +438,13 @@ ZH: dict[str, str] = {
         "本组还没有缓存数据。请先点「更新股票池成分（每周）」，再点「刷新全部行情 + Watchlist」。",
     # Watchlist tabs / actions
     "Oversold pullback": "超卖回调",
+    "Oversold Pullback": "超卖回调",
     "Target Ratio < 80%": "Target Ratio < 80%",
     "My Watchlist": "我的自选",
     "GROWTH": "GROWTH",
+    "Growth": "Growth",
     "SHORT": "SHORT",
+    "Short": "Short",
     "Add to GROWTH": "加入 GROWTH",
     "Add to SHORT": "加入 SHORT",
     "Remove from GROWTH": "移出 GROWTH",
@@ -736,6 +739,48 @@ ZH: dict[str, str] = {
         "多重信号",
     "Candidate Analysis":
         "候选分析",
+    "Analysis — Financial 6/6 and Financial ≥5/6":
+        "分析 — Financial 6/6 与 Financial ≥5/6",
+    "Financial 6/6 — all six fundamentals known and passing. Quality research screen only; not a Buy signal.":
+        "Financial 6/6 — 六项基本面均已知且通过。仅质量研究筛，非买入信号。",
+    "Financial ≥5/6 — pass rate at least 5/6 among known fundamentals. Quality research screen only; not a Buy signal.":
+        "Financial ≥5/6 — 已知基本面通过率至少 5/6。仅质量研究筛，非买入信号。",
+    "Monitor — Daily Strong / COUNT20 / Strong Watchlist / Rising Now / Sector Rotation — monitoring layers already covered elsewhere as dedicated reports.":
+        "日强 / COUNT20 / Strong 观察 / 正在上涨 / 板块轮动 — 监控层，其他报表亦有展示。",
+    "Daily Strong / COUNT20 / Strong Watchlist / Rising Now / Sector Rotation — monitoring layers already covered elsewhere as dedicated reports.":
+        "日强 / COUNT20 / Strong 观察 / 正在上涨 / 板块轮动 — 监控层，其他报表亦有展示。",
+    "Financial 6/6 and Financial ≥5/6 — quality screens from cached fundamentals. Other signal groups live on Watchlist / Monitor tabs.":
+        "Financial 6/6 与 ≥5/6 — 基于缓存基本面的质量筛。其他信号见 Watchlist / Monitor。",
+    "Quality screens from cached fundamentals. Other signal groups live on Watchlist.":
+        "基于缓存基本面的质量筛。其他信号见 Watchlist。",
+    "Quality screen from cached fundamentals. Add names to My Watchlist for research — nothing auto-selects for AI Trading.":
+        "基于缓存基本面的质量筛。可手动加入我的自选研究 — 不会自动进入 AI Trading。",
+    "Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Overlap research screen only — not a Buy signal. Strong is a separate indicator.":
+        "超卖 / Target&lt;80% / 63日低位 / 正在上涨 命中≥2。仅重叠研究筛，非买入信号。Strong 为独立指标。",
+    "No names in this financial screen yet. Refresh Market Dashboard / Research first.":
+        "此财务筛暂无标的。请先刷新市场看板 / 研究中心。",
+    "Showing":
+        "当前显示",
+    "Analysis":
+        "分析",
+    "Monitor":
+        "监控",
+    "Strong Monitor":
+        "强势监控",
+    "Monitor — Daily Strong / COUNT20 / Strong Watchlist / Rising Now / Sector Rotation":
+        "监控 — 日强 / COUNT20 / Strong 观察 / 正在上涨 / 板块轮动",
+    "Analysis — Candidate Analysis filters and table":
+        "分析 — 候选分析筛选与表格",
+    "Inside Candidate Analysis: use the filter row below — Oversold / 63D Low / Rising / Strong … stay with this table.":
+        "进入候选分析后：下方筛选行（超卖 / 63日低位 / 上涨 / Strong …）与本表同区。",
+    "Full Multi-Signal screen":
+        "完整多重信号页",
+    "Candidate Analysis — filters and table live in this section":
+        "候选分析 — 筛选与表格都在本分区",
+    "Strong Monitor — Daily / COUNT20 / Watchlist / Rising / Rotation":
+        "强势监控 — 日强 / COUNT20 / 观察名单 / 上涨 / 轮动",
+    "Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Lives under Watchlist screens — overlap research only, not a Buy signal. Strong is a separate indicator.":
+        "超卖 / Target&lt;80% / 63日低位 / 正在上涨 命中≥2。已移至 Watchlist 筛选区 — 仅重叠研究，非买入信号。Strong 为独立指标。",
     "Research layer above LeiBot signal groups. Deduplicated candidates with Financial / News / Strong COUNT20 completed from cache. Add to My Watchlist manually; Trade Candidate is a separate human flag for the AI Trading Watchlist. AI Score formula is unchanged.":
         "位于各信号分组之上的研究层：去重候选，并用缓存补齐财报 / 新闻 / Strong COUNT20。手动加入「我的自选」；Trade Candidate 是给 AI Trading Watchlist 的独立人工标记。本任务不改 AI Score 公式。",
     "All Candidates":
@@ -2089,6 +2134,80 @@ ZH: dict[str, str] = {
         '请输入有效代码',
     'Performance Summary':
         '绩效摘要',
+    'Strategy History':
+        '策略 History',
+    'Each strategy keeps its own cash, positions, and closed trades.':
+        '每种策略独立记账：现金、持仓与已平仓互不混合。',
+    'Open strategy History':
+        '打开该策略 History',
+    'None':
+        '无',
+    'Queue':
+        '排队',
+    'GROWTH Dist SMA25 ASC · top 10–20':
+        'GROWTH · Dist SMA25 升序 · 取前 10–20',
+    'On EXIT → auto-buy next unused on Dist queue':
+        'EXIT 后自动买入当时 Dist 队首未用过的股票',
+    'Refresh Stable Growth':
+        '刷新 Stable Growth',
+    'Refresh Safe Margin':
+        '刷新 Safe Margin',
+    'Refresh Short Sell':
+        '刷新 Short Sell',
+    'Trailing Cover':
+        '移动平仓止损',
+    'SHORT Dist SMA25 DESC · 63D>80% · Day%<0':
+        'SHORT · Dist SMA25 降序 · 63D>80% · Day%<0',
+    'On EXIT → auto-short next unused on Dist queue':
+        'EXIT 后自动做空当时 Dist 队首未用过的股票',
+    'SHORT → 63D>80% · Day%<0 → Dist DESC top 10–20 → SELL SHORT':
+        'SHORT → 63D>80% · Day%<0 → Dist 降序前 10–20 → SELL SHORT',
+    '5% trailing cover above trough · no Take Profit · EXIT → next unused · independent $2k book.':
+        '相对低点上方 5% 移动平仓 · 无止盈 · EXIT 后换队首未用名 · 独立 $2k 账本。',
+    '63D Position > 80% · Day % < 0 → top 10–20':
+        '63D Position > 80% · Day % < 0 → 前 10–20',
+    'Dist SMA25 — highest first':
+        'Dist SMA25 — 由高到低',
+    'Candidate filters applied before queue':
+        '入队前已做候选过滤',
+    'SHORT CANDIDATE':
+        'SHORT CANDIDATE',
+    'Dist DESC · SELL SHORT · 5% trailing cover · EXIT auto-refill':
+        'Dist 降序 · SELL SHORT · 5% 移动平仓 · EXIT 自动补仓',
+    'SHORT sleeve filtered by 63D>80% and Day%<0, sorted Dist SMA25 descending (10–20). Paper slots $250→$150, max 6. SELL SHORT with 5% trailing cover above trough; on EXIT auto-short the then-top unused Dist queue name.':
+        'SHORT 池经 63D>80%、Day%<0 过滤后按 Dist SMA25 降序取 10–20。纸面仓位 $250→$150，最多 6。SELL SHORT，相对低点上方 5% 移动平仓；EXIT 后自动做空当时队首未用名。',
+    'SIMULATE Short Sell paper orders (SELL SHORT · 5% trailing cover, no Take)?':
+        '模拟 Short Sell 纸面做空（SELL SHORT · 5% 移动平仓、无止盈）？',
+    'No SHORT candidates yet (need 63D>80% and Day%<0). Refresh Watchlist prices, then Refresh Short Sell.':
+        '尚无 SHORT 候选（需 63D>80% 且 Day%<0）。请先刷新 Watchlist 价格，再刷新 Short Sell。',
+    'Trailing Stop':
+        '移动止损',
+    'Target Ratio ASC · risk-filtered top 10–20':
+        'Target Ratio 升序 · 风险过滤后取前 10–20',
+    'On EXIT → auto-buy next unused on Target queue':
+        'EXIT 后自动买入当时 Target 队首未用过的股票',
+    'Target Ratio < 80% → risk filters → Target ASC top 10–20 → BUY':
+        'Target Ratio < 80% → 风险过滤 → Target 升序前 10–20 → BUY',
+    '10% trailing stop · no Take Profit · EXIT → next unused on Target queue · independent $2k book.':
+        '10% 移动止损 · 无止盈 · EXIT 后换 Target 队首未用名 · 独立 $2k 账本。',
+    'MCap>$2B · Price>$5 · AvgVol<3% · Fin≥60% · Knife≠HIGH → top 10–20':
+        '市值>$2B · 价格>$5 · 均波<3% · Financial≥60% · Knife≠HIGH → 前 10–20',
+    'Target Ratio — lowest first':
+        'Target Ratio — 由低到高',
+    'Risk filters applied before queue (Knife HIGH blocked)':
+        '入队前已做风险过滤（Knife HIGH 剔除）',
+    'Target order · 10% trailing stop · no Take · EXIT auto-refill':
+        'Target 顺序 · 10% 移动止损 · 无止盈 · EXIT 自动补仓',
+    'Target Ratio watchlist, risk-filtered, Target ASC (10–20 names). Paper slots $250→$150, max 6. 10% trailing stop, no take-profit; on EXIT auto-buy the then-top unused Target queue name.':
+        'Target Ratio 观察池经风险过滤后按 Target 升序取 10–20。纸面仓位 $250→$150，最多 6。10% 移动止损、无止盈；EXIT 后自动买入当时队首未用名。',
+    'SIMULATE Safe Margin paper orders from Target queue (10% trailing stop, no Take)?':
+        '用 Target 排队模拟 Safe Margin 纸面下单（10% 移动止损、无止盈）？',
+    'No Target Ratio names passed risk filters yet. Refresh Watchlist prices / fund cache, then Refresh Safe Margin.':
+        '尚无通过风险过滤的 Target Ratio 股票。请先刷新 Watchlist 价格/财务缓存，再刷新 Safe Margin。',
+    'passed':
+        '通过',
+    'Fin %':
+        'Fin %',
     'Ending Equity':
         '期末权益',
     'Winning Trades':

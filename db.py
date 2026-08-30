@@ -627,6 +627,8 @@ def init_db() -> None:
                 ("primary_metric_name_entry", "TEXT"),
                 ("primary_metric_value_entry", "REAL"),
                 ("side", "TEXT"),
+                ("peak_price", "REAL"),
+                ("trailing_stop", "INTEGER"),
             ):
                 if col not in paper_cols:
                     conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {decl}")

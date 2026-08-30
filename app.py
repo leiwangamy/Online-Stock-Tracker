@@ -1651,7 +1651,7 @@ def watchlist():
     # Legacy bookmarks: oversold / pullback → research screen (kept for features)
     if tab in ("oversold", "pullback"):
         tab = "setup"
-    # Rising Now / Multi-Signal moved into Strong Stock Monitor
+    # Rising Now / Multi-Signal live under Research
     if tab in ("rising_now", "multi_signal"):
         return redirect(url_for("strong_stock_monitor", tab=tab))
     if tab not in (
@@ -2090,38 +2090,42 @@ def watchlist():
             r.update(compute_target_proxy_mos(r.get("price"), r.get("target_1y")))
 
     tabs = [
-        {"key": "mine", "label": gettext("My Watchlist"), "count": len(mine_list), "group": "main"},
-        {"key": "ndx100", "label": "📗 " + gettext("Nasdaq-100"), "count": len(ndx100_list), "group": "main"},
+        {"key": "mine", "label": "★ " + gettext("My Watchlist"), "count": len(mine_list), "group": "main", "row": 1},
+        {"key": "ndx100", "label": "📗 " + gettext("Nasdaq-100"), "count": len(ndx100_list), "group": "main", "row": 1},
         {
             "key": "ai_news",
             "label": "📰 " + gettext("AI News"),
             "count": 0,
             "group": "ai_select",
+            "row": 1,
         },
         {
             "key": "ai_discovery",
             "label": "🔭 " + gettext("AI Discovery"),
             "count": 0,
             "group": "ai_select",
+            "row": 1,
         },
         {
             "key": "core_universe",
             "label": "📐 " + gettext("Core Universe"),
             "count": int((core_run or {}).get("qualified_count") or 0),
             "group": "ai_select",
+            "row": 1,
         },
         {
             "key": "ai_approved",
             "label": "🤖 " + gettext("AI Approved"),
             "count": len(approved_list),
             "group": "ai_select",
+            "row": 1,
         },
-        {"key": "setup", "label": "🔻 " + gettext("Oversold pullback"), "count": len(setup), "group": "screens"},
-        {"key": "growth", "label": "📈 " + gettext("GROWTH"), "count": len(growth_list), "group": "screens"},
-        {"key": "short", "label": "📉 " + gettext("SHORT"), "count": len(short_list), "group": "screens"},
-        {"key": "low_target", "label": "🎯 " + gettext("Target Ratio < 80%"), "count": len(low_target), "group": "screens"},
-        {"key": "low_63d", "label": "📉 " + gettext("63D Position < 25%"), "count": len(low_63d), "group": "screens"},
-        {"key": "temp", "label": "🕒 " + gettext("Temp"), "count": len(temp_tickers), "group": "scratch"},
+        {"key": "setup", "label": "🔻 " + gettext("Oversold Pullback"), "count": len(setup), "group": "screens", "row": 2},
+        {"key": "growth", "label": "📈 " + gettext("Growth"), "count": len(growth_list), "group": "screens", "row": 2},
+        {"key": "short", "label": "📉 " + gettext("Short"), "count": len(short_list), "group": "screens", "row": 2},
+        {"key": "low_target", "label": "🎯 " + gettext("Target Ratio < 80%"), "count": len(low_target), "group": "screens", "row": 2},
+        {"key": "low_63d", "label": "📉 " + gettext("63D Position < 25%"), "count": len(low_63d), "group": "screens", "row": 2},
+        {"key": "temp", "label": "🕒 " + gettext("Temp"), "count": len(temp_tickers), "group": "scratch", "row": 2},
     ]
     # AI News + Discovery badge counts
     try:
@@ -2320,8 +2324,8 @@ def watchlist_alert_price():
 
 @app.route("/candidate-analysis", methods=["GET", "POST"])
 def candidate_analysis():
-    """Backward-compatible URL → Strong Stock Monitor Candidate Analysis tab."""
-    return redirect(url_for("strong_stock_monitor", tab="candidates"))
+    """Backward-compatible URL → Research Financial 6/6 analysis."""
+    return redirect(url_for("strong_stock_monitor", tab="fin6"))
 
 
 @app.route("/ai-trading/levels", methods=["POST"])
@@ -2865,6 +2869,9 @@ def ai_trading():
         clear_priority,
         create_paper_orders_from_ai_buy,
         create_paper_orders_from_deep_recovery,
+        create_paper_orders_from_stable_growth,
+        create_paper_orders_from_safe_margin,
+        create_paper_orders_from_short_sell,
         create_paper_orders_from_candidates,
         ensure_portfolio,
         ensure_strategy_accounts,
@@ -2879,7 +2886,11 @@ def ai_trading():
         manual_close_trade,
         maybe_auto_refresh_ai_trading,
         auto_buy_on_refresh,
+        auto_replace_stable_growth_exits,
+        auto_replace_safe_margin_exits,
+        auto_replace_short_sell_exits,
         portfolio_summary,
+        portfolio_summary_for_strategy,
         rebuy_from_closed_trade,
         run_daily_update,
         set_priority,
@@ -2893,6 +2904,7 @@ def ai_trading():
         STRATEGY_SAFE_MARGIN,
         STRATEGY_SHORT_SELL,
         STRATEGY_STABLE_GROWTH,
+        STRATEGY_IDS,
         STRATEGY_META,
         normalize_strategy_id,
         strategy_label,
@@ -3006,6 +3018,52 @@ def ai_trading():
                     "ok",
                 )
                 return redirect(url_for("ai_trading", tab="deep_recovery"))
+            if action == "refresh_stable_growth":
+                from stable_growth import build_stable_growth_snapshot
+
+                built = build_stable_growth_snapshot(persist=True)
+                flash(
+                    ngettext_format(
+                        "Stable Growth refreshed: Dist ASC top {n} of GROWTH pool {p} · READY {r}",
+                        n=built.get("universe_count", 0),
+                        p=built.get("pool_count", 0),
+                        r=(built.get("counts") or {}).get("READY", 0),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="stable_growth"))
+            if action == "refresh_safe_margin":
+                from safe_margin import build_safe_margin_snapshot
+
+                built = build_safe_margin_snapshot(persist=True)
+                flash(
+                    ngettext_format(
+                        "Safe Margin refreshed: Target ASC top {n} "
+                        "(pool {p}, risk-passed {passed}) · READY {r}",
+                        n=built.get("universe_count", 0),
+                        p=built.get("pool_count", 0),
+                        passed=built.get("passed_count", 0),
+                        r=(built.get("counts") or {}).get("READY", 0),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="safe_margin"))
+            if action == "refresh_short_sell":
+                from short_sell import build_short_sell_snapshot
+
+                built = build_short_sell_snapshot(persist=True)
+                flash(
+                    ngettext_format(
+                        "Short Sell refreshed: Dist DESC top {n} "
+                        "(pool {p}, candidates {passed}) · READY {r}",
+                        n=built.get("universe_count", 0),
+                        p=built.get("pool_count", 0),
+                        passed=built.get("passed_count", 0),
+                        r=(built.get("counts") or {}).get("READY", 0),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="short_sell"))
             if action == "check_data":
                 from db import get_dashboard_by_tickers
                 from market_data_validator import (
@@ -3174,6 +3232,77 @@ def ai_trading():
                         "warning",
                     )
                 return redirect(url_for("ai_trading", tab="deep_recovery"))
+            elif action == "create_stable_growth_orders":
+                result = create_paper_orders_from_stable_growth()
+                created = result.get("created") or []
+                skipped = result.get("skipped") or []
+                if created:
+                    flash(
+                        ngettext_format(
+                            "Stable Growth paper orders: {n} · skipped {s} · Stop −3% · no Take",
+                            n=len(created),
+                            s=len(skipped),
+                        ),
+                        "ok",
+                    )
+                else:
+                    flash(
+                        ngettext_format(
+                            "No Stable Growth orders · skipped {s}. Need READY on GROWTH Dist queue.",
+                            s=len(skipped),
+                        ),
+                        "warning",
+                    )
+                return redirect(url_for("ai_trading", tab="stable_growth"))
+            elif action == "create_safe_margin_orders":
+                result = create_paper_orders_from_safe_margin()
+                created = result.get("created") or []
+                skipped = result.get("skipped") or []
+                if created:
+                    flash(
+                        ngettext_format(
+                            "Safe Margin paper orders: {n} · skipped {s} · "
+                            "10% trailing stop · no Take",
+                            n=len(created),
+                            s=len(skipped),
+                        ),
+                        "ok",
+                    )
+                else:
+                    flash(
+                        ngettext_format(
+                            "No Safe Margin orders · skipped {s}. "
+                            "Need READY on Target risk-filtered queue.",
+                            s=len(skipped),
+                        ),
+                        "warning",
+                    )
+                return redirect(url_for("ai_trading", tab="safe_margin"))
+            elif action == "create_short_sell_orders":
+                result = create_paper_orders_from_short_sell()
+                created = result.get("created") or []
+                skipped = result.get("skipped") or []
+                if created:
+                    flash(
+                        ngettext_format(
+                            "Short Sell paper orders: {n} · skipped {s} · "
+                            "SELL SHORT · 5% trailing cover · no Take",
+                            n=len(created),
+                            s=len(skipped),
+                        ),
+                        "ok",
+                    )
+                else:
+                    flash(
+                        ngettext_format(
+                            "No Short Sell orders · skipped {s}. "
+                            "Need READY on SHORT Dist DESC queue "
+                            "(63D>80% · Day%<0).",
+                            s=len(skipped),
+                        ),
+                        "warning",
+                    )
+                return redirect(url_for("ai_trading", tab="short_sell"))
             elif action == "daily_update":
                 result = run_daily_update(refresh_candidates=True)
                 auto_n = len(result.get("auto_created") or [])
@@ -3237,6 +3366,11 @@ def ai_trading():
                 return redirect(url_for("ai_trading", tab="open"))
             elif action == "manual_exit":
                 tid = int(request.form.get("trade_id") or 0)
+                # Capture strategy before close for book-scoped auto-replace.
+                pre = next(
+                    (t for t in list_open_trades() if int(t.get("id") or 0) == tid),
+                    None,
+                )
                 result = manual_close_trade(tid)
                 flash(
                     ngettext_format(
@@ -3246,6 +3380,52 @@ def ai_trading():
                     ),
                     "ok",
                 )
+                try:
+                    from strategies import (
+                        STRATEGY_SAFE_MARGIN,
+                        STRATEGY_SHORT_SELL,
+                        STRATEGY_STABLE_GROWTH,
+                        normalize_strategy_id,
+                    )
+
+                    sid = normalize_strategy_id(
+                        (pre or {}).get("strategy_id") or result.get("strategy_id")
+                    )
+                    if sid == STRATEGY_STABLE_GROWTH:
+                        rep = auto_replace_stable_growth_exits(max_new=1)
+                        got = rep.get("created") or []
+                        if got:
+                            flash(
+                                ngettext_format(
+                                    "Stable Growth auto-buy after EXIT: {ticker}",
+                                    ticker=got[0].get("ticker"),
+                                ),
+                                "ok",
+                            )
+                    elif sid == STRATEGY_SAFE_MARGIN:
+                        rep = auto_replace_safe_margin_exits(max_new=1)
+                        got = rep.get("created") or []
+                        if got:
+                            flash(
+                                ngettext_format(
+                                    "Safe Margin auto-buy after EXIT: {ticker}",
+                                    ticker=got[0].get("ticker"),
+                                ),
+                                "ok",
+                            )
+                    elif sid == STRATEGY_SHORT_SELL:
+                        rep = auto_replace_short_sell_exits(max_new=1)
+                        got = rep.get("created") or []
+                        if got:
+                            flash(
+                                ngettext_format(
+                                    "Short Sell auto-short after EXIT: {ticker}",
+                                    ticker=got[0].get("ticker"),
+                                ),
+                                "ok",
+                            )
+                except Exception:
+                    app.logger.exception("strategy auto-replace after manual exit")
                 flash(
                     ngettext_format(
                         "Re-entry available: use Re-enter for {ticker} under Add / Re-entry.",
@@ -3485,7 +3665,73 @@ def ai_trading():
         except Exception:
             app.logger.exception("Deep Recovery view failed")
 
-    if not candidates and tab not in ("buy", "select", "deep_recovery"):
+    stable_growth_view: dict = {
+        "as_of": "",
+        "universe_count": 0,
+        "pool_count": 0,
+        "top_n": 15,
+        "counts": {},
+        "rows": [],
+        "stop_loss_pct": 3.0,
+        "take_profit_pct": None,
+    }
+    if tab == "stable_growth":
+        try:
+            from stable_growth import load_stable_growth_view
+
+            stable_growth_view = load_stable_growth_view(recompute=True)
+        except Exception:
+            app.logger.exception("Stable Growth view failed")
+
+    safe_margin_view: dict = {
+        "as_of": "",
+        "universe_count": 0,
+        "pool_count": 0,
+        "passed_count": 0,
+        "top_n": 15,
+        "counts": {},
+        "rows": [],
+        "stop_loss_pct": 10.0,
+        "trailing_stop": True,
+        "take_profit_pct": None,
+    }
+    if tab == "safe_margin":
+        try:
+            from safe_margin import load_safe_margin_view
+
+            safe_margin_view = load_safe_margin_view(recompute=True)
+        except Exception:
+            app.logger.exception("Safe Margin view failed")
+
+    short_sell_view: dict = {
+        "as_of": "",
+        "universe_count": 0,
+        "pool_count": 0,
+        "passed_count": 0,
+        "top_n": 15,
+        "counts": {},
+        "rows": [],
+        "stop_loss_pct": 5.0,
+        "trailing_stop": True,
+        "take_profit_pct": None,
+        "side": "short",
+    }
+    if tab == "short_sell":
+        try:
+            from short_sell import load_short_sell_view
+
+            short_sell_view = load_short_sell_view(recompute=True)
+        except Exception:
+            app.logger.exception("Short Sell view failed")
+
+    if not candidates and tab not in (
+        "buy",
+        "select",
+        "deep_recovery",
+        "stable_growth",
+        "safe_margin",
+        "short_sell",
+    ):
         try:
             candidates = build_candidates(persist=True)
         except Exception:
@@ -3518,6 +3764,9 @@ def ai_trading():
                 "account": get_strategy_account(active_strategy_id),
                 "summary": strategy_portfolio_summary(active_strategy_id),
             }
+            # Alert Buy / strategy pages: KPI strip matches that book only.
+            if tab == "buy":
+                summary = portfolio_summary_for_strategy(STRATEGY_ALERT_BUY)
         except Exception:
             app.logger.exception("strategy shell load failed for %s", active_strategy_id)
 
@@ -3686,9 +3935,23 @@ def ai_trading():
     except (TypeError, ValueError):
         highlight_rebuy_id = None
     range_key = (request.args.get("range") or "ALL").strip().upper()
+    hist_strategy_id = STRATEGY_ALERT_BUY
     hist_report = None
     if tab == "history":
-        hist_report = history_report(range_key=range_key)
+        raw_hist_sid = (
+            request.args.get("strategy")
+            or request.form.get("strategy")
+            or STRATEGY_ALERT_BUY
+        )
+        hist_strategy_id = normalize_strategy_id(raw_hist_sid)
+        hist_report = history_report(
+            range_key=range_key, strategy_id=hist_strategy_id
+        )
+        try:
+            summary = portfolio_summary_for_strategy(hist_strategy_id)
+        except Exception:
+            app.logger.exception("history strategy summary failed")
+        history = list_closed_trades(strategy_id=hist_strategy_id, limit=300)
 
     try:
         _auto_thr = _ai_auto_thresholds()
@@ -3714,12 +3977,17 @@ def ai_trading():
             strategy_meta=STRATEGY_META,
             ai_buy_view=ai_buy_view,
             deep_recovery_view=deep_recovery_view,
+            stable_growth_view=stable_growth_view,
+            safe_margin_view=safe_margin_view,
+            short_sell_view=short_sell_view,
             candidates=candidates,
             trade_candidates=trade_candidates,
             opens=opens,
             open_count_all=open_count_all,
             history=history,
             hist_report=hist_report,
+            hist_strategy_id=hist_strategy_id if tab == "history" else None,
+            strategy_ids=STRATEGY_IDS,
             rebuy_pool=rebuy_pool,
             rebuy_candidates=rebuy_candidates,
             highlight_rebuy_id=highlight_rebuy_id,
@@ -3918,26 +4186,32 @@ def strong_stock_monitor():
     from market_data import ensure_fund_cache, ensure_news_cache
 
     raw_tab = (
-        request.args.get("tab") or request.form.get("tab") or "candidates"
+        request.args.get("tab") or request.form.get("tab") or "daily"
     ).strip().lower()
     # Backward-compatible aliases from earlier UI revisions
     if raw_tab in ("matrix", "strong"):
         return redirect(url_for("strong_stock_monitor", tab="daily"))
-    if raw_tab in ("candidate", "candidate_analysis", "analysis"):
-        raw_tab = "candidates"
+    if raw_tab in ("candidate", "candidate_analysis", "analysis", "candidates"):
+        # Full Candidate Analysis retired — keep Financial quality screens only
+        return redirect(url_for("strong_stock_monitor", tab="fin6"))
+    if raw_tab in ("financial_6", "fin_6", "financial6"):
+        raw_tab = "fin6"
+    if raw_tab in ("financial_ge5", "fin_ge5", "fin5", "financial5"):
+        raw_tab = "fin5"
     tab = raw_tab
     if tab not in (
-        "candidates",
         "daily",
         "ranking",
         "watchlist",
         "rising_now",
-        "multi_signal",
         "rotation",
         "rotation_detail",
+        "multi_signal",
+        "fin6",
+        "fin5",
         "discovery",
     ):
-        tab = "candidates"
+        tab = "daily"
 
     if tab == "discovery":
         # Legacy Research bookmark → Watchlist AI News
@@ -4007,6 +4281,12 @@ def strong_stock_monitor():
                     ),
                     "ok",
                 )
+                return redirect(
+                    url_for(
+                        "strong_stock_monitor",
+                        tab=tab if tab in ("fin6", "fin5") else "fin6",
+                    )
+                )
             elif action == "refresh_rotation":
                 from sector_rotation import job_sector_rotation_update
 
@@ -4037,21 +4317,41 @@ def strong_stock_monitor():
     ca_rows: list = []
     ca_counts: dict = {}
     badge_candidates = 0
+    badge_fin6 = 0
+    badge_fin5 = 0
     rotation_data: dict = {}
     rotation_detail: dict = {}
 
-    if tab == "candidates":
+    def _row_fin6(r: dict) -> bool:
+        return r.get("financial_ok") == 6 and r.get("financial_known") == 6
+
+    def _row_fin_ge5(r: dict) -> bool:
+        ok = r.get("financial_ok")
+        known = r.get("financial_known")
+        if ok is None or not known:
+            return False
+        try:
+            return (float(ok) / float(known)) >= (5 / 6)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return False
+
+    if tab in ("fin6", "fin5"):
         try:
             ca = build_candidate_analysis(fill_ai=True)
-            ca_rows = ca.get("rows") or []
+            all_ca = ca.get("rows") or []
             ca_counts = ca.get("counts") or {}
+            badge_fin6 = int(ca_counts.get("fin_6") or 0)
+            badge_fin5 = int(ca_counts.get("fin_ge5") or 0)
             badge_candidates = int(ca_counts.get("total") or 0)
+            if tab == "fin6":
+                ca_rows = [r for r in all_ca if _row_fin6(r)]
+            else:
+                ca_rows = [r for r in all_ca if _row_fin_ge5(r)]
             sizes = ca.get("source_sizes") or {}
-            # Light badge counts without a second Rising/Multi full build.
             data_badge_rising = int(sizes.get("rising") or 0)
             data_badge_multi = int(sizes.get("multi") or 0)
         except Exception:
-            app.logger.exception("strong-monitor candidates failed")
+            app.logger.exception("strong-monitor financial analysis failed")
             data_badge_rising = 0
             data_badge_multi = 0
     elif tab in ("rotation", "rotation_detail"):
@@ -4086,6 +4386,9 @@ def strong_stock_monitor():
         data_badge_rising = len(rising_rows)
         data_badge_multi = 0
     else:
+        rising_rows = []
+        multi_rows = []
+        multi_summary = {}
         try:
             rising_rows = [_enrich(r) for r in list_rising_now()]
             setup_src = [dict(r) for r in list_setup(-10.0)]
@@ -4100,7 +4403,7 @@ def strong_stock_monitor():
         data_badge_rising = len(rising_rows)
         data_badge_multi = len(multi_rows)
 
-        # Attach AI from cache only for the active compact tab (no Financial/News UI).
+        # Attach AI from cache for Rising Now / Multi-Signal compact tabs.
         if tab in ("rising_now", "multi_signal"):
             active = rising_rows if tab == "rising_now" else multi_rows
             tickers = [r["ticker"] for r in active if r.get("ticker")]
@@ -4167,6 +4470,8 @@ def strong_stock_monitor():
     data["badge_rising"] = data_badge_rising
     data["badge_multi"] = data_badge_multi
     data["badge_candidates"] = badge_candidates
+    data["badge_fin6"] = badge_fin6
+    data["badge_fin5"] = badge_fin5
     data["rising_rows"] = rising_rows
     data["multi_rows"] = multi_rows
     data["multi_summary"] = multi_summary

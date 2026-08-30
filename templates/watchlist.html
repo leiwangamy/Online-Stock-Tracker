@@ -3,9 +3,17 @@
 {% block head %}
   {% if tab == 'ai_news' %}{% include '_ai_news_styles.html' %}{% endif %}
   <style>
-    .tabs { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 0 0 14px; align-items: center; }
+    .tabs.wl-tabs {
+      display: flex; flex-direction: column; gap: 8px;
+      align-items: center; margin: 0 0 14px;
+    }
+    .wl-tabs .tab-row {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      justify-content: center; align-items: center;
+      width: 100%;
+    }
     .tab-cluster {
-      display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px;
+      display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px;
       padding: 4px 8px 4px 10px; border: 1px dashed var(--border);
       border-radius: 12px; background: #f8fafc;
     }
@@ -14,14 +22,14 @@
       font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
       text-transform: uppercase; color: #64748b; padding: 0 4px 0 2px; white-space: nowrap;
     }
-    .tab-cluster .tab { padding: 6px 12px; font-size: 0.86rem; }
     .tab-sep { width: 1px; height: 22px; background: var(--border); margin: 0 2px; flex: 0 0 auto; }
     .tab {
-      display: inline-block; padding: 8px 16px; border-radius: 999px;
+      display: inline-block; padding: 8px 14px; border-radius: 999px;
       border: 1px solid var(--border); background: var(--panel); color: var(--muted);
-      text-decoration: none; font-weight: 600; font-size: 0.9rem;
+      text-decoration: none; font-weight: 600; font-size: 0.9rem; line-height: 1.25;
+      white-space: nowrap;
     }
-    .tab .count { font-weight: 400; opacity: 0.7; }
+    .tab .count { font-weight: 400; opacity: 0.7; font-size: inherit; }
     .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
     .trend { font-weight: 600; white-space: nowrap; }
     .trend.mixed { color: #b45309; }
@@ -376,6 +384,7 @@
     table.data th.sortable::after { content: "\2195"; opacity: 0.35; margin-left: 4px; font-size: 0.8em; }
     table.data th.sortable.asc::after { content: "\2191"; opacity: 1; }
     table.data th.sortable.desc::after { content: "\2193"; opacity: 1; }
+    .ms-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; align-items: center; }
     .ms-filters .ms-filter.active {
       background: var(--accent, #2563eb);
       color: #fff;
@@ -911,29 +920,35 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
 
 {% block content %}
   <h1>{{ _('Watchlist') }}</h1>
-  <div class="tabs">
-    {% set ai_select_keys = ['ai_news', 'ai_discovery', 'core_universe', 'ai_approved'] %}
-    {% set ai_select_active = tab in ai_select_keys %}
-    {% for t in tabs %}
-      {% if t.group == 'ai_select' and (loop.first or tabs[loop.index0 - 1].group != 'ai_select') %}
-        {% if not loop.first %}<span class="tab-sep" aria-hidden="true"></span>{% endif %}
-        <div class="tab-cluster {% if ai_select_active %}is-active{% endif %}" title="{{ _('AI News → AI Discovery → Core Universe → AI Approved') }}">
-          <span class="tab-cluster-label">{{ _('AI Select') }}</span>
-      {% endif %}
-      {% if t.group == 'screens' and (loop.first or tabs[loop.index0 - 1].group != 'screens') %}
-        <span class="tab-sep" aria-hidden="true"></span>
-      {% endif %}
-      {% if t.group == 'scratch' and (loop.first or tabs[loop.index0 - 1].group != 'scratch') %}
-        <span class="tab-sep" aria-hidden="true"></span>
-      {% endif %}
+  {% set ai_select_keys = ['ai_news', 'ai_discovery', 'core_universe', 'ai_approved'] %}
+  {% set ai_select_active = tab in ai_select_keys %}
+  <div class="tabs wl-tabs">
+    {# Row 1 — pools + AI Select #}
+    <div class="tab-row">
+      {% for t in tabs if t.row == 1 and t.group == 'main' %}
       <a class="tab {% if t.key == tab %}active{% endif %}" href="{{ url_for('watchlist', tab=t.key) }}">
         {{ t.label }} <span class="count">({{ t.count }})</span>
       </a>
-      {% if t.group == 'ai_select' and (loop.last or tabs[loop.index0 + 1].group != 'ai_select') %}
-        </div>
-        <span class="tab-sep" aria-hidden="true"></span>
-      {% endif %}
-    {% endfor %}
+      {% endfor %}
+      <span class="tab-sep" aria-hidden="true"></span>
+      <div class="tab-cluster {% if ai_select_active %}is-active{% endif %}"
+           title="{{ _('AI News → AI Discovery → Core Universe → AI Approved') }}">
+        <span class="tab-cluster-label">{{ _('AI Select') }}</span>
+        {% for t in tabs if t.group == 'ai_select' %}
+        <a class="tab {% if t.key == tab %}active{% endif %}" href="{{ url_for('watchlist', tab=t.key) }}">
+          {{ t.label }} <span class="count">({{ t.count }})</span>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+    {# Row 2 — screens + temp #}
+    <div class="tab-row">
+      {% for t in tabs if t.row == 2 %}
+      <a class="tab {% if t.key == tab %}active{% endif %}" href="{{ url_for('watchlist', tab=t.key) }}">
+        {{ t.label }} <span class="count">({{ t.count }})</span>
+      </a>
+      {% endfor %}
+    </div>
   </div>
   {% if ai_select_active %}
   <p class="hint" style="text-align:center;margin:-6px 0 12px">
