@@ -739,6 +739,14 @@
               {% elif mid == 'DEEP_RECOVERY' %}
                 <a href="{{ url_for('watchlist', tab='setup') }}">{{ _('Oversold pullback') }}</a>
                 <span class="hint">({{ _('top 15') }})</span>
+              {% elif mid == 'STABLE_GROWTH' %}
+                {{ _('Watchlist') }}
+                <a href="{{ url_for('watchlist', tab='growth') }}">{{ _('GROWTH') }}</a>
+                <span class="hint">({{ _('Dist ASC top 10–20') }})</span>
+              {% elif mid == 'SAFE_MARGIN' %}
+                <a href="{{ url_for('watchlist', tab='low_target') }}">{{ _('TARGET') }}</a>
+                {{ _('RATIO < 80%') }}
+                <span class="hint">({{ _('risk-filtered top 10–20') }})</span>
               {% elif mid == 'SHORT_SELL' %}
                 <a href="{{ url_for('watchlist', tab='short') }}">{{ _('SHORT') }}</a>
                 <span class="hint">({{ _('Dist DESC') }})</span>
