@@ -358,7 +358,7 @@ ZH: dict[str, str] = {
     "Save": "保存",
     "Cancel": "取消",
     "Back to Watchlist": "返回 Watchlist",
-    "Back to Dashboard": "返回 Dashboard",
+    "Back to Dashboard": "返回看板",
     "Password": "密码",
     "New password": "新密码",
     "Confirm password": "确认密码",
@@ -462,6 +462,13 @@ ZH: dict[str, str] = {
     "Please sign in to edit Watchlist pools": "请登录后编辑 Watchlist 池",
     "Sign in to edit GROWTH.": "登录后可编辑 GROWTH。",
     "Sign in to edit SHORT.": "登录后可编辑 SHORT。",
+    "SHORT SELLING RISK WARNING": "做空风险警示",
+    "Short selling carries theoretically unlimited loss risk because a stock price can continue rising without an upper limit.":
+        "做空存在理论上无限的亏损风险，因为股票价格的上涨没有上限。",
+    "This strategy is intended primarily for bear markets.":
+        "本策略主要用于熊市。",
+    "If consistent profits can be achieved by going LONG, prefer LONG positions whenever reasonable.":
+        "如果通过做多能够持续获得盈利，应尽可能优先选择做多。",
     "Add tickers, comma-separated": "添加代码，逗号分隔",
     "GROWTH pool — long-horizon Financial / Exchange / Utility / Health Care + ETF sleeve from S&P500∪NDX100. Same quotes as My Watchlist; ALERT not enabled yet. Funds/ETFs skip Financial & News. Method: large durable names only; skip speculative (e.g. COIN); review membership quarterly at most.":
         "GROWTH 池 — 长期金融/交易所/公用事业/医疗 + ETF（宇宙仅 S&P500∪NDX100）。与「我的自选」相同行情；暂未启用 ALERT。基金不查财报与新闻。选股：大市值护城河、少改名单；剔除投机股（如 COIN）；最多按季复审。",
@@ -1728,6 +1735,28 @@ ZH: dict[str, str] = {
         '按 READY + STABILIZING 从上到下阶梯配股建模拟单？仍使用设置中的止损/止盈与资金上限。仅模拟。',
     'Refresh AI BUY and allocate READY top→bottom (paper only). Settings stop/take & capital still apply.':
         '刷新 AI BUY，并对 READY 从上到下配股建模拟单。仍使用设置中的止损/止盈与资金上限。',
+    'Per-strategy defaults (5 books). Leave Take blank for stop-only. Short: Stop = cover above entry; Take = cover below entry.':
+        '按策略分别设置（共 5 本账本）。止盈留空表示仅止损。做空：止损为入场价上方平仓；止盈为入场价下方平仓。',
+    'Strategy':
+        '策略',
+    'Stop Loss % required for {strategy}':
+        '{strategy} 需要填写止损 %',
+    'Stop Loss % for {strategy} must be between 0.5 and 50':
+        '{strategy} 止损 % 须在 0.5–50 之间',
+    'Take Profit % for {strategy} must be between 0.5 and 100 (or blank)':
+        '{strategy} 止盈 % 须在 0.5–100 之间（或留空）',
+    'Saved: SMA={sma}, rebound lookback={rebound}. Auto: universe weekly {weekday} {uh:02d}:{um:02d} PT; prices weekdays {ph:02d}:{pm:02d} PT after US close. Paper exits saved for 5 strategies (Alert Buy SL −{stop}% / TP +{take}%). Restart app for in-app schedule; Windows tasks use install-time values.':
+        '已保存：SMA={sma}，反弹回看={rebound}。自动：宇宙每周 {weekday} {uh:02d}:{um:02d} PT；价格交易日 {ph:02d}:{pm:02d} PT（美股收盘后）。已保存 5 个策略止盈止损（警报买入 止损 −{stop}% / 止盈 +{take}%）。应用内调度需重启；Windows 任务沿用安装时设定。',
+    'Alert Buy':
+        '警报买入',
+    'Stable Growth':
+        '稳健增长',
+    'Safe Margin':
+        '安全边际',
+    'Short Sell':
+        '做空',
+    'Back to Dashboard':
+        '返回看板',
     'AI Paper Trading':
         'AI 模拟交易',
     'Simulation only — no real brokerage orders':
@@ -2114,6 +2143,8 @@ ZH: dict[str, str] = {
         '每日模拟更新完成：平仓 {c}，标记 {m}，候选 {n}',
     'Daily paper update done: closed {c}, marked {m}, candidates {n}, auto-bought {a}':
         '每日模拟更新完成：平仓 {c}，标记 {m}，候选 {n}，自动买入 {a}',
+    'After Stop/Take: auto-buy the highest-ranked stock not yet used in this experiment (one new position per exit).':
+        '止损/止盈后：自动买入本实验尚未用过、排名最高的股票（每平仓 1 只买入 1 只）。',
     'After Stop/Take: auto-buy the highest-ranked AI name not yet used in this experiment (one new position per exit).':
         '止损/止盈后：自动买入本实验尚未用过、AI 排名最高的股票（每平仓 1 只买入 1 只）。',
     'Create Paper Orders is manual for the initial book. After Stop/Take, unused top-ranked names can auto-fill (see Settings).':
@@ -2166,6 +2197,20 @@ ZH: dict[str, str] = {
         'EXIT 后自动做空当时 Dist 队首未用过的股票',
     'SHORT → 63D>80% · Day%<0 → Dist DESC top 10–20 → SELL SHORT':
         'SHORT → 63D>80% · Day%<0 → Dist 降序前 10–20 → SELL SHORT',
+    'Cover Stop':
+        '平仓止损',
+    'Cover stop +3% · Take Profit −6% · EXIT → next unused · independent $2k book.':
+        '平仓止损 +3% · 止盈 −6% · EXIT 后换队首未用名 · 独立 $2k 账本。',
+    'Dist DESC · SELL SHORT · cover +3%/−6% · EXIT auto-refill':
+        'Dist 降序 · SELL SHORT · 止损+3%/止盈−6% · EXIT 自动补仓',
+    'SHORT sleeve filtered by 63D>80% and Day%<0, sorted Dist SMA25 descending (10–20). Paper slots $250→$150, max 6. SELL SHORT with cover stop +3% and Take Profit −6%; on EXIT auto-short the then-top unused Dist queue name.':
+        'SHORT 池经 63D>80%、Day%<0 过滤后按 Dist SMA25 降序取 10–20。纸面仓位 $250→$150，最多 6。SELL SHORT，止损 +3%、止盈 −6%；EXIT 后自动做空当时队首未用名。',
+    'SIMULATE Short Sell paper orders (SELL SHORT · cover +3% / Take −6%)?':
+        '模拟 Short Sell 纸面做空（SELL SHORT · 止损+3% / 止盈−6%）？',
+    'Open SHORT covers synced to +{sl}% / −{tp}% ({n} orders).':
+        '已将未平仓 SHORT 平仓位同步为 +{sl}% / −{tp}%（{n} 笔）。',
+    'Short Sell paper orders: {n} · skipped {s} · SELL SHORT · cover +3% / Take −6%':
+        'Short Sell 纸面单：{n} · 跳过 {s} · SELL SHORT · 止损+3% / 止盈−6%',
     '5% trailing cover above trough · no Take Profit · EXIT → next unused · independent $2k book.':
         '相对低点上方 5% 移动平仓 · 无止盈 · EXIT 后换队首未用名 · 独立 $2k 账本。',
     '63D Position > 80% · Day % < 0 → top 10–20':

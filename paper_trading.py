@@ -79,13 +79,133 @@ def trading_day_pt(now: datetime | None = None) -> str:
 
 
 def _cfg() -> dict[str, float]:
+    # Legacy globals — prefer per-strategy via get_strategy_exit_pcts().
+    alert = get_strategy_exit_pcts("ALERT_BUY")
+    take = alert.get("take_profit_pct")
+    if take is None:
+        take = float(get_setting("paper_take_profit_pct", 10.0))
     return {
         "starting_capital": float(get_setting("paper_starting_capital", 2000.0)),
         "trading_limit": float(get_setting("paper_trading_limit", 1500.0)),
         "reserve_cash": float(get_setting("paper_reserve_cash", 500.0)),
-        "stop_loss_pct": float(get_setting("paper_stop_loss_pct", 5.0)),
-        "take_profit_pct": float(get_setting("paper_take_profit_pct", 10.0)),
+        "stop_loss_pct": float(alert["stop_loss_pct"]),
+        "take_profit_pct": float(take),
     }
+
+
+# Per-strategy Stop / Take defaults (Settings → AI Paper Trading).
+# take=None means stop-only (no Take Profit).
+STRATEGY_EXIT_DEFAULTS: dict[str, dict[str, float | None]] = {
+    "ALERT_BUY": {"stop": 5.0, "take": 10.0},
+    "DEEP_RECOVERY": {"stop": 5.0, "take": 10.0},
+    "STABLE_GROWTH": {"stop": 3.0, "take": None},
+    "SAFE_MARGIN": {"stop": 10.0, "take": None},
+    "SHORT_SELL": {"stop": 3.0, "take": 6.0},
+}
+
+
+def strategy_exit_setting_keys(strategy_id: str) -> tuple[str, str]:
+    sid = (strategy_id or "ALERT_BUY").strip().upper()
+    return f"paper_stop_{sid}", f"paper_take_{sid}"
+
+
+def get_strategy_exit_pcts(strategy_id: str | None = None) -> dict[str, Any]:
+    """
+    Stop / Take % for a paper strategy.
+    Settings keys: paper_stop_<SID>, paper_take_<SID> (empty take = no TP).
+    Falls back to STRATEGY_EXIT_DEFAULTS; ALERT_BUY also falls back to legacy
+    paper_stop_loss_pct / paper_take_profit_pct.
+    """
+    from strategies import STRATEGY_ALERT_BUY, normalize_strategy_id
+
+    sid = normalize_strategy_id(strategy_id) if strategy_id else STRATEGY_ALERT_BUY
+    defaults = STRATEGY_EXIT_DEFAULTS.get(
+        sid, STRATEGY_EXIT_DEFAULTS[STRATEGY_ALERT_BUY]
+    )
+    stop_key, take_key = strategy_exit_setting_keys(sid)
+
+    stop_raw = get_setting(stop_key, None)
+    if stop_raw is None or str(stop_raw).strip() == "":
+        if sid == STRATEGY_ALERT_BUY:
+            stop = float(get_setting("paper_stop_loss_pct", defaults["stop"]))
+        else:
+            stop = float(defaults["stop"] if defaults["stop"] is not None else 5.0)
+    else:
+        stop = float(stop_raw)
+
+    # Sentinel: key missing → use defaults; "" / none → no Take Profit.
+    take_raw = get_setting(take_key, "__unset__")
+    if take_raw == "__unset__":
+        if sid == STRATEGY_ALERT_BUY and defaults.get("take") is not None:
+            take: float | None = float(
+                get_setting("paper_take_profit_pct", defaults["take"])
+            )
+        else:
+            take = defaults.get("take")
+            if take is not None:
+                take = float(take)
+    elif take_raw is None or str(take_raw).strip() == "" or str(take_raw).strip().lower() in (
+        "none",
+        "null",
+        "-",
+    ):
+        take = None
+    else:
+        try:
+            take = float(take_raw)
+        except (TypeError, ValueError):
+            take = defaults.get("take")
+            if take is not None:
+                take = float(take)
+
+    return {
+        "strategy_id": sid,
+        "stop_loss_pct": float(stop),
+        "take_profit_pct": None if take is None else float(take),
+        "no_take_profit": take is None,
+    }
+
+
+def list_strategy_exit_settings() -> list[dict[str, Any]]:
+    """Rows for Settings UI: one Stop/Take pair per strategy."""
+    from strategies import STRATEGY_IDS, STRATEGY_META
+
+    rows: list[dict[str, Any]] = []
+    for sid in STRATEGY_IDS:
+        exits = get_strategy_exit_pcts(sid)
+        meta = STRATEGY_META.get(sid) or {}
+        rows.append(
+            {
+                "strategy_id": sid,
+                "name": meta.get("name") or sid,
+                "short": meta.get("short") or sid,
+                "side": meta.get("side") or "long",
+                "stop_loss_pct": exits["stop_loss_pct"],
+                "take_profit_pct": exits["take_profit_pct"],
+                "no_take_profit": exits["no_take_profit"],
+            }
+        )
+    return rows
+
+
+def save_strategy_exit_pcts(
+    strategy_id: str, stop_pct: float, take_pct: float | None
+) -> None:
+    """Persist one strategy's Stop / Take (take None = no Take Profit)."""
+    from strategies import STRATEGY_ALERT_BUY, normalize_strategy_id
+
+    sid = normalize_strategy_id(strategy_id)
+    stop_key, take_key = strategy_exit_setting_keys(sid)
+    set_setting(stop_key, float(stop_pct))
+    if take_pct is None:
+        set_setting(take_key, "")
+    else:
+        set_setting(take_key, float(take_pct))
+    # Keep legacy globals in sync with Alert Buy for older callers.
+    if sid == STRATEGY_ALERT_BUY:
+        set_setting("paper_stop_loss_pct", float(stop_pct))
+        if take_pct is not None:
+            set_setting("paper_take_profit_pct", float(take_pct))
 
 
 def ensure_portfolio() -> dict[str, Any]:
@@ -2294,7 +2414,7 @@ def create_paper_orders_from_stable_growth(
     Paper orders for Stable Growth — Dist ASC GROWTH queue, STABLE_GROWTH book.
     Stop −3%, no Take Profit.
     """
-    from stable_growth import STOP_LOSS_PCT, build_stable_growth_snapshot
+    from stable_growth import build_stable_growth_snapshot
     from strategies import STRATEGY_STABLE_GROWTH
 
     day = as_of_date or trading_day_pt()
@@ -2357,8 +2477,6 @@ def create_paper_orders_from_stable_growth(
                 target_usd=float(target),
                 rank_at_entry=ladder_i + 1,
                 strategy_id=STRATEGY_STABLE_GROWTH,
-                stop_loss_pct=STOP_LOSS_PCT,
-                no_take_profit=True,
             )
             out["via"] = "stable_growth"
             out["buy_status"] = (r.get("buy_status") or "").upper()
@@ -2393,8 +2511,8 @@ def create_paper_orders_from_stable_growth(
         "pool_count": snap.get("pool_count", 0),
         "counts": snap.get("counts") or {},
         "strategy_id": STRATEGY_STABLE_GROWTH,
-        "stop_loss_pct": STOP_LOSS_PCT,
-        "take_profit_pct": None,
+        "stop_loss_pct": get_strategy_exit_pcts(STRATEGY_STABLE_GROWTH)["stop_loss_pct"],
+        "take_profit_pct": get_strategy_exit_pcts(STRATEGY_STABLE_GROWTH)["take_profit_pct"],
     }
 
 
@@ -2407,7 +2525,7 @@ def auto_replace_stable_growth_exits(
     After any STABLE_GROWTH exit: buy up to max_new names from the then-current
     GROWTH Dist ASC queue — prefer never-used on this book, skip currently open.
     """
-    from stable_growth import STOP_LOSS_PCT, build_stable_growth_snapshot
+    from stable_growth import build_stable_growth_snapshot
     from strategies import STRATEGY_STABLE_GROWTH
 
     n = max(0, int(max_new or 0))
@@ -2493,8 +2611,6 @@ def auto_replace_stable_growth_exits(
                 target_usd=target,
                 rank_at_entry=i + 1,
                 strategy_id=STRATEGY_STABLE_GROWTH,
-                stop_loss_pct=STOP_LOSS_PCT,
-                no_take_profit=True,
             )
             out["via"] = "stable_growth_auto_replace"
             created.append(out)
@@ -2518,7 +2634,7 @@ def create_paper_orders_from_safe_margin(
     Paper orders for Safe Margin — Target ASC risk-filtered queue, SAFE_MARGIN book.
     10% trailing stop, no Take Profit.
     """
-    from safe_margin import STOP_LOSS_PCT, build_safe_margin_snapshot
+    from safe_margin import build_safe_margin_snapshot
     from strategies import STRATEGY_SAFE_MARGIN
 
     day = as_of_date or trading_day_pt()
@@ -2580,8 +2696,6 @@ def create_paper_orders_from_safe_margin(
                 target_usd=float(target),
                 rank_at_entry=ladder_i + 1,
                 strategy_id=STRATEGY_SAFE_MARGIN,
-                stop_loss_pct=STOP_LOSS_PCT,
-                no_take_profit=True,
                 trailing_stop=True,
             )
             out["via"] = "safe_margin"
@@ -2618,9 +2732,9 @@ def create_paper_orders_from_safe_margin(
         "passed_count": snap.get("passed_count", 0),
         "counts": snap.get("counts") or {},
         "strategy_id": STRATEGY_SAFE_MARGIN,
-        "stop_loss_pct": STOP_LOSS_PCT,
+        "stop_loss_pct": get_strategy_exit_pcts(STRATEGY_SAFE_MARGIN)["stop_loss_pct"],
         "trailing_stop": True,
-        "take_profit_pct": None,
+        "take_profit_pct": get_strategy_exit_pcts(STRATEGY_SAFE_MARGIN)["take_profit_pct"],
     }
 
 
@@ -2633,7 +2747,7 @@ def auto_replace_safe_margin_exits(
     After any SAFE_MARGIN exit: buy up to max_new names from the then-current
     Target ASC risk-filtered queue — prefer never-used on this book.
     """
-    from safe_margin import STOP_LOSS_PCT, build_safe_margin_snapshot
+    from safe_margin import build_safe_margin_snapshot
     from strategies import STRATEGY_SAFE_MARGIN
 
     n = max(0, int(max_new or 0))
@@ -2718,8 +2832,6 @@ def auto_replace_safe_margin_exits(
                 target_usd=target,
                 rank_at_entry=i + 1,
                 strategy_id=STRATEGY_SAFE_MARGIN,
-                stop_loss_pct=STOP_LOSS_PCT,
-                no_take_profit=True,
                 trailing_stop=True,
             )
             out["via"] = "safe_margin_auto_replace"
@@ -2742,13 +2854,14 @@ def create_paper_orders_from_short_sell(
 ) -> dict[str, Any]:
     """
     Paper SELL SHORT orders — Dist DESC SHORT queue, SHORT_SELL book.
-    5% trailing cover above trough, no Take Profit.
+    Cover stop +3% · Take Profit −6% (fixed from entry).
     """
-    from short_sell import STOP_LOSS_PCT, build_short_sell_snapshot
+    from short_sell import build_short_sell_snapshot
     from strategies import STRATEGY_SHORT_SELL
 
     day = as_of_date or trading_day_pt()
     ensure_strategy_accounts()
+    sync_open_short_sell_exit_levels()
     snap = build_short_sell_snapshot(persist=True)
     trade_rows = []
     for r in snap.get("rows") or []:
@@ -2807,9 +2920,7 @@ def create_paper_orders_from_short_sell(
                 target_usd=float(target),
                 rank_at_entry=ladder_i + 1,
                 strategy_id=STRATEGY_SHORT_SELL,
-                stop_loss_pct=STOP_LOSS_PCT,
-                no_take_profit=True,
-                trailing_stop=True,
+                trailing_stop=False,
                 side="short",
             )
             out["via"] = "short_sell"
@@ -2836,6 +2947,7 @@ def create_paper_orders_from_short_sell(
         save_equity_snapshot(as_of_date=day)
     except Exception:
         log.exception("equity snapshot after short_sell create_orders failed")
+    exits = get_strategy_exit_pcts(STRATEGY_SHORT_SELL)
     return {
         "created": created,
         "skipped": skipped,
@@ -2846,10 +2958,82 @@ def create_paper_orders_from_short_sell(
         "passed_count": snap.get("passed_count", 0),
         "counts": snap.get("counts") or {},
         "strategy_id": STRATEGY_SHORT_SELL,
-        "stop_loss_pct": STOP_LOSS_PCT,
-        "trailing_stop": True,
-        "take_profit_pct": None,
+        "stop_loss_pct": exits["stop_loss_pct"],
+        "trailing_stop": False,
+        "take_profit_pct": exits["take_profit_pct"],
         "side": "short",
+    }
+
+
+def sync_open_short_sell_exit_levels() -> dict[str, Any]:
+    """
+    Rebase open SHORT_SELL covers to fixed +SL% / −TP% from entry
+    and clear trailing-stop flags (strategy rule change helper).
+    """
+    from strategies import STRATEGY_SHORT_SELL
+
+    exits = get_strategy_exit_pcts(STRATEGY_SHORT_SELL)
+    stop_pct = float(exits["stop_loss_pct"])
+    take_pct = exits["take_profit_pct"]
+    if take_pct is None:
+        take_pct = float(STRATEGY_EXIT_DEFAULTS["SHORT_SELL"]["take"] or 6.0)
+    else:
+        take_pct = float(take_pct)
+
+    now = _utc_now_iso()
+    updated: list[dict[str, Any]] = []
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, ticker, entry_price, stop_pct, take_profit_pct, trailing_stop
+            FROM paper_trades
+            WHERE status = 'open'
+              AND UPPER(COALESCE(strategy_id, '')) = ?
+              AND LOWER(COALESCE(side, 'long')) = 'short'
+            """,
+            (STRATEGY_SHORT_SELL,),
+        ).fetchall()
+        for r in rows:
+            try:
+                entry = float(r["entry_price"])
+            except (TypeError, ValueError):
+                continue
+            if entry <= 0:
+                continue
+            stop = round(entry * (1.0 + stop_pct / 100.0), 4)
+            take = round(entry * (1.0 - take_pct / 100.0), 4)
+            conn.execute(
+                """
+                UPDATE paper_trades SET
+                  stop_price = ?, take_profit_price = ?,
+                  stop_pct = ?, take_profit_pct = ?,
+                  trailing_stop = 0, peak_price = NULL,
+                  updated_at = ?
+                WHERE id = ? AND status = 'open'
+                """,
+                (
+                    stop,
+                    take,
+                    stop_pct,
+                    take_pct,
+                    now,
+                    int(r["id"]),
+                ),
+            )
+            updated.append(
+                {
+                    "id": int(r["id"]),
+                    "ticker": (r["ticker"] or "").upper(),
+                    "entry": entry,
+                    "stop": stop,
+                    "take": take,
+                }
+            )
+    return {
+        "updated": len(updated),
+        "rows": updated,
+        "stop_loss_pct": stop_pct,
+        "take_profit_pct": take_pct,
     }
 
 
@@ -2862,7 +3046,7 @@ def auto_replace_short_sell_exits(
     After any SHORT_SELL cover: open up to max_new shorts from the then-current
     Dist DESC candidate queue — prefer never-used on this book.
     """
-    from short_sell import STOP_LOSS_PCT, build_short_sell_snapshot
+    from short_sell import build_short_sell_snapshot
     from strategies import STRATEGY_SHORT_SELL
 
     n = max(0, int(max_new or 0))
@@ -2948,9 +3132,7 @@ def auto_replace_short_sell_exits(
                 target_usd=target,
                 rank_at_entry=i + 1,
                 strategy_id=STRATEGY_SHORT_SELL,
-                stop_loss_pct=STOP_LOSS_PCT,
-                no_take_profit=True,
-                trailing_stop=True,
+                trailing_stop=False,
                 side="short",
             )
             out["via"] = "short_sell_auto_replace"
@@ -3074,6 +3256,14 @@ def _open_auto_replace_position(
             f"trading limit reached: invested ${invested:.2f}, "
             f"need ${cost:.2f}, limit ${trading_limit:.2f}"
         )
+
+    # Resolve Stop / Take from Settings (per strategy) unless caller overrides.
+    exits = get_strategy_exit_pcts(sid if use_strategy_book else STRATEGY_ALERT_BUY)
+    if stop_loss_pct is None:
+        stop_loss_pct = exits["stop_loss_pct"]
+    if take_profit_pct is None and not no_take_profit:
+        take_profit_pct = exits["take_profit_pct"]
+        no_take_profit = bool(exits["no_take_profit"])
 
     stop_pct = float(
         stop_loss_pct if stop_loss_pct is not None else cfg["stop_loss_pct"]

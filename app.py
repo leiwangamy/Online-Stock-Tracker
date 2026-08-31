@@ -1033,14 +1033,42 @@ def settings():
             set_setting("schedule_price_hour", p_hour)
             set_setting("schedule_price_minute", p_min)
 
-            stop_pct = float(request.form.get("paper_stop_loss_pct", 5))
-            take_pct = float(request.form.get("paper_take_profit_pct", 10))
-            if not (0.5 <= stop_pct <= 50):
-                raise ValueError(gettext("Stop Loss % must be between 0.5 and 50"))
-            if not (0.5 <= take_pct <= 100):
-                raise ValueError(gettext("Take Profit % must be between 0.5 and 100"))
-            set_setting("paper_stop_loss_pct", stop_pct)
-            set_setting("paper_take_profit_pct", take_pct)
+            from paper_trading import save_strategy_exit_pcts
+            from strategies import STRATEGY_IDS
+
+            saved_exits = []
+            for sid in STRATEGY_IDS:
+                stop_raw = (request.form.get(f"paper_stop_{sid}") or "").strip()
+                take_raw = (request.form.get(f"paper_take_{sid}") or "").strip()
+                if not stop_raw:
+                    raise ValueError(
+                        ngettext_format(
+                            "Stop Loss % required for {strategy}",
+                            strategy=sid,
+                        )
+                    )
+                stop_pct = float(stop_raw)
+                if not (0.5 <= stop_pct <= 50):
+                    raise ValueError(
+                        ngettext_format(
+                            "Stop Loss % for {strategy} must be between 0.5 and 50",
+                            strategy=sid,
+                        )
+                    )
+                if take_raw == "":
+                    take_pct = None
+                else:
+                    take_pct = float(take_raw)
+                    if not (0.5 <= take_pct <= 100):
+                        raise ValueError(
+                            ngettext_format(
+                                "Take Profit % for {strategy} must be between 0.5 and 100 (or blank)",
+                                strategy=sid,
+                            )
+                        )
+                save_strategy_exit_pcts(sid, stop_pct, take_pct)
+                saved_exits.append((sid, stop_pct, take_pct))
+
             # Checkbox: absent from POST when unchecked.
             set_setting(
                 "paper_auto_replace_on_exit",
@@ -1053,12 +1081,16 @@ def settings():
             except Exception:
                 pass
 
+            alert = next((x for x in saved_exits if x[0] == "ALERT_BUY"), None)
+            stop_pct = alert[1] if alert else 5.0
+            take_pct = alert[2] if alert and alert[2] is not None else 10.0
+
             flash(
                 ngettext_format(
                     "Saved: SMA={sma}, rebound lookback={rebound}. Auto: universe weekly "
                     "{weekday} {uh:02d}:{um:02d} PT; prices weekdays {ph:02d}:{pm:02d} PT "
-                    "after US close. Paper SL −{stop}% / TP +{take}%. Restart app for in-app "
-                    "schedule; Windows tasks use install-time values.",
+                    "after US close. Paper exits saved for 5 strategies (Alert Buy SL −{stop}% / TP +{take}%). "
+                    "Restart app for in-app schedule; Windows tasks use install-time values.",
                     sma=sma_period,
                     rebound=rebound_lookback,
                     weekday=dict(weekdays)[weekday],
@@ -1082,6 +1114,89 @@ def settings():
         sched = scheduler_status()
     except Exception:
         sched = {"enabled": False, "running": False, "jobs": []}
+
+    # Always build 5 editable rows (never leave the Settings table empty).
+    paper_strategy_exits = []
+    try:
+        from paper_trading import (
+            STRATEGY_EXIT_DEFAULTS,
+            get_strategy_exit_pcts,
+            list_strategy_exit_settings,
+        )
+        from strategies import STRATEGY_IDS, STRATEGY_META
+
+        paper_strategy_exits = list_strategy_exit_settings()
+        if not paper_strategy_exits:
+            for sid in STRATEGY_IDS:
+                meta = STRATEGY_META.get(sid) or {}
+                d = STRATEGY_EXIT_DEFAULTS.get(sid) or {"stop": 5.0, "take": 10.0}
+                try:
+                    exits = get_strategy_exit_pcts(sid)
+                    stop_v = exits["stop_loss_pct"]
+                    take_v = exits["take_profit_pct"]
+                except Exception:
+                    stop_v = float(d.get("stop") or 5.0)
+                    take_v = d.get("take")
+                paper_strategy_exits.append(
+                    {
+                        "strategy_id": sid,
+                        "name": meta.get("name") or sid,
+                        "short": meta.get("short") or sid,
+                        "side": meta.get("side") or "long",
+                        "stop_loss_pct": stop_v,
+                        "take_profit_pct": take_v,
+                        "no_take_profit": take_v is None,
+                    }
+                )
+    except Exception:
+        app.logger.exception("list_strategy_exit_settings failed; using static defaults")
+        paper_strategy_exits = [
+            {
+                "strategy_id": "ALERT_BUY",
+                "name": "Alert Buy",
+                "short": "ALERT BUY",
+                "side": "long",
+                "stop_loss_pct": float(settings_data.get("paper_stop_loss_pct", 5.0)),
+                "take_profit_pct": float(settings_data.get("paper_take_profit_pct", 10.0)),
+                "no_take_profit": False,
+            },
+            {
+                "strategy_id": "DEEP_RECOVERY",
+                "name": "Deep Recovery",
+                "short": "DEEP RECOVERY",
+                "side": "long",
+                "stop_loss_pct": 5.0,
+                "take_profit_pct": 10.0,
+                "no_take_profit": False,
+            },
+            {
+                "strategy_id": "STABLE_GROWTH",
+                "name": "Stable Growth",
+                "short": "STABLE GROWTH",
+                "side": "long",
+                "stop_loss_pct": 3.0,
+                "take_profit_pct": None,
+                "no_take_profit": True,
+            },
+            {
+                "strategy_id": "SAFE_MARGIN",
+                "name": "Safe Margin",
+                "short": "SAFE MARGIN",
+                "side": "long",
+                "stop_loss_pct": 10.0,
+                "take_profit_pct": None,
+                "no_take_profit": True,
+            },
+            {
+                "strategy_id": "SHORT_SELL",
+                "name": "Short Sell",
+                "short": "SHORT SELL",
+                "side": "short",
+                "stop_loss_pct": 3.0,
+                "take_profit_pct": 6.0,
+                "no_take_profit": False,
+            },
+        ]
     return render_template(
         "settings.html",
         can_edit=can_edit,
@@ -1094,6 +1209,7 @@ def settings():
         schedule_universe_minute=int(settings_data.get("schedule_universe_minute", 0)),
         schedule_price_hour=int(settings_data.get("schedule_price_hour", 13)),
         schedule_price_minute=int(settings_data.get("schedule_price_minute", 15)),
+        paper_strategy_exits=paper_strategy_exits,
         paper_stop_loss_pct=float(settings_data.get("paper_stop_loss_pct", 5.0)),
         paper_take_profit_pct=float(settings_data.get("paper_take_profit_pct", 10.0)),
         paper_auto_replace_on_exit=str(
@@ -2889,6 +3005,8 @@ def ai_trading():
         auto_replace_stable_growth_exits,
         auto_replace_safe_margin_exits,
         auto_replace_short_sell_exits,
+        sync_open_short_sell_exit_levels,
+        get_strategy_exit_pcts,
         portfolio_summary,
         portfolio_summary_for_strategy,
         rebuy_from_closed_trade,
@@ -3051,6 +3169,7 @@ def ai_trading():
             if action == "refresh_short_sell":
                 from short_sell import build_short_sell_snapshot
 
+                synced = sync_open_short_sell_exit_levels()
                 built = build_short_sell_snapshot(persist=True)
                 flash(
                     ngettext_format(
@@ -3063,6 +3182,16 @@ def ai_trading():
                     ),
                     "ok",
                 )
+                if synced.get("updated"):
+                    flash(
+                        ngettext_format(
+                            "Open SHORT covers synced to +{sl}% / −{tp}% ({n} orders).",
+                            sl=synced.get("stop_loss_pct", 3),
+                            tp=synced.get("take_profit_pct", 6),
+                            n=synced.get("updated", 0),
+                        ),
+                        "ok",
+                    )
                 return redirect(url_for("ai_trading", tab="short_sell"))
             if action == "check_data":
                 from db import get_dashboard_by_tickers
@@ -3286,7 +3415,7 @@ def ai_trading():
                     flash(
                         ngettext_format(
                             "Short Sell paper orders: {n} · skipped {s} · "
-                            "SELL SHORT · 5% trailing cover · no Take",
+                            "SELL SHORT · cover +3% / Take −6%",
                             n=len(created),
                             s=len(skipped),
                         ),
@@ -3711,13 +3840,14 @@ def ai_trading():
         "top_n": 15,
         "counts": {},
         "rows": [],
-        "stop_loss_pct": 5.0,
-        "trailing_stop": True,
-        "take_profit_pct": None,
+        "stop_loss_pct": 3.0,
+        "trailing_stop": False,
+        "take_profit_pct": 6.0,
         "side": "short",
     }
     if tab == "short_sell":
         try:
+            sync_open_short_sell_exit_levels()
             from short_sell import load_short_sell_view
 
             short_sell_view = load_short_sell_view(recompute=True)
@@ -3995,8 +4125,18 @@ def ai_trading():
             range_key=range_key if tab == "history" else "ALL",
             priority=priority,
             can_manage=is_owner(),
-            stop_pct=float(get_all_settings().get("paper_stop_loss_pct", 5.0)),
-            take_pct=float(get_all_settings().get("paper_take_profit_pct", 10.0)),
+            stop_pct=(
+                float(get_strategy_exit_pcts(active_strategy_id)["stop_loss_pct"])
+                if active_strategy_id
+                else float(get_all_settings().get("paper_stop_loss_pct", 5.0))
+            ),
+            take_pct=(
+                (
+                    get_strategy_exit_pcts(active_strategy_id)["take_profit_pct"]
+                    if active_strategy_id
+                    else float(get_all_settings().get("paper_take_profit_pct", 10.0))
+                )
+            ),
             ai_auto_sma25_dist=float(_auto_thr.get("sma25_dist", -20.0)),
             ai_auto_target_ratio=float(_auto_thr.get("target_ratio", 0.70)),
             ai_auto_63d_pos=float(_auto_thr.get("pos_63d", 10.0)),

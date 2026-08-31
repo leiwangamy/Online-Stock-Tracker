@@ -6,8 +6,8 @@ FILTER = 63D Position > 80% · Day % < 0, then Dist SMA25 descending.
 RANK   = Dist% vs SMA25, descending (most extended above SMA first).
 QUEUE  = top TOP_N (default 15, Owner band 10–20) → SHORT CANDIDATE / READY.
 ENTRY  = SELL SHORT on SHORT_SELL book.
-EXITS  = unified 5% trailing cover: track trough since entry; BUY TO COVER
-         stop = trough × 1.05; no Take Profit. EXIT → next unused on queue.
+EXITS  = Cover stop +3% above entry · Take Profit −6% below entry (fixed).
+         EXIT → next unused on queue.
 """
 
 from __future__ import annotations
@@ -21,8 +21,9 @@ from strategies import STRATEGY_SHORT_SELL, assign_primary_ranks, cap_category
 from watchlist_config import get_short_watchlist
 
 TOP_N = 15
-STOP_LOSS_PCT = 5.0  # trailing cover distance above trough
-TRAILING_STOP = True
+STOP_LOSS_PCT = 3.0  # cover stop above short entry
+TAKE_PROFIT_PCT = 6.0  # buy-to-cover profit below entry
+TRAILING_STOP = False
 MIN_63D_POS = 80.0
 # Day % must be strictly negative (red day).
 
@@ -157,7 +158,7 @@ def build_short_sell_snapshot(
             f"Day={float(r['change_pct']):+.2f}%"
             if r.get("change_pct") is not None
             else "Day=—",
-            "trail_cover=5%",
+            f"cover=+{STOP_LOSS_PCT:.0f}%/−{TAKE_PROFIT_PCT:.0f}%",
             "SELL SHORT",
         ]
         if status == "HOLD":
@@ -195,13 +196,13 @@ def build_short_sell_snapshot(
         "strategy_id": STRATEGY_SHORT_SELL,
         "stop_loss_pct": STOP_LOSS_PCT,
         "trailing_stop": TRAILING_STOP,
-        "take_profit_pct": None,
+        "take_profit_pct": TAKE_PROFIT_PCT,
         "side": "short",
         "notes": (
             f"SHORT watchlist → 63D>{MIN_63D_POS:.0f}% · Day%<0 → Dist DESC top {n} "
             f"(pool {pool_count}, passed {len(passed)}). "
-            f"SELL SHORT · trailing cover +{STOP_LOSS_PCT:.0f}% above trough · "
-            f"no Take · EXIT→next unused."
+            f"SELL SHORT · cover stop +{STOP_LOSS_PCT:.0f}% · "
+            f"Take −{TAKE_PROFIT_PCT:.0f}% · EXIT→next unused."
         ),
     }
 

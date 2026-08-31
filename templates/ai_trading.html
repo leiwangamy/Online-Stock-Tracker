@@ -505,19 +505,19 @@
   <div class="ops-bar">
     <div>
       {% if tab == 'stable_growth' %}
-      {{ _('Stop Loss') }} −3% · {{ _('Take Profit') }} {{ _('None') }}
+      {{ _('Stop Loss') }} −{{ stop_pct }}% · {{ _('Take Profit') }} {% if take_pct is none %}{{ _('None') }}{% else %}+{{ take_pct }}%{% endif %}
       · {{ _('Queue') }}: {{ _('GROWTH Dist SMA25 ASC · top 10–20') }}
       · {{ _('On EXIT → auto-buy next unused on Dist queue') }}
       {% elif tab == 'safe_margin' %}
-      {{ _('Trailing Stop') }} −10% · {{ _('Take Profit') }} {{ _('None') }}
+      {{ _('Trailing Stop') }} −{{ stop_pct }}% · {{ _('Take Profit') }} {% if take_pct is none %}{{ _('None') }}{% else %}+{{ take_pct }}%{% endif %}
       · {{ _('Queue') }}: {{ _('Target Ratio ASC · risk-filtered top 10–20') }}
       · {{ _('On EXIT → auto-buy next unused on Target queue') }}
       {% elif tab == 'short_sell' %}
-      {{ _('Trailing Cover') }} +5% · {{ _('Take Profit') }} {{ _('None') }}
+      {{ _('Cover Stop') }} +{{ stop_pct }}% · {{ _('Take Profit') }} {% if take_pct is none %}{{ _('None') }}{% else %}−{{ take_pct }}%{% endif %}
       · {{ _('Queue') }}: {{ _('SHORT Dist SMA25 DESC · 63D>80% · Day%<0') }}
       · {{ _('On EXIT → auto-short next unused on Dist queue') }}
       {% else %}
-      {{ _('Stop Loss') }} −{{ stop_pct }}% · {{ _('Take Profit') }} +{{ take_pct }}%
+      {{ _('Stop Loss') }} −{{ stop_pct }}% · {{ _('Take Profit') }} {% if take_pct is none %}{{ _('None') }}{% else %}+{{ take_pct }}%{% endif %}
       · {{ _('Auto gates') }}:
         Dist ≤ {{ '%.0f'|format(ai_auto_sma25_dist) }}%
         {{ _('or') }} Target ≤ {{ '%.0f'|format(ai_auto_target_ratio * 100) }}%
@@ -631,7 +631,7 @@
     </form>
     <form method="post" action="{{ url_for('ai_trading', tab='short_sell') }}" style="display:inline" class="js-lei-confirm-form"
           data-confirm-title="{{ _('AI AUTO TRADING') }}"
-          data-confirm-message="{{ _('SIMULATE Short Sell paper orders (SELL SHORT · 5% trailing cover, no Take)?') }}"
+          data-confirm-message="{{ _('SIMULATE Short Sell paper orders (SELL SHORT · cover +3% / Take −6%)?') }}"
           data-confirm-ok="{{ _('SIMULATE') }}">
       <input type="hidden" name="action" value="create_short_sell_orders">
       <button class="btn primary" type="submit">{{ _('AI AUTO TRADING') }}</button>
@@ -804,7 +804,7 @@
       {% if is_short_tab %}
       <strong>{{ _('Short Sell') }}</strong> —
       {{ _('SHORT → 63D>80% · Day%<0 → Dist DESC top 10–20 → SELL SHORT') }}
-      <span class="hint" style="margin-left:8px">{{ _('5% trailing cover above trough · no Take Profit · EXIT → next unused · independent $2k book.') }}</span>
+      <span class="hint" style="margin-left:8px">{{ _('Cover stop +3% · Take Profit −6% · EXIT → next unused · independent $2k book.') }}</span>
       · <a href="{{ url_for('ai_trading', tab='history', strategy='SHORT_SELL') }}">{{ _('History') }}</a>
       {% elif is_safe %}
       <strong>{{ _('Safe Margin') }}</strong> —
@@ -853,11 +853,11 @@
       <div>↓ <strong>{{ _('FILTER') }}</strong> — {% if is_short_tab %}{{ _('63D Position > 80% · Day % < 0 → top 10–20') }}{% elif is_safe %}{{ _('MCap>$2B · Price>$5 · AvgVol<3% · Fin≥60% · Knife≠HIGH → top 10–20') }}{% elif is_stable %}{{ _('Top 10–20 · Dist SMA25 ascending') }}{% elif is_deep %}{{ _('Top 15 · Watchlist sort (UP > MIXED > DOWN, Dist%)') }}{% else %}{{ pipe.filter or _('Alert-zone candidates') }}{% endif %}</div>
       <div>↓ <strong>{{ _('RANK') }}</strong> — {% if is_short_tab %}{{ _('Dist SMA25 — highest first') }}{% elif is_safe %}{{ _('Target Ratio — lowest first') }}{% elif is_stable %}{{ _('Dist SMA25 — deepest first') }}{% else %}{{ pipe.rank or _('Dist SMA25 — deepest first') }}{% endif %}</div>
       <div>↓ <strong>{{ _('BLOCK') }}</strong> — {% if is_short_tab %}{{ _('Candidate filters applied before queue') }}{% elif is_safe %}{{ _('Risk filters applied before queue (Knife HIGH blocked)') }}{% elif is_stable %}{{ _('Knife / HIGH / News (DATA Admin-only)') }}{% elif is_deep %}{{ _('Knife / HIGH / News (DATA is Admin-only, not BLOCK)') }}{% else %}{{ pipe.block or _('Data / News / Knife / strategy gates') }}{% endif %}</div>
-      <div>↓ <strong>{% if is_short_tab %}{{ _('SHORT CANDIDATE') }}{% else %}{{ _('BUY QUEUE') }}{% endif %}</strong> ({{ bv.universe_count or 0 }}) — {% if is_short_tab %}{{ _('Dist DESC · SELL SHORT · 5% trailing cover · EXIT auto-refill') }}{% elif is_safe %}{{ _('Target order · 10% trailing stop · no Take · EXIT auto-refill') }}{% elif is_stable %}{{ _('Dist order · Stop −3% · no Take · EXIT auto-refill') }}{% else %}{{ _('Dist order · BLOCK included · scroll table') }}{% endif %}</div>
+      <div>↓ <strong>{% if is_short_tab %}{{ _('SHORT CANDIDATE') }}{% else %}{{ _('BUY QUEUE') }}{% endif %}</strong> ({{ bv.universe_count or 0 }}) — {% if is_short_tab %}{{ _('Dist DESC · SELL SHORT · cover +3%/−6% · EXIT auto-refill') }}{% elif is_safe %}{{ _('Target order · 10% trailing stop · no Take · EXIT auto-refill') }}{% elif is_stable %}{{ _('Dist order · Stop −3% · no Take · EXIT auto-refill') }}{% else %}{{ _('Dist order · BLOCK included · scroll table') }}{% endif %}</div>
     </div>
     <p class="buy-hint">
       {% if is_short_tab %}
-      {{ _('SHORT sleeve filtered by 63D>80% and Day%<0, sorted Dist SMA25 descending (10–20). Paper slots $250→$150, max 6. SELL SHORT with 5% trailing cover above trough; on EXIT auto-short the then-top unused Dist queue name.') }}
+      {{ _('SHORT sleeve filtered by 63D>80% and Day%<0, sorted Dist SMA25 descending (10–20). Paper slots $250→$150, max 6. SELL SHORT with cover stop +3% and Take Profit −6%; on EXIT auto-short the then-top unused Dist queue name.') }}
       {% elif is_safe %}
       {{ _('Target Ratio watchlist, risk-filtered, Target ASC (10–20 names). Paper slots $250→$150, max 6. 10% trailing stop, no take-profit; on EXIT auto-buy the then-top unused Target queue name.') }}
       {% elif is_stable %}
@@ -876,7 +876,7 @@
       </form>
       <form method="post" action="{{ url_for('ai_trading', tab='short_sell') }}" style="display:inline;margin:0" class="js-lei-confirm-form"
             data-confirm-title="{{ _('AI AUTO TRADING') }}"
-            data-confirm-message="{{ _('SIMULATE Short Sell paper orders (SELL SHORT · 5% trailing cover, no Take)?') }}"
+            data-confirm-message="{{ _('SIMULATE Short Sell paper orders (SELL SHORT · cover +3% / Take −6%)?') }}"
             data-confirm-ok="{{ _('SIMULATE') }}">
         <input type="hidden" name="action" value="create_short_sell_orders">
         <button class="btn primary" type="submit">{{ _('AI AUTO TRADING') }}</button>

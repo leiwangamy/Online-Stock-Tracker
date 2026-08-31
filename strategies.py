@@ -127,8 +127,8 @@ STRATEGY_META: dict[str, dict[str, Any]] = {
         "short": "SHORT SELL",
         "hypothesis": (
             "SHORT-sleeve names extended above SMA25 (Dist DESC) with 63D>80% "
-            "and a red day are sold short; a unified 5% trailing cover above "
-            "the trough exits; rotate to the next unused queue name on cover."
+            "and a red day are sold short; cover stop +3% above entry and "
+            "Take Profit −6% below entry; rotate to the next unused queue name on cover."
         ),
         "primary_metric": "dist_sma25",
         "primary_metric_label": "Dist SMA25 (DESC)",

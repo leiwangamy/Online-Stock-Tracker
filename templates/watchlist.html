@@ -351,6 +351,30 @@
       line-height: 1.45;
     }
     .alert-hint-line:last-child { margin-bottom: 0; }
+    .short-risk-warning {
+      margin: 0 0 14px;
+      padding: 12px 14px;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      color: #7f1d1d;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      text-align: left;
+      font-weight: 400;
+    }
+    .short-risk-warning .short-risk-title {
+      display: block;
+      margin: 0 0 8px;
+      color: #991b1b;
+      font-size: 0.95rem;
+      font-weight: 400;
+    }
+    .short-risk-warning p {
+      margin: 0 0 8px;
+      font-weight: 400;
+    }
+    .short-risk-warning p:last-child { margin-bottom: 0; }
     .clv-val { font-weight: 600; font-variant-numeric: tabular-nums; }
     .clv-sub { font-size: 0.68rem; color: #94a3b8; line-height: 1.1; }
     .clv-flag { font-size: 0.65rem; color: #b45309; font-weight: 600; }
@@ -1266,6 +1290,19 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
   {% endif %}
 
   {% if tab == 'short' %}
+    <aside class="short-risk-warning" role="note">
+      {% if lang == 'zh' %}
+      <span class="short-risk-title">⚠️ 做空风险警示</span>
+      <p>做空存在理论上无限的亏损风险，因为股票价格的上涨没有上限。</p>
+      <p>本策略主要用于熊市。</p>
+      <p>如果通过做多能够持续获得盈利，应尽可能优先选择做多。</p>
+      {% else %}
+      <span class="short-risk-title">⚠️ SHORT SELLING RISK WARNING</span>
+      <p>Short selling carries theoretically unlimited loss risk because a stock price can continue rising without an upper limit.</p>
+      <p>This strategy is intended primarily for bear markets.</p>
+      <p>If consistent profits can be achieved by going LONG, prefer LONG positions whenever reasonable.</p>
+      {% endif %}
+    </aside>
     <p class="hint" style="margin:0 0 10px;text-align:left">
       {{ _('SHORT pool — ETF / index / leveraged + stable stocks. Same quotes as My Watchlist; ALERT not enabled yet. Funds/ETFs skip Financial & News; KO/PEP/WMT/MCD/PG/JNJ/JPM still load them.') }}
     </p>

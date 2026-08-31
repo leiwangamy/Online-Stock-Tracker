@@ -76,18 +76,85 @@
     <p class="meta">
       {{ _('Simulation only — never places real brokerage orders. Stop / Take Profit % are fixed at paper-order entry and not recalculated daily.') }}
     </p>
-    <label for="paper_stop_loss_pct">{{ _('Stop Loss %') }}</label>
-    <input id="paper_stop_loss_pct" name="paper_stop_loss_pct" type="number" min="0.5" max="50" step="0.1"
-           value="{{ paper_stop_loss_pct }}" required {% if not can_edit %}readonly{% endif %} />
-    <label for="paper_take_profit_pct">{{ _('Take Profit %') }}</label>
-    <input id="paper_take_profit_pct" name="paper_take_profit_pct" type="number" min="0.5" max="100" step="0.1"
-           value="{{ paper_take_profit_pct }}" required {% if not can_edit %}readonly{% endif %} />
+    <p class="meta" style="margin-bottom:8px">
+      {% if lang == 'zh' %}
+      按策略分别设置（共 5 本账本）。止盈留空表示仅止损。做空：止损为入场价上方平仓；止盈为入场价下方平仓。
+      {% else %}
+      {{ _('Per-strategy defaults (5 books). Leave Take blank for stop-only. Short: Stop = cover above entry; Take = cover below entry.') }}
+      {% endif %}
+    </p>
+    <div class="paper-exit-grid" style="overflow-x:auto;margin:8px 0 12px">
+      <table class="paper-exit-table" style="width:100%;border-collapse:collapse;font-size:0.92rem;table-layout:fixed">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);width:40%">{% if lang == 'zh' %}策略{% else %}Strategy{% endif %}</th>
+            <th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);width:30%">{{ _('Stop Loss %') }}</th>
+            <th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);width:30%">{{ _('Take Profit %') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set exit_rows = paper_strategy_exits if paper_strategy_exits else [
+            {'strategy_id':'ALERT_BUY','name':'Alert Buy','short':'ALERT BUY','side':'long','stop_loss_pct': paper_stop_loss_pct|default(5.0),'take_profit_pct': paper_take_profit_pct|default(10.0)},
+            {'strategy_id':'DEEP_RECOVERY','name':'Deep Recovery','short':'DEEP RECOVERY','side':'long','stop_loss_pct':5.0,'take_profit_pct':10.0},
+            {'strategy_id':'STABLE_GROWTH','name':'Stable Growth','short':'STABLE GROWTH','side':'long','stop_loss_pct':3.0,'take_profit_pct': none},
+            {'strategy_id':'SAFE_MARGIN','name':'Safe Margin','short':'SAFE MARGIN','side':'long','stop_loss_pct':10.0,'take_profit_pct': none},
+            {'strategy_id':'SHORT_SELL','name':'Short Sell','short':'SHORT SELL','side':'short','stop_loss_pct':3.0,'take_profit_pct':6.0}
+          ] %}
+          {% set name_zh = {
+            'Alert Buy': '警报买入',
+            'Deep Recovery': '深度反弹',
+            'Stable Growth': '稳健增长',
+            'Safe Margin': '安全边际',
+            'Short Sell': '做空'
+          } %}
+          {% for row in exit_rows %}
+          <tr>
+            <td style="padding:10px 4px;vertical-align:middle">
+              <strong>{% if lang == 'zh' %}{{ name_zh.get(row.name, row.name) }}{% else %}{{ row.name }}{% endif %}</strong>
+              <div class="meta" style="margin:0;font-size:0.78rem">{{ row.short }}{% if row.side == 'short' %} · {% if lang == 'zh' %}做空{% else %}SHORT{% endif %}{% endif %}</div>
+            </td>
+            <td style="padding:10px 4px">
+              <input class="paper-exit-input" id="paper_stop_{{ row.strategy_id }}" name="paper_stop_{{ row.strategy_id }}"
+                     type="number" min="0.5" max="50" step="0.1"
+                     value="{{ '%.1f'|format(row.stop_loss_pct|float) }}" required
+                     {% if not can_edit %}readonly{% endif %} />
+            </td>
+            <td style="padding:10px 4px">
+              <input class="paper-exit-input" id="paper_take_{{ row.strategy_id }}" name="paper_take_{{ row.strategy_id }}"
+                     type="number" min="0.5" max="100" step="0.1"
+                     value="{% if row.take_profit_pct is not none %}{{ '%.1f'|format(row.take_profit_pct|float) }}{% endif %}"
+                     placeholder="{% if lang == 'zh' %}无{% else %}None{% endif %}"
+                     {% if not can_edit %}readonly{% endif %} />
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <style>
+      .settings-form .paper-exit-input {
+        width: 6.5rem !important;
+        max-width: 100%;
+        display: inline-block;
+        box-sizing: border-box;
+      }
+      .settings-form .paper-exit-table td,
+      .settings-form .paper-exit-table th {
+        word-break: break-word;
+      }
+    </style>
     <label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-weight:normal">
       <input id="paper_auto_replace_on_exit" name="paper_auto_replace_on_exit" type="checkbox" value="1"
              style="margin-top:3px"
              {% if paper_auto_replace_on_exit %}checked{% endif %}
              {% if not can_edit %}disabled{% endif %} />
-      <span>{{ _('After Stop/Take: auto-buy the highest-ranked AI name not yet used in this experiment (one new position per exit).') }}</span>
+      <span>
+        {% if lang == 'zh' %}
+        止损/止盈后：自动买入本实验尚未用过、排名最高的股票（每平仓 1 只买入 1 只）。
+        {% else %}
+        {{ _('After Stop/Take: auto-buy the highest-ranked stock not yet used in this experiment (one new position per exit).') }}
+        {% endif %}
+      </span>
     </label>
     </fieldset>
 
@@ -95,7 +162,7 @@
       {% if can_edit %}
       <button class="btn primary" type="submit">{{ _('Save') }}</button>
       {% endif %}
-      <a class="btn" href="{{ url_for('market_dashboard') }}">{{ _('Back to Dashboard') }}</a>
+      <a class="btn" href="{{ url_for('market_dashboard') }}">{% if lang == 'zh' %}返回看板{% else %}{{ _('Back to Dashboard') }}{% endif %}</a>
       <a class="btn" href="{{ url_for('ai_trading') }}">{{ _('AI Trading') }}</a>
     </div>
   </form>
