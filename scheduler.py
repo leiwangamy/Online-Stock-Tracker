@@ -25,6 +25,7 @@ from update_jobs import (
 log = logging.getLogger("leibot.scheduler")
 
 _scheduler = None
+_lock_fd = None  # held for process lifetime under gunicorn multi-worker
 
 # APScheduler day_of_week: mon=0 … sun=6
 _WEEKDAY_MAP = {
@@ -54,6 +55,51 @@ def _enabled() -> bool:
     )
 
 
+def _acquire_scheduler_lock() -> bool:
+    """
+    Only one OS process should run APScheduler.
+    Under gunicorn -w N each worker imports app.py; without a lock every worker
+    would schedule daily_prices (or none would keep a live scheduler reliably).
+    """
+    global _lock_fd
+    if _lock_fd is not None:
+        return True
+    try:
+        from pathlib import Path
+
+        lock_path = Path(__file__).resolve().parent / "data" / "logs" / "scheduler.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = open(lock_path, "a+", encoding="utf-8")
+    except Exception:
+        log.exception("Could not open scheduler lock file; starting anyway")
+        return True
+    try:
+        import fcntl
+
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except ImportError:
+        # Windows / no fcntl — single-process Flask is typical locally.
+        _lock_fd = fd
+        return True
+    except BlockingIOError:
+        fd.close()
+        log.info("Scheduler lock held by another worker; skip start in this process")
+        return False
+    except Exception:
+        fd.close()
+        log.exception("Scheduler lock failed; starting anyway")
+        return True
+    _lock_fd = fd
+    try:
+        fd.seek(0)
+        fd.truncate()
+        fd.write(f"pid={os.getpid()}\n")
+        fd.flush()
+    except Exception:
+        pass
+    return True
+
+
 def _setting(key: str, default: Any) -> Any:
     try:
         from db import get_setting
@@ -75,6 +121,9 @@ def start_scheduler() -> Any:
 
     # Avoid double-start with Flask debug reloader
     if os.environ.get("WERKZEUG_RUN_MAIN") == "false":
+        return None
+
+    if not _acquire_scheduler_lock():
         return None
 
     try:

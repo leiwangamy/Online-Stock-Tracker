@@ -76,7 +76,7 @@ def job_refresh_universe() -> dict:
     return result
 
 
-def job_refresh_watchlist(*, max_workers: int = 4) -> dict:
+def job_refresh_watchlist(*, max_workers: int = 2) -> dict:
     """
     Refresh all current Watchlist tickers (setup ∪ mine),
     including MANUAL names that are not in index universe pools.
@@ -134,7 +134,7 @@ def job_refresh_watchlist(*, max_workers: int = 4) -> dict:
     return result
 
 
-def job_refresh_prices(*, max_workers: int = 4) -> dict:
+def job_refresh_prices(*, max_workers: int = 2) -> dict:
     """
     Weekday EOD: Yahoo → full dashboard cache, Watchlist (incl. MANUAL),
     Paper Trading daily, then Research (Strong + daily_bars used by Rising Now).
@@ -143,7 +143,7 @@ def job_refresh_prices(*, max_workers: int = 4) -> dict:
     now_pt = datetime.now(PRICE_TZ)
     log.info("Starting dashboard price refresh (PT %s)…", now_pt.strftime("%Y-%m-%d %H:%M %Z"))
     from db import init_db, universe_count
-    from market_data import refresh_dashboard_cache
+    from market_data import refresh_dashboard_cache, refresh_stale_dashboard_tickers
     from universe import ensure_universe
 
     init_db()
@@ -152,8 +152,11 @@ def job_refresh_prices(*, max_workers: int = 4) -> dict:
         log.warning("Universe empty after ensure; running Wikipedia refresh first")
         job_refresh_universe()
 
-    # Slightly slower workers to reduce Yahoo rate-limit failures
-    result = refresh_dashboard_cache(group=None, max_workers=max_workers)
+    # Keep concurrency low — Yahoo rate-limits / crumb failures spike above ~2–4 workers.
+    workers = max(1, min(int(max_workers or 2), 3))
+    result = refresh_dashboard_cache(
+        group=None, max_workers=workers, batch_size=50, batch_pause_sec=2.5
+    )
     log.info(
         "Prices done: ok=%s errors=%s universe=%s SMA=%s",
         result.get("ok"),
@@ -161,17 +164,36 @@ def job_refresh_prices(*, max_workers: int = 4) -> dict:
         result.get("universe"),
         result.get("sma_period"),
     )
+    # Second pass for rows that stayed stale (rate-limited during the first sweep).
+    if int(result.get("errors") or 0) > 0:
+        time.sleep(5.0)
+        log.info("Retrying stale/missing dashboard prices…")
+        stale = refresh_stale_dashboard_tickers(
+            older_than_hours=18.0,
+            max_workers=2,
+            batch_size=30,
+            batch_pause_sec=3.5,
+        )
+        result["stale_retry_ok"] = stale.get("ok")
+        result["stale_retry_errors"] = stale.get("errors")
+        result["stale_retry_requested"] = stale.get("requested")
+        log.info(
+            "Stale retry done: ok=%s errors=%s requested=%s",
+            stale.get("ok"),
+            stale.get("errors"),
+            stale.get("requested"),
+        )
     # Always refresh Watchlist after pool prices (covers MANUAL ETFs / mine list)
-    time.sleep(1.0)
-    wl = job_refresh_watchlist(max_workers=max_workers)
+    time.sleep(2.0)
+    wl = job_refresh_watchlist(max_workers=workers)
     result["watchlist_ok"] = wl.get("ok")
     result["watchlist_errors"] = wl.get("errors")
     # LeiBot ETF Universe — same Yahoo daily pipeline; not sent to AI BUY
     try:
-        time.sleep(1.0)
+        time.sleep(2.0)
         from market_data import refresh_etf_dashboard_cache
 
-        etf = refresh_etf_dashboard_cache(max_workers=max_workers)
+        etf = refresh_etf_dashboard_cache(max_workers=workers)
         result["etf_ok"] = etf.get("ok")
         result["etf_errors"] = etf.get("errors")
         result["etf_universe"] = etf.get("universe")

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -15,6 +17,8 @@ import yfinance as yf
 
 from db import get_setting, list_universe, save_dashboard_rows
 from universe import ensure_universe
+
+log = logging.getLogger("leibot.market_data")
 
 
 # Long-term trend rule (fixed, independent of the configurable dist SMA):
@@ -198,32 +202,72 @@ def row_has_corrupt_price_scale(row: dict[str, Any] | None) -> bool:
     return False
 
 
+def _yahoo_transient_error(exc: BaseException | None, hist_empty: bool = False) -> bool:
+    """True when we should retry (rate limit / crumb / empty under pressure)."""
+    if hist_empty:
+        return True
+    if exc is None:
+        return False
+    msg = f"{type(exc).__name__} {exc}".lower()
+    needles = (
+        "ratelimit",
+        "rate limit",
+        "too many requests",
+        "unauthorized",
+        "invalid crumb",
+        "crumb",
+        "401",
+        "429",
+        "timeout",
+        "timed out",
+        "temporarily",
+        "connection",
+    )
+    return any(n in msg for n in needles)
+
+
 def load_yahoo_daily_closes(
     ticker: str,
     *,
     period: str = "2y",
+    retries: int = 4,
 ) -> tuple[pd.Series | None, pd.DataFrame | None, dict[str, Any]]:
     """
     Yahoo daily Close on the *current* share scale.
 
     Uses auto_adjust=False + manual Stock Splits, then jump repair.
     (auto_adjust=True alone is not reliable around some recent splits, e.g. MNST.)
+    Retries on Yahoo rate-limit / crumb failures.
     """
-    meta: dict[str, Any] = {"jump_fixes": 0, "quality": None}
-    try:
-        t = yf.Ticker(ticker)
-        hist = t.history(period=period, auto_adjust=False, actions=True)
-    except Exception:
-        return None, None, meta
-    if hist is None or hist.empty or "Close" not in hist.columns:
-        return None, None, meta
-    closes = hist["Close"].dropna().astype(float)
-    splits = hist["Stock Splits"] if "Stock Splits" in hist.columns else None
-    closes = apply_yahoo_split_factors(closes, splits)
-    closes, fixes = repair_close_scale_jumps(closes)
-    closes = closes.dropna()
-    meta["jump_fixes"] = fixes
-    return closes, hist, meta
+    meta: dict[str, Any] = {"jump_fixes": 0, "quality": None, "attempts": 0}
+    last_exc: BaseException | None = None
+    for attempt in range(max(1, int(retries))):
+        meta["attempts"] = attempt + 1
+        try:
+            t = yf.Ticker(ticker)
+            hist = t.history(period=period, auto_adjust=False, actions=True)
+        except Exception as exc:
+            last_exc = exc
+            if attempt + 1 < retries and _yahoo_transient_error(exc):
+                time.sleep(1.2 * (2**attempt) + random.uniform(0.0, 0.6))
+                continue
+            return None, None, meta
+        if hist is None or hist.empty or "Close" not in hist.columns:
+            last_exc = None
+            if attempt + 1 < retries and _yahoo_transient_error(None, hist_empty=True):
+                time.sleep(1.0 * (2**attempt) + random.uniform(0.0, 0.5))
+                continue
+            return None, None, meta
+        closes = hist["Close"].dropna().astype(float)
+        splits = hist["Stock Splits"] if "Stock Splits" in hist.columns else None
+        closes = apply_yahoo_split_factors(closes, splits)
+        closes, fixes = repair_close_scale_jumps(closes)
+        closes = closes.dropna()
+        meta["jump_fixes"] = fixes
+        return closes, hist, meta
+    if last_exc is not None:
+        log.debug("Yahoo history failed for %s after retries: %s", ticker, last_exc)
+    return None, None, meta
 
 
 # Window for "average daily move" (typical daily volatility), in trading days.
@@ -831,9 +875,11 @@ def refresh_etf_dashboard_cache(*, max_workers: int = 4) -> dict[str, Any]:
 
 def refresh_dashboard_cache(
     *,
-    max_workers: int = 8,
+    max_workers: int = 2,
     limit: int | None = None,
     group: str | None = None,
+    batch_size: int = 50,
+    batch_pause_sec: float = 2.5,
 ) -> dict[str, Any]:
     ensure_universe()
     universe = list_universe(group)
@@ -846,29 +892,38 @@ def refresh_dashboard_cache(
     if rebound_lookback < 5:
         rebound_lookback = sma_period
 
-    meta_by_ticker = {row["ticker"]: row for row in universe}
     rows: list[dict[str, Any]] = []
     errors = 0
+    workers = max(1, min(int(max_workers or 2), 4))
+    bsz = max(10, int(batch_size or 50))
+    pause = max(0.0, float(batch_pause_sec or 0.0))
 
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(
-                fetch_metrics_for_ticker,
-                row["ticker"],
-                sma_period=sma_period,
-                rebound_lookback=rebound_lookback,
-                meta=row,
-            ): row["ticker"]
-            for row in universe
-        }
-        for fut in as_completed(futures):
-            result = fut.result()
-            if result is None:
-                errors += 1
-            else:
-                rows.append(result)
+    for i in range(0, len(universe), bsz):
+        chunk = universe[i : i + bsz]
+        chunk_rows: list[dict[str, Any]] = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    fetch_metrics_for_ticker,
+                    row["ticker"],
+                    sma_period=sma_period,
+                    rebound_lookback=rebound_lookback,
+                    meta=row,
+                ): row["ticker"]
+                for row in chunk
+            }
+            for fut in as_completed(futures):
+                result = fut.result()
+                if result is None:
+                    errors += 1
+                else:
+                    chunk_rows.append(result)
+        if chunk_rows:
+            save_dashboard_rows(chunk_rows)
+            rows.extend(chunk_rows)
+        if i + bsz < len(universe) and pause > 0:
+            time.sleep(pause)
 
-    save_dashboard_rows(rows)
     return {
         "ok": len(rows),
         "errors": errors,
@@ -876,6 +931,104 @@ def refresh_dashboard_cache(
         "rebound_lookback": rebound_lookback,
         "universe": len(universe),
         "group": group,
+        "max_workers": workers,
+        "batch_size": bsz,
+    }
+
+
+def refresh_stale_dashboard_tickers(
+    *,
+    older_than_hours: float = 20.0,
+    max_workers: int = 2,
+    batch_size: int = 40,
+    batch_pause_sec: float = 3.0,
+    tickers: list[str] | None = None,
+) -> dict[str, Any]:
+    """Re-fetch tickers whose dashboard_cache row is missing or older than N hours."""
+    from db import get_conn, list_universe as _lu
+
+    universe = _lu() or []
+    meta_by = {r["ticker"]: r for r in universe if r.get("ticker")}
+    if tickers:
+        want = []
+        seen: set[str] = set()
+        for t in tickers:
+            u = (t or "").strip().upper()
+            if u and u not in seen:
+                seen.add(u)
+                want.append(u)
+    else:
+        with get_conn() as conn:
+            cached = {
+                str(r["ticker"]).upper(): r["updated_at"]
+                for r in conn.execute(
+                    "SELECT ticker, updated_at FROM dashboard_cache"
+                ).fetchall()
+            }
+        now = datetime.now(timezone.utc)
+        want = []
+        for r in universe:
+            t = str(r.get("ticker") or "").upper()
+            if not t:
+                continue
+            upd = cached.get(t)
+            if not upd:
+                want.append(t)
+                continue
+            try:
+                dt = datetime.fromisoformat(str(upd).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_h = (now - dt).total_seconds() / 3600.0
+                if age_h > float(older_than_hours):
+                    want.append(t)
+            except Exception:
+                want.append(t)
+
+    if not want:
+        return {"ok": 0, "errors": 0, "requested": 0, "tickers": []}
+
+    sma_period = int(get_setting("sma_period", 25))
+    rebound_lookback = int(get_setting("rebound_lookback", sma_period))
+    if rebound_lookback < 5:
+        rebound_lookback = sma_period
+
+    workers = max(1, min(int(max_workers or 2), 3))
+    bsz = max(10, int(batch_size or 40))
+    pause = max(0.0, float(batch_pause_sec or 0.0))
+    rows_ok = 0
+    errors = 0
+    for i in range(0, len(want), bsz):
+        chunk = want[i : i + bsz]
+        chunk_rows: list[dict[str, Any]] = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(
+                    fetch_metrics_for_ticker,
+                    t,
+                    sma_period=sma_period,
+                    rebound_lookback=rebound_lookback,
+                    meta=meta_by.get(t) or {"ticker": t},
+                ): t
+                for t in chunk
+            }
+            for fut in as_completed(futures):
+                result = fut.result()
+                if result is None:
+                    errors += 1
+                else:
+                    chunk_rows.append(result)
+        if chunk_rows:
+            save_dashboard_rows(chunk_rows)
+            rows_ok += len(chunk_rows)
+        if i + bsz < len(want) and pause > 0:
+            time.sleep(pause)
+    return {
+        "ok": rows_ok,
+        "errors": errors,
+        "requested": len(want),
+        "tickers": want[:20],
+        "older_than_hours": older_than_hours,
     }
 
 
