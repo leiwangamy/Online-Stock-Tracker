@@ -384,6 +384,96 @@ def _range_63d(
     return low_r, high_r, round(pos, 2)
 
 
+def compute_indicators_from_closes(
+    closes: pd.Series,
+    *,
+    sma_period: int = 25,
+    rebound_lookback: int | None = None,
+    source: str | None = None,
+) -> dict[str, Any]:
+    """
+    Shared LeiBot indicator engine over a daily Close series.
+
+    Yahoo and IBKR (and any future source) should feed this same function so
+    formulas stay identical. Dist% = (price / SMA − 1) × 100 via dist_sma_pct.
+    Does not fetch data and does not write the database.
+    """
+    from market_data_validator import dist_sma_pct
+
+    reb = int(rebound_lookback) if rebound_lookback is not None else int(sma_period)
+    if reb < 5:
+        reb = int(sma_period)
+
+    clean = closes.dropna().astype(float)
+    if clean.empty:
+        return {
+            "ok": False,
+            "error": "empty closes",
+            "source": source,
+            "bars": 0,
+        }
+
+    last_idx = clean.index[-1]
+    if hasattr(last_idx, "date"):
+        try:
+            bar_date = last_idx.date().isoformat()
+        except Exception:
+            bar_date = str(last_idx)[:10]
+    else:
+        bar_date = str(last_idx)[:10]
+
+    price = float(clean.iloc[-1])
+    prev_close = float(clean.iloc[-2]) if len(clean) >= 2 else None
+
+    sma25 = _sma(clean, 25)
+    sma50 = _sma(clean, 50)
+    sma63 = _sma(clean, 63)
+    sma90 = _sma(clean, 90)
+    sma_selected = _sma(clean, int(sma_period))
+
+    dist25 = dist_sma_pct(price, sma25) if sma25 else None
+    dist50 = dist_sma_pct(price, sma50) if sma50 else None
+    dist63 = dist_sma_pct(price, sma63) if sma63 else None
+    dist90 = dist_sma_pct(price, sma90) if sma90 else None
+    dist_selected = dist_sma_pct(price, sma_selected) if sma_selected else None
+
+    # 25D recent low + rebound% (same helper as Yahoo dashboard path)
+    rebound_window = clean.iloc[-25:] if len(clean) >= 25 else clean
+    low_25d = float(rebound_window.min()) if len(rebound_window) else None
+    rebound_25 = _rebound_pct(clean, 25)
+    rebound = _rebound_pct(clean, reb)
+
+    low_63, high_63, pos_63 = _range_63d(clean, RANGE_63D_LOOKBACK)
+
+    return {
+        "ok": True,
+        "error": None,
+        "source": source,
+        "bars": int(len(clean)),
+        "latest_bar_date": bar_date,
+        "latest_price": round(price, 4),
+        "previous_close": None if prev_close is None else round(prev_close, 4),
+        "sma_period": int(sma_period),
+        "rebound_lookback": reb,
+        "sma25": None if sma25 is None else round(sma25, 4),
+        "sma50": None if sma50 is None else round(sma50, 4),
+        "sma63": None if sma63 is None else round(sma63, 4),
+        "sma90": None if sma90 is None else round(sma90, 4),
+        "sma_selected": None if sma_selected is None else round(sma_selected, 4),
+        "dist_sma25_pct": dist25,
+        "dist_sma50_pct": dist50,
+        "dist_sma63_pct": dist63,
+        "dist_sma90_pct": dist90,
+        "dist_selected_pct": dist_selected,
+        "low_25d": None if low_25d is None else round(low_25d, 4),
+        "rebound_25d_pct": rebound_25,
+        "rebound_pct": rebound,
+        "high_63d": high_63,
+        "low_63d": low_63,
+        "pos_63d_pct": pos_63,
+    }
+
+
 def mos_pct(est_value: float | None, price: float | None) -> float | None:
     """
     Margin of Safety % = (Est.Value − Price) / Est.Value × 100.

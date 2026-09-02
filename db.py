@@ -575,6 +575,10 @@ def init_db() -> None:
             ("ret_252d", "REAL"),
             ("avg_dollar_vol", "REAL"),
             ("data_quality_status", "TEXT"),
+            # Phase 5: per-ticker market-data provenance (Yahoo primary / IBKR fallback)
+            ("data_source", "TEXT"),
+            ("data_date", "TEXT"),
+            ("data_status", "TEXT"),
         ):
             if col not in cache_cols:
                 conn.execute(f"ALTER TABLE dashboard_cache ADD COLUMN {col} {decl}")
@@ -1296,6 +1300,9 @@ def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -
         "ret_252d",
         "avg_dollar_vol",
         "data_quality_status",
+        "data_source",
+        "data_date",
+        "data_status",
     )
     normalized: list[dict[str, Any]] = []
     for row in rows:
@@ -1304,6 +1311,14 @@ def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -
             r.setdefault(k, None)
         if not r.get("asset_type"):
             r["asset_type"] = "STOCK"
+        # Yahoo refresh path: stamp per-ticker provenance (does not change schedule).
+        if not r.get("data_source"):
+            r["data_source"] = "Yahoo"
+        if not r.get("data_status"):
+            r["data_status"] = "FRESH"
+        if not r.get("data_date"):
+            updated = str(r.get("updated_at") or "")
+            r["data_date"] = updated[:10] if len(updated) >= 10 else None
         normalized.append(r)
     with get_conn() as conn:
         if replace_all:
@@ -1319,7 +1334,8 @@ def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -
                     ai_note, updated_at,
                     asset_type, sma63, dist_sma63_pct,
                     ret_20d, ret_63d, ret_126d, ret_252d,
-                    avg_dollar_vol, data_quality_status
+                    avg_dollar_vol, data_quality_status,
+                    data_source, data_date, data_status
                 ) VALUES (
                     :ticker, :name, :industry, :sector, :price, :change_pct, :avg_move_pct,
                     :range_63d_low, :range_63d_high, :range_63d_pos, :target_1y,
@@ -1328,7 +1344,8 @@ def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -
                     :ai_note, :updated_at,
                     :asset_type, :sma63, :dist_sma63_pct,
                     :ret_20d, :ret_63d, :ret_126d, :ret_252d,
-                    :avg_dollar_vol, :data_quality_status
+                    :avg_dollar_vol, :data_quality_status,
+                    :data_source, :data_date, :data_status
                 )
                 ON CONFLICT(ticker) DO UPDATE SET
                     name = excluded.name,
@@ -1360,7 +1377,10 @@ def save_dashboard_rows(rows: list[dict[str, Any]], replace_all: bool = False) -
                     ret_126d = excluded.ret_126d,
                     ret_252d = excluded.ret_252d,
                     avg_dollar_vol = excluded.avg_dollar_vol,
-                    data_quality_status = excluded.data_quality_status
+                    data_quality_status = excluded.data_quality_status,
+                    data_source = excluded.data_source,
+                    data_date = excluded.data_date,
+                    data_status = excluded.data_status
                 """,
                 normalized,
             )

@@ -902,6 +902,60 @@ def api_market_search():
     return jsonify({"q": q, "results": hits})
 
 
+@app.route("/api/market/ibkr-sync", methods=["POST"])
+def api_market_ibkr_sync():
+    """
+    Private HTTPS sync: local IBKR fallback rows → production dashboard_cache.
+
+    Auth: Authorization Bearer LEIBOT_MARKET_SYNC_API_KEY
+    Merge: per-ticker only (never replace_all). Yahoo rows unrelated to the
+    payload are never deleted. Freshness protection skips older incoming data.
+    """
+    from market_sync import (
+        market_sync_api_key_configured,
+        process_ibkr_sync,
+        verify_market_sync_bearer,
+    )
+
+    if not market_sync_api_key_configured():
+        app.logger.warning("ibkr-sync rejected: API key not configured on server")
+        return jsonify({"ok": False, "error": "sync api key not configured"}), 503
+
+    if not verify_market_sync_bearer(request.headers.get("Authorization")):
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "JSON object body required"}), 400
+
+    # Test-only rollback hook — only honored when explicitly enabled on server.
+    force_fail = None
+    if os.environ.get("LEIBOT_MARKET_SYNC_ALLOW_FORCE_FAIL") == "1":
+        raw_ff = body.get("force_fail_after_n")
+        if raw_ff is not None:
+            try:
+                force_fail = int(raw_ff)
+            except (TypeError, ValueError):
+                return jsonify({"ok": False, "error": "invalid force_fail_after_n"}), 400
+
+    result = process_ibkr_sync(body, force_fail_after_n=force_fail)
+    status = 200 if result.get("ok") else 400
+    if result.get("sync_status") == "FAILED" and result.get("error"):
+        err_l = str(result.get("error") or "").lower()
+        if "roll" in err_l or "forced" in err_l:
+            status = 409
+    app.logger.info(
+        "ibkr-sync dry_run=%s status=%s recv=%s updated=%s skipped=%s rejected=%s",
+        result.get("dry_run"),
+        result.get("sync_status"),
+        result.get("records_received"),
+        result.get("records_updated"),
+        result.get("records_skipped"),
+        result.get("records_rejected"),
+    )
+    return jsonify(result), status
+
+
 @app.route("/dashboard/refresh-universe", methods=["POST"])
 def refresh_universe():
     group = _normalize_group(request.form.get("group"))

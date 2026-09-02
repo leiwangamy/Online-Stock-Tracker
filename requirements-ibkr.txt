@@ -1,0 +1,5 @@
+# Optional — local Windows only (IBKR Paper TWS smoke / future local updater).
+# Do NOT add these to the production Docker requirements.txt.
+ib_insync>=0.9.86
+eventkit>=1.0.0
+nest_asyncio>=1.5.0

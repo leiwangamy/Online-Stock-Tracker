@@ -51,6 +51,9 @@ data/
 .env.local
 .env.*.local
 
+# DB backups (Phase 5+)
+data/backups/
+
 # Logs
 *.log
 
