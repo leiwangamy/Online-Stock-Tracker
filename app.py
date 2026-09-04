@@ -1247,8 +1247,8 @@ def settings():
                 "short": "SHORT SELL",
                 "side": "short",
                 "stop_loss_pct": 3.0,
-                "take_profit_pct": 6.0,
-                "no_take_profit": False,
+                "take_profit_pct": None,
+                "no_take_profit": True,
             },
         ]
     return render_template(
@@ -1701,60 +1701,21 @@ def watchlist():
                     remove_growth_watchlist_ticker(request.form.get("ticker", ""))
                     flash(gettext("Removed from GROWTH"), "ok")
                 elif action == "add_short":
-                    raw = (
-                        request.form.get("pool_tickers", "")
-                        or request.form.get("mine_tickers", "")
-                        or request.form.get("ticker", "")
+                    flash(
+                        gettext(
+                            "SHORT Watchlist is now Dist25 Top % (dynamic). "
+                            "Manual add is disabled — open AI Trading → Short Sell."
+                        ),
+                        "warning",
                     )
-                    added, existed, invalid = [], [], []
-                    cur = set(get_short_watchlist())
-                    for t in parse_ticker_input(raw):
-                        t = (t or "").strip().upper()
-                        if not validate_ticker_token(t):
-                            invalid.append(t)
-                            continue
-                        if t in cur:
-                            existed.append(t)
-                            continue
-                        add_short_watchlist_ticker(t)
-                        cur.add(t)
-                        added.append(t)
-                    if added:
-                        refreshed = _force_refresh_mine_tickers(added)
-                        if refreshed:
-                            flash(
-                                ngettext_format(
-                                    "Live data refreshed for: {tickers}",
-                                    tickers=", ".join(refreshed),
-                                ),
-                                "ok",
-                            )
-                        flash(
-                            ngettext_format(
-                                "Added to SHORT: {tickers}",
-                                tickers=", ".join(added),
-                            ),
-                            "ok",
-                        )
-                    if existed:
-                        flash(
-                            ngettext_format(
-                                "Already in SHORT: {tickers}",
-                                tickers=", ".join(existed),
-                            ),
-                            "warning",
-                        )
-                    if invalid:
-                        flash(
-                            ngettext_format(
-                                "Invalid tickers: {tickers}",
-                                tickers=", ".join(invalid),
-                            ),
-                            "warning",
-                        )
                 elif action == "remove_short":
-                    remove_short_watchlist_ticker(request.form.get("ticker", ""))
-                    flash(gettext("Removed from SHORT"), "ok")
+                    flash(
+                        gettext(
+                            "SHORT Watchlist is Dist25 Top % (dynamic). "
+                            "Manual remove is disabled — open AI Trading → Short Sell."
+                        ),
+                        "warning",
+                    )
             except ValueError as exc:
                 flash(str(exc), "warning")
             # APPROVAL always lands on My Watchlist so the add is visible.
@@ -1814,7 +1775,25 @@ def watchlist():
             _flash_mine_add_result(added, existed, [])
     mine_list = get_my_watchlist()
     growth_list = get_growth_watchlist()
-    short_list = get_short_watchlist()
+    # SHORT Watchlist tab = Dist25 Top-X% dynamic pool (not the old ETF/stable sleeve).
+    short_watch_meta: dict = {
+        "top_pct": 1.0,
+        "eligible_n": 0,
+        "watch_n": 0,
+        "cutoff_dist25": None,
+        "rows": [],
+    }
+    try:
+        from short_sell import select_short_watch
+
+        short_watch_meta = select_short_watch()
+    except Exception:
+        app.logger.exception("select_short_watch for Watchlist SHORT failed")
+    short_list = [
+        (r.get("ticker") or "").strip().upper()
+        for r in (short_watch_meta.get("rows") or [])
+        if (r.get("ticker") or "").strip()
+    ]
     show_valuation = is_owner()
 
     tab = request.args.get("tab", "mine")
@@ -1967,7 +1946,34 @@ def watchlist():
     elif tab == "growth":
         rows = _rows_for_tickers(growth_list)
     elif tab == "short":
+        # Dist25 Top % discovery rows — keep Dist DESC order from select_short_watch.
+        by_sw = {
+            (r.get("ticker") or "").strip().upper(): r
+            for r in (short_watch_meta.get("rows") or [])
+        }
         rows = _rows_for_tickers(short_list)
+        for r in rows:
+            sw = by_sw.get((r.get("ticker") or "").upper()) or {}
+            if sw.get("dist_pct") is not None:
+                r["dist_pct"] = sw.get("dist_pct")
+            if sw.get("sma") is not None:
+                r["sma"] = sw.get("sma")
+            if sw.get("sma25") is not None:
+                r["sma25"] = sw.get("sma25")
+            if sw.get("price") is not None and r.get("price") is None:
+                r["price"] = sw.get("price")
+            r["dist25"] = r.get("dist_pct")
+            r["dist25_percentile"] = sw.get("dist25_percentile")
+            r["dist_rank"] = sw.get("dist_rank")
+            r["setup_rank"] = sw.get("dist_rank")
+        rows.sort(
+            key=lambda x: (
+                -(float(x["dist_pct"]) if x.get("dist_pct") is not None else -9999.0),
+                x.get("ticker") or "",
+            )
+        )
+        skip_heavy = True
+        fund_cache_only = True
     elif tab == "ai_approved":
         rows = _rows_for_tickers(approved_list)
         by_ap = {r["ticker"]: r for r in list_ai_approved_rows()}
@@ -2419,6 +2425,7 @@ def watchlist():
         mine_list=mine_list,
         growth_list=growth_list,
         short_list=short_list,
+        short_watch_meta=short_watch_meta,
         mine_list_label="、".join(mine_list) if get_lang() == "zh" else ", ".join(mine_list),
         fund_cache_hits=fund_cache_hits,
         fund_cache_total=fund_cache_total,
@@ -2999,22 +3006,38 @@ def ai_trading_export_xlsx():
         return redirect(
             url_for("owner_login", next=url_for("ai_trading_export_xlsx"))
         )
+    from strategies import normalize_strategy_id
+
+    strategy_raw = (request.args.get("strategy") or "").strip()
+    strategy_id = normalize_strategy_id(strategy_raw) if strategy_raw else None
     try:
         from ai_trading_export import build_ai_trading_workbook
 
-        data = build_ai_trading_workbook()
+        data = build_ai_trading_workbook(strategy_id=strategy_id)
     except Exception as exc:
         app.logger.exception("AI Trading Excel export failed")
         flash(
             ngettext_format("Excel export failed: {exc}", exc=exc),
             "warning",
         )
-        return redirect(url_for("ai_trading", tab="today"))
+        tab = "buy"
+        if strategy_id == "DEEP_RECOVERY":
+            tab = "deep_recovery"
+        elif strategy_id == "STABLE_GROWTH":
+            tab = "stable_growth"
+        elif strategy_id == "SAFE_MARGIN":
+            tab = "safe_margin"
+        elif strategy_id == "SHORT_SELL":
+            tab = "short_sell"
+        return redirect(url_for("ai_trading", tab=tab))
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     stamp = datetime.now(ZoneInfo("America/Los_Angeles")).strftime("%Y%m%d_%H%M")
-    fname = f"AI_Trading_Data_{stamp}.xlsx"
+    if strategy_id:
+        fname = f"AI_Trading_{strategy_id}_{stamp}.xlsx"
+    else:
+        fname = f"AI_Trading_Data_{stamp}.xlsx"
     return Response(
         data,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3042,6 +3065,7 @@ def ai_trading():
         create_paper_orders_from_stable_growth,
         create_paper_orders_from_safe_margin,
         create_paper_orders_from_short_sell,
+        create_paper_orders_from_momentum,
         create_paper_orders_from_candidates,
         ensure_portfolio,
         ensure_strategy_accounts,
@@ -3076,6 +3100,7 @@ def ai_trading():
         STRATEGY_SAFE_MARGIN,
         STRATEGY_SHORT_SELL,
         STRATEGY_STABLE_GROWTH,
+        STRATEGY_MOMENTUM,
         STRATEGY_IDS,
         STRATEGY_META,
         normalize_strategy_id,
@@ -3114,6 +3139,8 @@ def ai_trading():
         "safe_margin": "safe_margin",
         "short": "short_sell",
         "short_sell": "short_sell",
+        "momentum": "momentum",
+        "momo": "momentum",
     }
     if tab in _strategy_tabs:
         tab = _strategy_tabs[tab]
@@ -3124,6 +3151,7 @@ def ai_trading():
         "stable_growth",
         "safe_margin",
         "short_sell",
+        "momentum",
         "open",
         "history",
         "select",
@@ -3137,6 +3165,7 @@ def ai_trading():
         "stable_growth": STRATEGY_STABLE_GROWTH,
         "safe_margin": STRATEGY_SAFE_MARGIN,
         "short_sell": STRATEGY_SHORT_SELL,
+        "momentum": STRATEGY_MOMENTUM,
     }
     active_strategy_id = _tab_strategy.get(tab)
 
@@ -3237,16 +3266,50 @@ def ai_trading():
                     "ok",
                 )
                 if synced.get("updated"):
-                    flash(
-                        ngettext_format(
-                            "Open SHORT covers synced to +{sl}% / −{tp}% ({n} orders).",
-                            sl=synced.get("stop_loss_pct", 3),
-                            tp=synced.get("take_profit_pct", 6),
-                            n=synced.get("updated", 0),
-                        ),
-                        "ok",
-                    )
+                    tp = synced.get("take_profit_pct")
+                    if tp is None:
+                        flash(
+                            ngettext_format(
+                                "Open SHORT covers synced to +{sl}% cover · no Take ({n} orders).",
+                                sl=synced.get("stop_loss_pct", 3),
+                                n=synced.get("updated", 0),
+                            ),
+                            "ok",
+                        )
+                    else:
+                        flash(
+                            ngettext_format(
+                                "Open SHORT covers synced to +{sl}% / −{tp}% ({n} orders).",
+                                sl=synced.get("stop_loss_pct", 3),
+                                tp=tp,
+                                n=synced.get("updated", 0),
+                            ),
+                            "ok",
+                        )
                 return redirect(url_for("ai_trading", tab="short_sell"))
+            if action == "refresh_momentum":
+                from momentum import build_momentum_snapshot
+
+                built = build_momentum_snapshot(persist=True, refresh_sessions=True)
+                flash(
+                    ngettext_format(
+                        "Momentum refreshed: {n} symbols · ABS(5D) rank · 1% stop experiment",
+                        n=built.get("universe_count", 0),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="momentum"))
+            if action == "create_momentum_orders":
+                result = create_paper_orders_from_momentum()
+                flash(
+                    ngettext_format(
+                        "Momentum paper orders: {n} · skipped {s} · ABS(5D) continuation · 1% stop",
+                        n=len(result.get("created") or []),
+                        s=len(result.get("skipped") or []),
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("ai_trading", tab="momentum"))
             if action == "check_data":
                 from db import get_dashboard_by_tickers
                 from market_data_validator import (
@@ -3347,7 +3410,7 @@ def ai_trading():
                 else:
                     flash(
                         ngettext_format(
-                            "No paper orders created · skipped {s}. Need READY/STABILIZING (STALE ok; DATA ERROR blocked).",
+                            "No paper orders created · skipped {s}. Need READY (STALE ok; DATA ERROR blocked).",
                             s=len(skipped),
                         ),
                         "warning",
@@ -3409,7 +3472,7 @@ def ai_trading():
                 else:
                     flash(
                         ngettext_format(
-                            "No Deep Recovery orders · skipped {s}. Need READY/STABILIZING on Oversold top-N.",
+                            "No Deep Recovery orders · skipped {s}. Need READY on Oversold top-N.",
                             s=len(skipped),
                         ),
                         "warning",
@@ -3469,7 +3532,7 @@ def ai_trading():
                     flash(
                         ngettext_format(
                             "Short Sell paper orders: {n} · skipped {s} · "
-                            "SELL SHORT · cover +3% / Take −6%",
+                            "DOWN only · cover +3% · no Take",
                             n=len(created),
                             s=len(skipped),
                         ),
@@ -3479,8 +3542,7 @@ def ai_trading():
                     flash(
                         ngettext_format(
                             "No Short Sell orders · skipped {s}. "
-                            "Need READY on SHORT Dist DESC queue "
-                            "(63D>80% · Day%<0).",
+                            "Need DOWN (5D TOTAL negative) on Dist25 Top % WATCH.",
                             s=len(skipped),
                         ),
                         "warning",
@@ -3777,9 +3839,51 @@ def ai_trading():
                     )
                     + "#news-history-dock"
                 )
-            elif action == "reset_ai_trading":
-                from ai_trading_export import reset_ai_trading
+            elif action in ("reset_strategy", "reset_ai_trading"):
+                from ai_trading_export import reset_ai_trading, reset_strategy_trading
+                from strategies import normalize_strategy_id
 
+                strategy_raw = (request.form.get("strategy_id") or "").strip()
+                if action == "reset_strategy" and not strategy_raw:
+                    flash(
+                        ngettext_format(
+                            "RESET STRATEGY requires a strategy id — all books left unchanged."
+                        ),
+                        "warning",
+                    )
+                    return redirect(url_for("ai_trading", tab=tab or "overview"))
+                if strategy_raw:
+                    sid = normalize_strategy_id(strategy_raw)
+                    result = reset_strategy_trading(sid)
+                    flash(
+                        ngettext_format(
+                            "Strategy reset ({label}): trades {t} · cash restored ${c:.2f}. Other strategies unchanged.",
+                            label=result.get("strategy_label") or sid,
+                            t=result.get("trades_deleted"),
+                            c=float(result.get("cash_restored") or 0),
+                        ),
+                        "ok",
+                    )
+                    _reset_tabs = {
+                        "ALERT_BUY": "buy",
+                        "DEEP_RECOVERY": "deep_recovery",
+                        "STABLE_GROWTH": "stable_growth",
+                        "SAFE_MARGIN": "safe_margin",
+                        "SHORT_SELL": "short_sell",
+                        "MOMENTUM": "momentum",
+                    }
+                    return redirect(
+                        url_for("ai_trading", tab=_reset_tabs.get(sid, "buy"))
+                    )
+                # Full wipe only via legacy action=reset_ai_trading with empty strategy_id
+                if action != "reset_ai_trading":
+                    flash(
+                        ngettext_format(
+                            "RESET STRATEGY requires a strategy id — all books left unchanged."
+                        ),
+                        "warning",
+                    )
+                    return redirect(url_for("ai_trading", tab=tab or "overview"))
                 result = reset_ai_trading(archive_first=True)
                 flash(
                     ngettext_format(
@@ -3790,7 +3894,7 @@ def ai_trading():
                     ),
                     "ok",
                 )
-                return redirect(url_for("ai_trading", tab="today"))
+                return redirect(url_for("ai_trading", tab="buy"))
             elif action == "discovery_create_orders":
                 from ai_discovery import create_discovery_paper_orders
 
@@ -3896,7 +4000,7 @@ def ai_trading():
         "rows": [],
         "stop_loss_pct": 3.0,
         "trailing_stop": False,
-        "take_profit_pct": 6.0,
+        "take_profit_pct": None,
         "side": "short",
     }
     if tab == "short_sell":
@@ -3908,6 +4012,21 @@ def ai_trading():
         except Exception:
             app.logger.exception("Short Sell view failed")
 
+    momentum_view: dict = {
+        "as_of": "",
+        "universe_count": 0,
+        "pool_count": 0,
+        "rows": [],
+        "notes": "",
+    }
+    if tab == "momentum":
+        try:
+            from momentum import load_momentum_view
+
+            momentum_view = load_momentum_view(recompute=True)
+        except Exception:
+            app.logger.exception("Momentum view failed")
+
     if not candidates and tab not in (
         "buy",
         "select",
@@ -3915,6 +4034,7 @@ def ai_trading():
         "stable_growth",
         "safe_margin",
         "short_sell",
+        "momentum",
     ):
         try:
             candidates = build_candidates(persist=True)
@@ -3970,7 +4090,7 @@ def ai_trading():
                 "rank": (STRATEGY_META.get(active_strategy_id) or {}).get(
                     "primary_metric_label"
                 ),
-                "block": "Data / News / Knife / strategy gates",
+                "block": "Data / News / Downside Risk / strategy gates",
                 "member_count": None,
             }
 
@@ -4164,6 +4284,7 @@ def ai_trading():
             stable_growth_view=stable_growth_view,
             safe_margin_view=safe_margin_view,
             short_sell_view=short_sell_view,
+            momentum_view=momentum_view,
             candidates=candidates,
             trade_candidates=trade_candidates,
             opens=opens,
@@ -4217,6 +4338,16 @@ def ai_trading():
         )
     except Exception:
         app.logger.exception("ai_trading render failed")
+        try:
+            import traceback
+            from pathlib import Path
+
+            Path("data/logs").mkdir(parents=True, exist_ok=True)
+            Path("data/logs/ai_trading_render_error.txt").write_text(
+                traceback.format_exc(), encoding="utf-8"
+            )
+        except Exception:
+            pass
         raise
 
 

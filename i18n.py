@@ -301,6 +301,8 @@ ZH: dict[str, str] = {
         "板块轮动（研究）— 市场语境层",
     "Answers: which GICS sectors are becoming stronger or weaker. Not a Buy/Sell signal. Does not place orders or change Rising / Strong / Knife rules.":
         "回答：哪些 GICS 板块正在变强或变弱。不是买卖信号。不下单，也不改 Rising / Strong / Knife 规则。",
+    "Answers: which GICS sectors are becoming stronger or weaker. Not a Buy/Sell signal. Does not place orders or change Rising / Strong / Downside Risk rules.":
+        "回答：哪些 GICS 板块正在变强或变弱。不是买卖信号。不下单，也不改 Rising / Strong / Downside Risk 规则。",
     "Universe":
         "范围",
     "11 GICS sectors via existing sector→ETF map (XLK / XLF / XLV / …)":
@@ -474,6 +476,18 @@ ZH: dict[str, str] = {
         "GROWTH 池 — 长期金融/交易所/公用事业/医疗 + ETF（宇宙仅 S&P500∪NDX100）。与「我的自选」相同行情；暂未启用 ALERT。基金不查财报与新闻。选股：大市值护城河、少改名单；剔除投机股（如 COIN）；最多按季复审。",
     "SHORT pool — ETF / index / leveraged + stable stocks. Same quotes as My Watchlist; ALERT not enabled yet. Funds/ETFs skip Financial & News; KO/PEP/WMT/MCD/PG/JNJ/JPM still load them.":
         "SHORT 池 — ETF/指数/杠杆 + 稳定股。与「我的自选」相同行情；暂未启用 ALERT。基金不查财报与新闻；KO/PEP/WMT/MCD/PG/JNJ/JPM 仍加载。",
+    "SHORT WATCH — Dist25 Top % of the broad stock universe (dynamic). High position only — not a short signal. Timing / paper short lives on AI Trading → Short Sell.":
+        "SHORT WATCH — 全市场 Dist25 Top %（动态）。仅高位观察，不是做空信号。时机 / 纸上做空在 AI Trading → Short Sell。",
+    "Current Top % list (Dist25 DESC):":
+        "当前 Top % 列表（Dist25 降序）：",
+    "(empty — refresh dashboard Dist25 / prices)":
+        "（空 — 请刷新行情 / Dist25）",
+    "AI Trading · Short Sell":
+        "AI Trading · Short Sell",
+    "SHORT Watchlist is now Dist25 Top % (dynamic). Manual add is disabled — open AI Trading → Short Sell.":
+        "SHORT Watchlist 已改为 Dist25 Top %（动态）。不再支持手动添加 — 请打开 AI Trading → Short Sell。",
+    "SHORT Watchlist is Dist25 Top % (dynamic). Manual remove is disabled — open AI Trading → Short Sell.":
+        "SHORT Watchlist 为 Dist25 Top %（动态）。不再支持手动删除 — 请打开 AI Trading → Short Sell。",
     "Temp": "临时",
     "Add to My Watchlist": "添加到我的自选",
     "Add tickers, comma-separated, e.g. AMD, SHOP.TO": "添加自选代码，逗号分隔，如 AMD, SHOP.TO",
@@ -567,16 +581,34 @@ ZH: dict[str, str] = {
     "Blocked": "Blocked",
     "AUTO BLOCK — Knife Risk above Auto Trading threshold":
         "禁止自动交易 — Knife Risk 高于自动交易门槛",
+    "AUTO BLOCK — Downside Risk above Auto Trading threshold":
+        "禁止自动交易 — Downside Risk 高于自动交易门槛",
     "Knife Risk 0–100 — downside velocity + relative weakness vs SPY/sector. Independent of AI Score. Not an oversold score.":
         "Knife Risk 0–100 — 下跌速度 + 相对弱势 + 10D/20D 趋势持续性。独立于 AI Score。不是超卖分数。",
+    "Downside Risk 0–100 — downside velocity + relative weakness vs SPY/sector. Independent of AI Score. Not an oversold score.":
+        "Downside Risk 0–100 — 下跌速度 + 相对弱势 + 10D/20D 趋势持续性。独立于 AI Score。不是超卖分数。",
+    "Knife Risk (0–100) — independent of AI Score":
+        "Knife Risk（0–100）— 独立于 AI Score",
+    "Downside Risk (0–100) — independent of AI Score":
+        "Downside Risk（0–100）— 独立于 AI Score",
+    "Knife Risk ≥ 45 blocks AI Auto Trading / Create Paper Orders (threshold configurable). Watchlist and Research still show the name. AI Score cannot override.":
+        "Knife Risk ≥ 45 会禁止 AI 自动交易 / 创建纸上订单（门槛可配置）。Watchlist 与研究中心仍显示该股。AI Score 不能覆盖此规则。",
+    "Downside Risk ≥ 45 blocks AI Auto Trading / Create Paper Orders (threshold configurable). Watchlist and Research still show the name. AI Score cannot override.":
+        "Downside Risk ≥ 45 会禁止 AI 自动交易 / 创建纸上订单（门槛可配置）。Watchlist 与研究中心仍显示该股。AI Score 不能覆盖此规则。",
+    "Not an oversold / price-location score. Does not use 63D Position, Dist. from SMA, Financial, or News. Hover Knife for component breakdown.":
+        "不是超卖 / 价格位置分数。不使用 63日位置、距 SMA 距离、财报或新闻。悬停 Knife 可看分项明细。",
+    "Not an oversold / price-location score. Does not use 63D Position, Dist. from SMA, Financial, or News. Hover Downside Risk for component breakdown.":
+        "不是超卖 / 价格位置分数。不使用 63日位置、距 SMA 距离、财报或新闻。悬停 Downside Risk 可看分项明细。",
+    "Rising Score (0–100) — independent of Knife Risk & AI Score":
+        "Rising Score（0–100）— 独立于 Knife Risk 与 AI Score",
+    "Rising Score (0–100) — independent of Downside Risk & AI Score":
+        "Rising Score（0–100）— 独立于 Downside Risk 与 AI Score",
     "Knife Risk — falling speed + relative weakness. Independent of AI Score.":
         "Knife Risk — 下跌速度 + 相对弱势 + 趋势持续性。独立于 AI Score。",
     "Knife Risk — Auto pool excludes Knife ≥ threshold":
         "Knife Risk — 自动交易池排除 Knife ≥ 门槛的股票",
     "Knife Risk ≥ 45 blocks Auto Trading (configurable). Watchlist / Research still show the name.":
         "Knife Risk ≥ 45 会禁止自动交易（可配置）。Watchlist / 研究中心仍可查看。",
-    "Knife Risk (0–100) — independent of AI Score":
-        "Knife Risk（0–100）— 独立于 AI Score",
     "Speed":
         "下跌速度",
     "5D / 3D decline, consecutive down days, acceleration":
@@ -597,12 +629,6 @@ ZH: dict[str, str] = {
         "等级：",
     "AUTO BLOCK:":
         "自动拦截：",
-    "Knife Risk ≥ 45 blocks AI Auto Trading / Create Paper Orders (threshold configurable). Watchlist and Research still show the name. AI Score cannot override.":
-        "Knife Risk ≥ 45 会禁止 AI 自动交易 / 创建纸上订单（门槛可配置）。Watchlist 与研究中心仍显示该股。AI Score 不能覆盖此规则。",
-    "Not an oversold / price-location score. Does not use 63D Position, Dist. from SMA, Financial, or News. Hover Knife for component breakdown.":
-        "不是超卖 / 价格位置分数。不使用 63日位置、距 SMA 距离、财报或新闻。悬停 Knife 可看分项明细。",
-    "Rising Score (0–100) — independent of Knife Risk & AI Score":
-        "Rising Score（0–100）— 独立于 Knife Risk 与 AI Score",
     "Rising Now entry (weak filter only):":
         "Rising Now 入选（故意放宽）：",
     "Up Days ≥ 3/5 · 5D Return ≥ +3%. Means “currently rising” — not how strong the rise is.":
@@ -629,8 +655,12 @@ ZH: dict[str, str] = {
         "独立性：",
     "Rising Score ≠ 100 − Knife Risk. Same stock can be Rising 85 / Knife 15 (stable uptrend) or Rising 85 / Knife 70 (strong but volatile). Uses the same local daily_bars history as Knife — no separate download.":
         "Rising Score ≠ 100 − Knife Risk。同一只股票可以是 Rising 85 / Knife 15（稳健上涨），也可以是 Rising 85 / Knife 70（强但波动大）。与 Knife 共用本地 daily_bars，不另下历史。",
+    "Rising Score ≠ 100 − Downside Risk. Same stock can be Rising 85 / Downside 15 (stable uptrend) or Rising 85 / Downside 70 (strong but volatile). Uses the same local daily_bars history as Downside Risk — no separate download.":
+        "Rising Score ≠ 100 − Downside Risk。同一只股票可以是 Rising 85 / Downside 15（稳健上涨），也可以是 Rising 85 / Downside 70（强但波动大）。与 Downside Risk 共用本地 daily_bars，不另下历史。",
     "Does not remove Knife BLOCK / WATCH / PASS. High Rising Score can still be AUTO BLOCKED by Knife Risk. Shown on Research → Rising Now (sortable); hover Rising for component breakdown.":
         "不取消 Knife 的 BLOCK / WATCH / PASS。高 Rising Score 仍可能因 Knife Risk 被自动拦截。显示于 Research → Rising Now（可排序）；悬停 Rising 可看分项。",
+    "Does not remove Downside Risk BLOCK / WATCH / PASS. High Rising Score can still be AUTO BLOCKED by Downside Risk. Shown on Research → Rising Now (sortable); hover Rising for component breakdown.":
+        "不取消 Downside Risk 的 BLOCK / WATCH / PASS。高 Rising Score 仍可能因 Downside Risk 被自动拦截。显示于 Research → Rising Now（可排序）；悬停 Rising 可看分项。",
     "Up Days ≥ 3/5 · 5D Return ≥ +3% (weak entry only). Rising Score 0–100 then ranks uptrend strength/persistence (Speed 17 · Rel 18 · 10D/20D Trend 35 · Strong Up 20D 12 · 63D Pos 18). Independent of Knife — not 100−Knife. High Rising can still be Knife-BLOCKED. Research only; no retention; not a Buy signal.":
         "上涨日 ≥ 3/5 · 5日涨幅 ≥ +3%（入选故意放宽）。随后 Rising Score 0–100 衡量上涨强度/持续性（速度17 · 相对18 · 10/20日趋势35 · 20日强涨日12 · 63日位置18）。独立于 Knife，不是 100−Knife。高 Rising 仍可能被 Knife 拦截。仅研究用；无留存；非买入信号。",
     "Rising Score":
@@ -1721,10 +1751,108 @@ ZH: dict[str, str] = {
         '前 15 · Watchlist 排序（UP > MIXED > DOWN，Dist%）',
     'Knife / HIGH / News (DATA is Admin-only, not BLOCK)':
         'Knife / HIGH / News（DATA 仅 Admin，不打 BLOCK）',
+    'Downside Risk / HIGH / News (DATA Admin-only)':
+        'Downside Risk / HIGH / News（DATA 仅 Admin）',
+    'HIGH / News (Downside Risk informational only; DATA Admin-only)':
+        'HIGH / News（Downside Risk 仅供参考；DATA 仅 Admin）',
+    'News PASS + Fin≥60% only (HIGH / Knife / scores display-only; DATA Admin-only)':
+        '仅 News PASS + 财报≥60%（HIGH / Knife / 分数仅供参考；DATA 仅 Admin）',
+    'News PASS + Fin≥60% only (HIGH / Downside Risk / scores display-only; DATA Admin-only)':
+        '仅 News PASS + 财报≥60%（HIGH / Downside Risk / 分数仅供参考；DATA 仅 Admin）',
+    "Gain & Loss":
+        "盈亏",
+    "Signal Queue":
+        "信号队列",
+    "Watchlist ranked by |5D TOTAL| DESC — research / SIMULATE input only. Not live P&L.":
+        "按 |5D TOTAL| 降序的自选信号表 — 仅研究 / SIMULATE 输入，不是实时盈亏。",
+    "No open MOMENTUM paper positions yet. SIMULATE opens from the signal queue above.":
+        "尚无 MOMENTUM 纸上持仓。用上方信号队列点 SIMULATE 开仓。",
+    "No open MOMENTUM paper positions yet. SIMULATE opens from the signal queue below.":
+        "尚无 MOMENTUM 纸上持仓。用下方信号队列点 SIMULATE 开仓。",
+    "SIMULATE Momentum paper orders (ABS(5D) · $750 LONG / $750 SHORT · 1% stop · no Take)?":
+        "模拟开 MOMENTUM 纸上单（ABS(5D) · 多头$750 / 空头$750 · 止损1% · 无止盈）？",
+    "Daily totals compound PRE × REGULAR × AFTER (not a simple sum). Rank = |5D TOTAL| DESC. Paper: $750 LONG + $750 SHORT sleeves · 1% stop.":
+        "日合计按 PRE×REGULAR×AFTER 复利（非简单相加）。排名 = |5D TOTAL| 降序。纸上：多头$750 + 空头$750 · 止损1%。",
+    "ABS(5D TOTAL) DESC · +5D LONG / −5D SHORT · $750 + $750 sleeves · fixed 1% stop":
+        "ABS(5D TOTAL) 降序 · +5D做多 / −5D做空 · 多空各$750 · 固定1%止损",
+    'Downside Risk':
+        'Downside Risk',
+    'MCap>$2B · Price>$5 · AvgVol<3% · Fin≥60% · Knife≠HIGH → top 10–20':
+        '市值>$2B · 价格>$5 · 均波<3% · Financial≥60% · Knife≠HIGH → 前 10–20',
+    'MCap>$2B · Price>$5 · AvgVol<3% · Fin≥60% · Downside≠HIGH → top 10–20':
+        '市值>$2B · 价格>$5 · 均波<3% · Financial≥60% · Downside≠HIGH → 前 10–20',
+    'Risk filters applied before queue (Knife HIGH blocked)':
+        '入队前已做风险过滤（Knife HIGH 剔除）',
+    'Risk filters applied before queue (Downside Risk HIGH blocked)':
+        '入队前已做风险过滤（Downside Risk HIGH 剔除）',
+    'Analyze with existing Financial / AI Score / Knife / price-location gates (same as Paper Auto Trading).':
+        '用现有财报 / AI Score / Knife / 价格位置阀门分析（与纸上 Auto Trading 相同）。',
+    'Analyze with existing Financial / AI Score / Downside Risk / price-location gates (same as Paper Auto Trading).':
+        '用现有财报 / AI Score / Downside Risk / 价格位置阀门分析（与纸上 Auto Trading 相同）。',
+    'Auto TRADE_CANDIDATE only if ALL pass: not 🔴 Negative · event is recent · Event Score ≥ 70 · AI Score ≥ 45 · price location OR gate · Knife below AUTO BLOCK (default ≥ 45 blocks).':
+        '全部通过才自动 TRADE_CANDIDATE：非 🔴 Negative · 事件仍新 · Event Score ≥ 70 · AI Score ≥ 45 · 价格位置 OR 门槛 · Knife 低于 AUTO BLOCK（默认 ≥ 45 拦截）。',
+    'Auto TRADE_CANDIDATE only if ALL pass: not 🔴 Negative · event is recent · Event Score ≥ 70 · AI Score ≥ 45 · price location OR gate · Downside Risk below AUTO BLOCK (default ≥ 45 blocks).':
+        '全部通过才自动 TRADE_CANDIDATE：非 🔴 Negative · 事件仍新 · Event Score ≥ 70 · AI Score ≥ 45 · 价格位置 OR 门槛 · Downside Risk 低于 AUTO BLOCK（默认 ≥ 45 拦截）。',
+    '🔴 Negative / stale / Knife-blocked / price-fail → WATCH or AUTO_BLOCK — never Priority, never auto trade.':
+        '🔴 Negative / 过期 / Knife 拦截 / 价格未达标 → WATCH 或 AUTO_BLOCK — 不进 Priority，不自动交易。',
+    '🔴 Negative / stale / Downside-blocked / price-fail → WATCH or AUTO_BLOCK — never Priority, never auto trade.':
+        '🔴 Negative / 过期 / Downside Risk 拦截 / 价格未达标 → WATCH 或 AUTO_BLOCK — 不进 Priority，不自动交易。',
+    'Recently closed (last 63 trading days), not currently held. Shows the Top 8 by current relevance; View All keeps the full pool. Re-enter opens a new trade at current price / AI Score / Knife / Stop / Take — never reuses the old trade. Manual only.':
+        '最近已平仓（近 63 个交易日），当前未持仓。按相关度显示 Top 8；View All 保留完整池。Re-enter 用当前价格 / AI Score / Knife / Stop / Take 开新单 — 从不复用旧交易。仅手动。',
+    'Recently closed (last 63 trading days), not currently held. Shows the Top 8 by current relevance; View All keeps the full pool. Re-enter opens a new trade at the current price / AI Score / Downside Risk / Stop / Take — never reuses the old trade. Manual only.':
+        '最近已平仓（近 63 个交易日），当前未持仓。按相关度显示 Top 8；View All 保留完整池。Re-enter 用当前价格 / AI Score / Downside Risk / Stop / Take 开新单 — 从不复用旧交易。仅手动。',
+    'Re-enter {ticker} as a new trade at the current price, AI Score, Knife Risk, Stop and Take? Cash and trading limit still apply. The old closed trade stays in History.':
+        '以当前价格、AI Score、Knife Risk、Stop 与 Take 重新开仓 {ticker}？仍受现金与交易限额约束。旧已平仓交易保留在 History。',
+    'Re-enter {ticker} as a new trade at the current price, AI Score, Downside Risk, Stop and Take? Cash and trading limit still apply. The old closed trade stays in History.':
+        '以当前价格、AI Score、Downside Risk、Stop 与 Take 重新开仓 {ticker}？仍受现金与交易限额约束。旧已平仓交易保留在 History。',
+    'Knife':
+        'Downside Risk',
+    'Knife Risk':
+        'Downside Risk',
+    'Downside Risk — falling speed + relative weakness. Independent of AI Score.':
+        'Downside Risk — 下跌速度 + 相对弱势 + 趋势持续性。独立于 AI Score。',
+    'Downside Risk — falling speed + relative weakness. Independent of Rising Score.':
+        'Downside Risk — 下跌速度与相对弱势。独立于 Rising Score。',
+    'Weak entry filter only. Rising Score ranks how strong / persistent the rise is (independent of Downside Risk).':
+        '入选条件故意放宽。Rising Score 衡量上涨强度与持续性（独立于 Downside Risk）。',
+    'Rising Score 0–100 — strength & persistence of the uptrend (not 100−Downside Risk).':
+        'Rising Score 0–100 — 上涨强度与持续性（不是 100−Downside Risk）。',
+    'Up Days ≥ 3/5 · 5D Return ≥ +3% (weak entry only). Rising Score 0–100 then ranks uptrend strength/persistence (Speed 17 · Rel 18 · 10D/20D Trend 35 · Strong Up 20D 12 · 63D Pos 18). Independent of Downside Risk — not 100−Downside. High Rising can still be Downside-BLOCKED. Research only; no retention; not a Buy signal.':
+        '上涨日 ≥ 3/5 · 5日涨幅 ≥ +3%（入选故意放宽）。随后 Rising Score 0–100 衡量上涨强度/持续性（速度17 · 相对18 · 10/20日趋势35 · 20日强涨日12 · 63日位置18）。独立于 Downside Risk，不是 100−Downside。高 Rising 仍可能被 Downside Risk 拦截。仅研究用；无留存；非买入信号。',
+    'Which GICS sectors are becoming stronger/weaker (research only). ETF 5D/20D + RS vs SPY + SMA25 slope; Rising % = Rising Now share of sector stocks (e.g. 25/80); Strong % = Strong Watchlist share. Rotation Score = 30% trend · 25% RS · 20% Rising · 15% Strong · 10% SMA25. Status uses score + direction (LEADING / RISING / NEUTRAL / WEAKENING / FALLING) with daily history for Score Δ / Rank Δ. Not a Buy signal; does not change Rising/Strong/Downside Risk.':
+        '哪些 GICS 板块正在变强/变弱（仅研究）。行业 ETF 的 5日/20日 + 相对 SPY + SMA25 斜率；Rising % = 板块内符合 Rising Now 的占比（如 25/80）；Strong % = Strong Watchlist 占比。Rotation Score = 趋势30% · RS25% · Rising20% · Strong15% · SMA2510%。Status 看得分与方向（LEADING / RISING / NEUTRAL / WEAKENING / FALLING），并用日快照看 Score Δ / Rank Δ。不是买入信号；不改 Rising/Strong/Downside Risk。',
+    'Deterministic PASS/FAIL · no LLM ranking · no short-term Rising/Knife/SMA25':
+        '确定性 PASS/FAIL · 无 LLM 排序 · 不含短线 Rising/Knife/SMA25',
+    'Deterministic PASS/FAIL · no LLM ranking · no short-term Rising/Downside Risk/SMA25':
+        '确定性 PASS/FAIL · 无 LLM 排序 · 不含短线 Rising/Downside Risk/SMA25',
+    'Admin: click Stop/Take to override; Reset restores AUTO. Manual does not bypass Knife Risk.':
+        'Admin：点击 Stop/Take 可覆盖；重置恢复 AUTO。手动价不会绕过 Knife Risk。',
+    'Admin: click Stop/Take to override; Reset restores AUTO. Manual does not bypass Downside Risk.':
+        'Admin：点击 Stop/Take 可覆盖；重置恢复 AUTO。手动价不会绕过 Downside Risk。',
+    'same gates as Alert Buy — expect more KNIFE on mid/small':
+        '门槛与 Alert Buy 相同 — 中小盘会更多 Downside Risk',
+    '5D Change':
+        '5日涨跌',
+    '5D Total':
+        '5日合计',
+    'LIVE':
+        'LIVE',
+    'N/A — no reliable Yahoo extended-hours price':
+        'N/A — Yahoo 无可靠盘前/盘后价',
+    'Informational only':
+        '仅供参考',
+    'Percentage price changes for the five most recent completed regular trading sessions.':
+        '最近五个已完成常规交易日的涨跌幅。',
+    'Change from the latest regular-session close to the latest available extended-hours price.':
+        '相对最近一个常规收盘价，到最新可用盘前/盘后价的涨跌幅。',
+    'Recent downside price-behavior risk indicator. Informational only in ALERT BUY and DEEP RECOVERY.':
+        '近期下跌行为风险指标。在 ALERT BUY / DEEP RECOVERY 中仅供参考，不参与拦截或排序。',
     'BUY QUEUE = Dist SMA25 ascending (including BLOCK). Scroll the table for more rows.':
         'BUY QUEUE = Dist SMA25 升序（含 BLOCK）。表格右侧滚动看更多。',
     'READY · STABILIZING · BLOCK · HOLDING':
         'READY · STABILIZING · BLOCK · HOLDING',
+    'READY · WAIT · BLOCK · HOLDING':
+        'READY · WAIT · BLOCK · HOLDING',
     'SIMULATE Deep Recovery paper orders from READY / STABILIZING?':
         '用 READY / STABILIZING 模拟开 Deep Recovery 纸面单？',
     'SIMULATE':
@@ -1733,6 +1861,12 @@ ZH: dict[str, str] = {
         '按 READY 从上到下阶梯配股建模拟单？仍使用设置中的止损/止盈与资金上限。仅模拟。',
     'Allocate paper orders from READY + STABILIZING (top→bottom ladder)? Settings stop/take & capital still apply. Simulated only.':
         '按 READY + STABILIZING 从上到下阶梯配股建模拟单？仍使用设置中的止损/止盈与资金上限。仅模拟。',
+    'READY · WAIT · BLOCK · HOLDING':
+        'READY · WAIT · BLOCK · HOLDING',
+    'SIMULATE Deep Recovery paper orders from READY?':
+        '用 READY 模拟开 Deep Recovery 纸面单？',
+    'Buy candidates = My Watchlist + Nasdaq-100 + AI Approved names currently marked 🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME (Dist SMA25 bands). Dist + Recovery decide READY / WAIT …':
+        '买入候选 =「我的自选」+ Nasdaq-100 + AI 批准池 中当前标有 🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME（Dist SMA25 分档）。Dist + 回稳决定 READY / WAIT …',
     'Refresh AI BUY and allocate READY top→bottom (paper only). Settings stop/take & capital still apply.':
         '刷新 AI BUY，并对 READY 从上到下配股建模拟单。仍使用设置中的止损/止盈与资金上限。',
     'Per-strategy defaults (5 books). Leave Take blank for stop-only. Short: Stop = cover above entry; Take = cover below entry.':
@@ -1798,9 +1932,21 @@ ZH: dict[str, str] = {
     'DOWNLOAD AI TRADING DATA (.XLSX)':
         '下载 AI Trading 数据 (.XLSX)',
     'RESET AI TRADING':
-        '重置 AI Trading',
+        '重置全部 AI Trading',
+    'RESET STRATEGY':
+        '重置本策略',
     'Reset AI Trading?':
-        '重置 AI Trading？',
+        '重置全部 AI Trading？',
+    'Reset this strategy?':
+        '重置本策略？',
+    'This resets ONLY the current strategy book:':
+        '只会清空当前策略账户：',
+    'Open Positions · Closed History · Cash / P&L for this strategy':
+        '本策略的持仓 · 已平仓历史 · 现金 / 盈亏',
+    'Other strategies are NOT touched. Watchlist / News / Settings stay.':
+        '其他策略不受影响。自选 / 新闻 / 设置保留。',
+    'Download Excel first if you want to keep a copy of this strategy experiment.':
+        '如需保留本策略实验记录，请先下载 Excel。',
     'This will permanently clear the current AI Trading experiment, including:':
         '将永久清空当前 AI Trading 实验，包括：',
     'It will NOT delete:':
@@ -1810,7 +1956,89 @@ ZH: dict[str, str] = {
     'Download Excel':
         '下载 Excel',
     'AI Trading reset: trades {t} · priority {p} · cash restored ${c:.2f}. Discovery / Saved News kept.':
-        'AI Trading 已重置：交易 {t} · 优先买入 {p} · 现金恢复 ${c:.2f}。Discovery / 已保存新闻保留。',
+        '全部 AI Trading 已重置：交易 {t} · 优先买入 {p} · 现金恢复 ${c:.2f}。Discovery / 已保存新闻保留。',
+    'Strategy reset ({label}): trades {t} · cash restored ${c:.2f}. Other strategies unchanged.':
+        '策略已重置（{label}）：交易 {t} · 现金恢复 ${c:.2f}。其他策略不受影响。',
+    'Momentum sessions refreshed: {n} symbols · history only (scoring deferred)':
+        'Momentum 时段已刷新：{n} 只股票 · 仅历史（评分暂缓）',
+    'Momentum refreshed: {n} symbols · ABS(5D) rank · 1% stop experiment':
+        'Momentum 已刷新：{n} 只 · |5D| 排序 · 1% 止损实验',
+    'Momentum paper orders: {n} · skipped {s} · ABS(5D) continuation · 1% stop':
+        'Momentum 纸面单：{n} · 跳过 {s} · |5D| 延续 · 1% 止损',
+    'SIMULATE Momentum paper orders (ABS(5D) continuation · 1% stop · no Take)?':
+        '模拟 Momentum 纸面单（|5D| 延续 · 1% 止损 · 无止盈）？',
+    'ABS(5D TOTAL) DESC · sign(5D) = LONG/SHORT · fixed 1% stop · continuation experiment':
+        '|5D TOTAL| 降序 · 5D 正负=LONG/SHORT · 固定 1% 止损 · 延续实验',
+    'Guidance':
+        '操作提示',
+    'MOMENTUM follows the current dominant price movement rather than predicting a reversal. Review the five recent daily movements from oldest to newest. Give particular attention to the most recent 1–2 days and to acceleration/deceleration. A sequence whose movements continue in the same direction, especially with increasing magnitude, provides stronger evidence of continuation. If recent movements are shrinking, changing sign, or repeatedly alternating between positive and negative, continuation is less clear and the trade may be skipped. This is a probabilistic observation, not a prediction of certainty.':
+        '动量策略跟随当前主要运动方向，而不是预测反转。观察最近5个交易日的变化，并重点关注最近1–2日以及加速/减速情况。若价格持续沿同一方向运动，尤其幅度逐渐增强，则延续的依据较强；若近期幅度缩小、方向反转，或正负频繁交替，则延续性较弱，可以放弃交易。所有判断均为概率判断，并非确定性预测。',
+    'Product of (1 + each daily total) − 1. Primary rank uses ABS(5D TOTAL) DESC.':
+        '各日合计复利连乘 − 1。主排序为 |5D TOTAL| 降序。',
+    'Sign of 5D TOTAL: positive → LONG, negative → SHORT.':
+        '5D TOTAL 符号：正=LONG，负=SHORT。',
+    'Configured 1% stop: LONG Entry×0.99 · SHORT Entry×1.01. Gaps/slippage may differ.':
+        '配置 1% 止损：LONG=入场×0.99 · SHORT=入场×1.01。跳空/滑点可能导致实际亏损不完全等于 1%。',
+    'Daily totals compound PRE × REGULAR × AFTER (not a simple sum). Rank = |5D TOTAL| DESC. 1% is configured stop distance, not a guaranteed fill loss.':
+        '日合计按 PRE×REGULAR×AFTER 复利（非简单相加）。排序=|5D TOTAL| 降序。1% 为配置止损距离，不保证成交亏损恰好等于 1%。',
+    'Refresh Momentum Sessions':
+        '刷新 Momentum 时段',
+    'Momentum':
+        'Momentum',
+    'MOMENTUM':
+        'MOMENTUM',
+    'SESSION HISTORY':
+        'SESSION HISTORY',
+    'Session LIVE':
+        'Session LIVE',
+    'UP AI':
+        'UP AI',
+    'DOWN AI':
+        'DOWN AI',
+    'SIDEWAYS AI':
+        'SIDEWAYS AI',
+    '|Momentum|':
+        '|Momentum|',
+    'Editable MOMENTUM watchlist · PRE / REGULAR / AFTER session history (Yahoo). NIGHT = N/A. Scoring deferred.':
+        '可编辑 MOMENTUM 观察池 · PRE/REGULAR/AFTER 时段历史（Yahoo）。NIGHT=N/A。评分暂缓。',
+    'Editable MOMENTUM watchlist · compounded daily session totals (Yahoo). Scoring deferred.':
+        '可编辑 MOMENTUM 观察池 · 复利日合计（Yahoo）。评分暂缓。',
+    'Daily totals compound PRE × REGULAR × AFTER (not a simple sum). NIGHT and GAP excluded. Missing required session → N/A.':
+        '日合计按 PRE×REGULAR×AFTER 复利（非简单相加）。不含 NIGHT/GAP。缺任一必要时段 → N/A。',
+    'SESSION HISTORY (raw P/D/A) is Admin-only.':
+        'SESSION HISTORY（原始 P/D/A）仅 Admin 可见。',
+    'Compounded (1+P)×(1+D)×(1+A)−1. N/A if any required session missing.':
+        '复利 (1+P)×(1+D)×(1+A)−1。缺必要时段则为 N/A。',
+    'Product of (1 + each daily total) − 1. N/A if any day is N/A.':
+        '各日合计复利连乘 − 1。任一日为 N/A 则 5D 为 N/A。',
+    'Admin only. Oldest → newest. P=PRE · D=REGULAR · A=AFTER. NIGHT=N/A.':
+        '仅 Admin。由旧到新。P=PRE · D=REGULAR · A=AFTER。NIGHT=N/A。',
+    '5D TOTAL':
+        '5D TOTAL',
+    'D-4':
+        'D-4',
+    'D-3':
+        'D-3',
+    'D-2':
+        'D-2',
+    'D-1':
+        'D-1',
+    'D0':
+        'D0',
+    'editable pool · session history':
+        '可编辑池 · 时段历史',
+    'ABS(5D) continuation · 1% stop':
+        '|5D| 延续 · 1% 止损',
+    'P = PRE · D = REGULAR · A = AFTER · NIGHT always N/A. LIVE marks the currently active session. Completed sessions are stored permanently and not overwritten.':
+        'P=PRE · D=REGULAR · A=AFTER · NIGHT 恒为 N/A。LIVE 标记当前进行中的时段。已完成时段永久保存，不会被覆盖。',
+    'No MOMENTUM watchlist symbols yet.':
+        '暂无 MOMENTUM 观察池标的。',
+    'UP / DOWN / SIDEWAYS scoring deferred — raw sessions first.':
+        'UP/DOWN/SIDEWAYS 评分暂缓 — 先采集原始时段。',
+    'Active session start → latest price (not RTH-close LIVE).':
+        '当前时段起点价 → 最新价（不是相对常规收盘的旧 LIVE）。',
+    'Oldest → newest. P=PRE 04:00–09:30 · D=REGULAR 09:30–16:00 · A=AFTER 16:00–20:00 ET. NIGHT=N/A.':
+        '由旧到新。P=PRE 04:00–09:30 · D=REGULAR 09:30–16:00 · A=AFTER 16:00–20:00（美东）。NIGHT=N/A。',
     'Excel export failed: {exc}':
         'Excel 导出失败：{exc}',
     'Unsaved news auto-clears after 7 full days · ★ Saved News kept until you delete':
@@ -2029,6 +2257,8 @@ ZH: dict[str, str] = {
         '请登录后管理模拟交易',
     'Admin: click Stop/Take to override; Reset restores AUTO. Manual does not bypass Knife Risk.':
         'Admin：点击 Stop/Take 可覆盖；重置恢复 AUTO。手动价不会绕过 Knife Risk。',
+    'Admin: click Stop/Take to override; Reset restores AUTO. Manual does not bypass Downside Risk.':
+        'Admin：点击 Stop/Take 可覆盖；重置恢复 AUTO。手动价不会绕过 Downside Risk。',
     'Stop/Take shown read-only — Admin can override before Create Paper Orders.':
         'Stop/Take 为只读展示 — Admin 可在创建纸上订单前覆盖。',
     'Stop Loss — AUTO from Settings %; Admin can override. Reset restores AUTO.':
@@ -2071,6 +2301,16 @@ ZH: dict[str, str] = {
         '未创建任何模拟订单 · 跳过 {s}。被拦截的标的未通过。',
     'No paper orders created · skipped {s}. Need READY/STABILIZING (STALE ok; DATA ERROR blocked).':
         '未创建任何模拟订单 · 跳过 {s}。需要 READY/STABILIZING（STALE 可用；DATA ERROR 拦截）。',
+    'No paper orders created · skipped {s}. Need READY (STALE ok; DATA ERROR blocked).':
+        '未创建任何模拟订单 · 跳过 {s}。需要 READY（STALE 可用；DATA ERROR 拦截）。',
+    'No Deep Recovery orders · skipped {s}. Need READY/STABILIZING on Oversold top-N.':
+        '未开深度反弹单 · 跳过 {s}。需 Oversold 前 N 中有 READY/STABILIZING。',
+    'No Deep Recovery orders · skipped {s}. Need READY on Oversold top-N.':
+        '未开深度反弹单 · 跳过 {s}。需 Oversold 前 N 中有 READY。',
+    'Buy candidates = My Watchlist + Nasdaq-100 + AI Approved names currently marked 🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME (Dist SMA25 bands). Dist + Recovery decide READY / STABILIZING / APPROACHING …':
+        '买入候选 =「我的自选」+ Nasdaq-100 + AI 批准池 中当前标有 🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME（Dist SMA25 分档）。Dist + 回稳决定 READY / STABILIZING / APPROACHING …',
+    'Buy candidates = My Watchlist + Nasdaq-100 + AI Approved names currently marked 🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME (Dist SMA25 bands). Dist + Recovery decide READY / WAIT …':
+        '买入候选 =「我的自选」+ Nasdaq-100 + AI 批准池 中当前标有 🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME（Dist SMA25 分档）。Dist + 回稳决定 READY / WAIT …',
     'Blocked — insufficient cash (cannot open): {detail}':
         '已拦截 — 现金不足（不能开仓）：{detail}',
     'Blocked — trading limit reached (cannot open): {detail}':
@@ -2200,17 +2440,25 @@ ZH: dict[str, str] = {
     'Cover Stop':
         '平仓止损',
     'Cover stop +3% · Take Profit −6% · EXIT → next unused · independent $2k book.':
-        '平仓止损 +3% · 止盈 −6% · EXIT 后换队首未用名 · 独立 $2k 账本。',
+        '平仓止损 +3% · 无止盈 · EXIT 后换队首未用名 · 独立 $2k 账本。',
+    'Cover stop +3% · no Take Profit · EXIT → next unused · independent $2k book.':
+        '平仓止损 +3% · 无止盈 · EXIT 后换队首未用名 · 独立 $2k 账本。',
     'Dist DESC · SELL SHORT · cover +3%/−6% · EXIT auto-refill':
-        'Dist 降序 · SELL SHORT · 止损+3%/止盈−6% · EXIT 自动补仓',
+        'Dist 降序 · SELL SHORT · 止损+3% · 无止盈 · EXIT 自动补仓',
+    'Dist DESC · SELL SHORT · cover +3% · no Take · EXIT auto-refill':
+        'Dist 降序 · SELL SHORT · 止损+3% · 无止盈 · EXIT 自动补仓',
     'SHORT sleeve filtered by 63D>80% and Day%<0, sorted Dist SMA25 descending (10–20). Paper slots $250→$150, max 6. SELL SHORT with cover stop +3% and Take Profit −6%; on EXIT auto-short the then-top unused Dist queue name.':
-        'SHORT 池经 63D>80%、Day%<0 过滤后按 Dist SMA25 降序取 10–20。纸面仓位 $250→$150，最多 6。SELL SHORT，止损 +3%、止盈 −6%；EXIT 后自动做空当时队首未用名。',
+        'SHORT 池经 63D>80%、Day%<0 过滤后按 Dist SMA25 降序取 10–20。纸面仓位 $250→$150，最多 6。SELL SHORT，止损 +3%、无止盈；EXIT 后自动做空当时队首未用名。',
     'SIMULATE Short Sell paper orders (SELL SHORT · cover +3% / Take −6%)?':
-        '模拟 Short Sell 纸面做空（SELL SHORT · 止损+3% / 止盈−6%）？',
+        '模拟 Short Sell 纸面做空（SELL SHORT · 止损+3% · 无止盈）？',
     'Open SHORT covers synced to +{sl}% / −{tp}% ({n} orders).':
         '已将未平仓 SHORT 平仓位同步为 +{sl}% / −{tp}%（{n} 笔）。',
+    'Open SHORT covers synced to +{sl}% cover · no Take ({n} orders).':
+        '已将未平仓 SHORT 同步为止损 +{sl}% · 无止盈（{n} 笔）。',
     'Short Sell paper orders: {n} · skipped {s} · SELL SHORT · cover +3% / Take −6%':
-        'Short Sell 纸面单：{n} · 跳过 {s} · SELL SHORT · 止损+3% / 止盈−6%',
+        'Short Sell 纸面单：{n} · 跳过 {s} · SELL SHORT · 止损+3% · 无止盈',
+    'Short Sell paper orders: {n} · skipped {s} · DOWN only · cover +3% · no Take':
+        'Short Sell 纸面单：{n} · 跳过 {s} · 仅 DOWN · 止损+3% · 无止盈',
     '5% trailing cover above trough · no Take Profit · EXIT → next unused · independent $2k book.':
         '相对低点上方 5% 移动平仓 · 无止盈 · EXIT 后换队首未用名 · 独立 $2k 账本。',
     '63D Position > 80% · Day % < 0 → top 10–20':
@@ -2221,6 +2469,84 @@ ZH: dict[str, str] = {
         '入队前已做候选过滤',
     'SHORT CANDIDATE':
         'SHORT CANDIDATE',
+    'SHORT WATCH':
+        'SHORT WATCH',
+    'SHORT WATCH · Dist25 Top 1% (configurable)':
+        'SHORT WATCH · Dist25 Top 1%（可配置）',
+    'Broad universe → Dist25 DESC → Top 1% SHORT WATCH → wait for DOWN Momentum → SHORT':
+        '全市场股票 → Dist25 降序 → Top 1% SHORT WATCH → 等待 DOWN Momentum → SHORT',
+    'Broad universe → Dist25 DESC → Top 1% SHORT WATCH → 5D TOTAL negative = DOWN → SHORT':
+        '全市场 → Dist25 降序 → Top 1% SHORT WATCH → 5D TOTAL 为负 = DOWN → SHORT',
+    'High Dist25 is position only — not an immediate short. Cover +3% / Take −6% unchanged.':
+        '高 Dist25 只代表仓位位置，不是立刻做空。止损+3% · 无止盈。',
+    'High Dist25 is position only. Paper experiment: DOWN only · cover +1% · Take −6%.':
+        '高 Dist25 只是仓位位置。纸上：仅 DOWN · 止损+3% · 无止盈。',
+    'High Dist25 is position only. Paper: DOWN only · cover +3% · no Take.':
+        '高 Dist25 只是仓位位置。纸上：仅 DOWN · 止损+3% · 无止盈。',
+    'WATCH = high position only; auto SHORT only when 5D TOTAL is negative (DOWN)':
+        'WATCH = 仅高位观察；仅当 5D TOTAL 为负（DOWN）才自动做空',
+    'Dist DESC discovery · DOWN = negative 5D TOTAL · paper cover +1%':
+        'Dist 降序发现 · DOWN = 5D TOTAL 为负 · 止损+3% · 无止盈',
+    'Dist DESC discovery · DOWN = negative 5D TOTAL · cover +3% · no Take':
+        'Dist 降序发现 · DOWN = 5D TOTAL 为负 · 止损+3% · 无止盈',
+    'Broad stock universe ranked by Dist25 DESC; Top X% enter SHORT WATCH (high position only). Inspect MOMENTUM D-4…D0 / 5D TOTAL. Auto SHORT only when 5D TOTAL is negative (DOWN), ranked 5D ASC, cover +1%.':
+        '全市场按 Dist25 降序；Top X% 进入 SHORT WATCH（仅高位）。查看与 MOMENTUM 相同的 D-4…D0 / 5D TOTAL。仅当 5D TOTAL 为负（DOWN）才自动做空，按 5D 升序，止损+3%，无止盈。',
+    'Broad stock universe ranked by Dist25 DESC; Top X% enter SHORT WATCH (high position only). Inspect MOMENTUM D-4…D0 / 5D TOTAL. Auto SHORT only when 5D TOTAL is negative (DOWN), ranked 5D ASC, cover +3%, no Take.':
+        '全市场按 Dist25 降序；Top X% 进入 SHORT WATCH（仅高位）。查看与 MOMENTUM 相同的 D-4…D0 / 5D TOTAL。仅当 5D TOTAL 为负（DOWN）才自动做空，按 5D 升序，止损+3%，无止盈。',
+    'High position alone is not a short signal. The SHORT pool contains stocks with the highest Dist25 relative to the market. Wait for actual downward movement before shorting. Give particular attention to the most recent 1–2 days and to acceleration/deceleration. A stock that remains strongly upward should not be shorted merely because it is high. A weakening rise followed by increasingly negative recent movement provides stronger evidence of a downward transition. All directional judgments are probabilistic.':
+        '高位本身不是做空信号。SHORT 股池只负责寻找全市场相对 SMA25 位置最高的一批股票。真正做空前，应等待实际下跌运动出现。重点观察最近1–2日以及加速/减速变化。股票仍在强劲上涨时，即使位置很高也不应仅因高位而做空；上涨逐渐减速并转为近期持续、增强的负向运动时，才具有更强的向下转换依据。所有方向判断均为概率判断。',
+    'Table rank = Dist25 DESC (HIGH POSITION). Status DOWN when 5D TOTAL is negative (same MOMENTUM session method). Paper SIMULATE shorts DOWN only, ordered by 5D ASC, cover +1%.':
+        '表排名 = Dist25 降序（高位）。5D TOTAL 为负时 Status=DOWN（与 MOMENTUM 会话方法相同）。纸上 SIMULATE 仅做空 DOWN，按 5D 升序，止损+3%，无止盈。',
+    'Table rank = Dist25 DESC (HIGH POSITION). Status DOWN when 5D TOTAL is negative (same MOMENTUM session method). Paper SIMULATE shorts DOWN only, ordered by 5D ASC, cover +3%, no Take.':
+        '表排名 = Dist25 降序（高位）。5D TOTAL 为负时 Status=DOWN（与 MOMENTUM 会话方法相同）。纸上 SIMULATE 仅做空 DOWN，按 5D 升序，止损+3%，无止盈。',
+    'SIMULATE Short Sell paper orders (DOWN only · 5D ASC · cover +1% / Take −6%)?':
+        '模拟 Short Sell 纸上单（仅 DOWN · 5D 升序 · 止损+3% · 无止盈）？',
+    'SIMULATE Short Sell paper orders (DOWN only · 5D ASC · cover +3% · no Take)?':
+        '模拟 Short Sell 纸上单（仅 DOWN · 5D 升序 · 止损+3% · 无止盈）？',
+    'DOWN':
+        'DOWN',
+    'Status':
+        'Status',
+    'Dist DESC · WATCH only this phase · cover +3%/−6% when READY':
+        'Dist 降序 · 本阶段仅 WATCH · READY 后才用 +3% 止损（无止盈）',
+    'Broad stock universe ranked by Dist25 DESC; Top X% enter SHORT WATCH (high position only). READY / paper short waits for DOWN Momentum (deferred). Cover +3% / Take −6% unchanged when READY.':
+        '全市场股票按 Dist25 降序；Top X% 进入 SHORT WATCH（仅高仓位观察）。READY / 纸面做空等待 DOWN Momentum（暂缓）。READY 后止损+3%、无止盈。',
+    'Dist25 Top X% (default 1%) → SHORT WATCH':
+        'Dist25 Top X%（默认 1%）→ SHORT WATCH',
+    'No auto-short from WATCH; READY requires DOWN Momentum (deferred)':
+        'WATCH 不会自动做空；READY 需 DOWN Momentum（暂缓）',
+    'Dist25 Top 1%':
+        'Dist25 Top 1%',
+    'Broad stock universe':
+        '全市场股票池',
+    'eligible':
+        '合格',
+    'WATCH':
+        'WATCH',
+    'SMA25':
+        'SMA25',
+    'Dist25':
+        'Dist25',
+    'Dist25 Percentile':
+        'Dist25 Percentile',
+    'Down Momentum':
+        'Down Momentum',
+    'SHORT Status':
+        'SHORT Status',
+    'No SHORT WATCH names yet (need Dist25 on the broad stock universe). Refresh prices, then Refresh Short Sell.':
+        '暂无 SHORT WATCH（需全市场 Dist25）。请先刷新行情，再 Refresh Short Sell。',
+    'SHORT WATCH = high Dist25 position only. Do not short on extension alone. Paper SIMULATE still requires READY (not enabled yet).':
+        'SHORT WATCH 仅表示高 Dist25 仓位位置，不能仅因过度延伸就做空。纸面 SIMULATE 仍要求 READY（尚未启用）。',
+    'SMA25 from dashboard cache':
+        '来自 dashboard 缓存的 SMA25',
+    'Primary rank: Dist25 = (Price/SMA25 − 1)×100, descending.':
+        '主排序：Dist25 = (Price/SMA25 − 1)×100，降序。',
+    'Percentile of Dist25 among eligible stocks (100 = most extended).':
+        '在合格股票中的 Dist25 百分位（100 = 最延伸）。',
+    'DOWN Momentum deferred — not used for short timing yet.':
+        'DOWN Momentum 暂缓 — 尚未用于做空时机。',
+    'WATCH = high position only. WEAKENING / READY deferred until DOWN Momentum.':
+        'WATCH = 仅高仓位观察。WEAKENING / READY 待 DOWN Momentum。',
     'Dist DESC · SELL SHORT · 5% trailing cover · EXIT auto-refill':
         'Dist 降序 · SELL SHORT · 5% 移动平仓 · EXIT 自动补仓',
     'SHORT sleeve filtered by 63D>80% and Day%<0, sorted Dist SMA25 descending (10–20). Paper slots $250→$150, max 6. SELL SHORT with 5% trailing cover above trough; on EXIT auto-short the then-top unused Dist queue name.':
@@ -2461,9 +2787,9 @@ def tab_description(key: str, *, mine_list_label: str = "", can_edit_mine: bool 
         )
     if key == "short":
         return (
-            "SHORT 观察池：宽基/行业/杠杆 ETF + 稳定股。与「我的自选」相同行情；暂不启用 ALERT。基金不查财报与新闻，稳定股仍加载。"
+            "SHORT WATCH：全市场 Dist25 Top X%（默认 1%）动态高位观察池。高位≠做空信号；时机与纸上做空在 AI Trading → Short Sell。"
             if lang == "zh"
-            else "SHORT pool: broad/sector/leveraged ETFs + stable stocks. Same quotes as My Watchlist; ALERT not enabled yet. Funds skip Financial & News; stable stocks still load them."
+            else "SHORT WATCH: Dist25 Top X% (default 1%) of the broad stock universe — high position only. Not a short signal; timing / paper short on AI Trading → Short Sell."
         )
     if key == "ai_approved":
         return (

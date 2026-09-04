@@ -85,7 +85,7 @@ POOL_META: dict[str, dict[str, Any]] = {
             "queue (top 10–20)."
         ),
         "filter_label": (
-            "MCap>$2B · Price>$5 · AvgVol<3% · Fin≥60% · Knife≠HIGH → top 10–20"
+            "MCap>$2B · Price>$5 · AvgVol<3% · Fin≥60% · Downside≠HIGH → top 10–20"
         ),
         "rank_label": "Target Ratio ascending (cheapest vs target first)",
         "used_by": STRATEGY_SAFE_MARGIN,
@@ -96,12 +96,13 @@ POOL_META: dict[str, dict[str, Any]] = {
         "name": "Short Sell Pool",
         "short": "SHORT SELL",
         "pool_type": "DYNAMIC / RESEARCH",
-        "source_label": "Watchlist SHORT",
+        "source_label": "Broad stock universe · Dist25 Top %",
         "source_detail": (
-            "ETF-heavy SHORT sleeve + stables; Dist DESC after 63D>80% and Day%<0."
+            "Universe ∩ dashboard Dist25 → Dist DESC → Top X% SHORT WATCH "
+            "(default 1%). MOMENTUM 5D TOTAL < 0 → DOWN (paper short eligible)."
         ),
-        "filter_label": "63D Position > 80% · Day % < 0 → top 10–20",
-        "rank_label": "Dist SMA25 descending (most extended first)",
+        "filter_label": "Dist25 Top X% (default 1%) → WATCH; 5D negative → DOWN",
+        "rank_label": "Dist25 DESC discovery; paper DOWN by 5D ASC",
         "used_by": STRATEGY_SHORT_SELL,
         "dynamic": True,
         "empty_ok": True,
@@ -240,15 +241,24 @@ def list_safe_margin_pool_tickers() -> list[dict[str, Any]]:
 
 
 def list_short_sell_pool_tickers() -> list[dict[str, Any]]:
-    """Watchlist SHORT sleeve — Dist / filters applied by short_sell.py."""
-    from watchlist_config import get_short_watchlist
+    """SHORT WATCH — Dist25 Top % of broad stock universe."""
+    from short_sell import select_short_watch
 
     out: list[dict[str, Any]] = []
-    for t in get_short_watchlist() or []:
-        u = str(t or "").strip().upper()
+    for r in (select_short_watch().get("rows") or []):
+        u = str(r.get("ticker") or "").strip().upper()
         if not u:
             continue
-        out.append({"ticker": u, "asset_type": "STOCK", "source": "SHORT"})
+        out.append(
+            {
+                "ticker": u,
+                "asset_type": "STOCK",
+                "source": "DIST25_TOP_PCT",
+                "dist_pct": r.get("dist_pct"),
+                "dist25_percentile": r.get("dist25_percentile"),
+                "short_status": "WATCH",
+            }
+        )
     return out
 
 
@@ -379,7 +389,7 @@ def strategy_source_pipeline(strategy_id: str) -> dict[str, Any]:
         "source": s["source_label"],
         "filter": s["filter_label"],
         "rank": s["rank_label"],
-        "block": "Data / News / Knife / strategy gates",
+        "block": "Data / News / Downside Risk / strategy gates",
         "member_count": s["member_count"],
         "pool_short": s["short"],
     }

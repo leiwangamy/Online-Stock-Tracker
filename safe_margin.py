@@ -92,7 +92,7 @@ def _risk_fail_reasons(row: dict[str, Any]) -> list[str]:
     level = (knife.get("level") or row.get("knife_level") or "").upper()
     score = knife.get("score") if knife else row.get("knife_score")
     # KNIFE ≠ HIGH (also block worse KNIFE band)
-    if level in ("HIGH", "KNIFE") or (
+    if level in ("HIGH", "EXTREME", "KNIFE") or (
         score is not None and float(score) >= 45
     ):
         fails.append("KNIFE_HIGH")

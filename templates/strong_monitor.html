@@ -281,8 +281,8 @@
       <p><strong>{{ _('Daily Strong Stocks') }}:</strong> {{ _('Stocks meeting the Strong Day Position threshold that day — research candidates for monitoring, not immediate Buy signals. Column lengths differ by day.') }}</p>
       <p><strong>{{ _('COUNT20 Ranking') }}:</strong> {{ _('Historical frequency over the latest 20 trading days. Research ranking only; not a Buy list. Current Position may be below the Strong Day threshold.') }}</p>
       <p><strong>{{ _('Strong Watchlist') }}:</strong> {{ _('COUNT ≥ threshold qualifies; retain N trading days after last qualify. For monitoring pullbacks — not automatic Buy. Renew resets retention.') }}</p>
-      <p><strong>{{ _('Rising Now') }}:</strong> {{ _('Up Days ≥ 3/5 · 5D Return ≥ +3% (weak entry only). Rising Score 0–100 then ranks uptrend strength/persistence (Speed 17 · Rel 18 · 10D/20D Trend 35 · Strong Up 20D 12 · 63D Pos 18). Independent of Knife — not 100−Knife. High Rising can still be Knife-BLOCKED. Research only; no retention; not a Buy signal.') }}</p>
-      <p><strong>{{ _('Sector Rotation') }}:</strong> {{ _('Which GICS sectors are becoming stronger/weaker (research only). ETF 5D/20D + RS vs SPY + SMA25 slope; Rising % = Rising Now share of sector stocks (e.g. 25/80); Strong % = Strong Watchlist share. Rotation Score = 30% trend · 25% RS · 20% Rising · 15% Strong · 10% SMA25. Status uses score + direction (LEADING / RISING / NEUTRAL / WEAKENING / FALLING) with daily history for Score Δ / Rank Δ. Not a Buy signal; does not change Rising/Strong/Knife.') }}</p>
+      <p><strong>{{ _('Rising Now') }}:</strong> {{ _('Up Days ≥ 3/5 · 5D Return ≥ +3% (weak entry only). Rising Score 0–100 then ranks uptrend strength/persistence (Speed 17 · Rel 18 · 10D/20D Trend 35 · Strong Up 20D 12 · 63D Pos 18). Independent of Downside Risk — not 100−Downside. High Rising can still be Downside-BLOCKED. Research only; no retention; not a Buy signal.') }}</p>
+      <p><strong>{{ _('Sector Rotation') }}:</strong> {{ _('Which GICS sectors are becoming stronger/weaker (research only). ETF 5D/20D + RS vs SPY + SMA25 slope; Rising % = Rising Now share of sector stocks (e.g. 25/80); Strong % = Strong Watchlist share. Rotation Score = 30% trend · 25% RS · 20% Rising · 15% Strong · 10% SMA25. Status uses score + direction (LEADING / RISING / NEUTRAL / WEAKENING / FALLING) with daily history for Score Δ / Rank Δ. Not a Buy signal; does not change Rising/Strong/Downside Risk.') }}</p>
       <p><strong>{{ _('Multi-Signal') }}:</strong> {{ _('Match ≥ 2 across Oversold / Target &lt;80% / 63D Low / Rising Now. Overlap research screen only — not a Buy signal. Strong is a separate indicator.') }}</p>
       <p><strong>{{ _('Financial 6/6') }} / {{ _('Financial ≥5/6') }}:</strong> {{ _('Quality screens from cached fundamentals. Other signal groups live on Watchlist.') }}</p>
       <p>{{ _('Workflow: Find strong stocks → Monitor → Wait for pullback → Reassess → Consider entry. Signal ≠ research decision ≠ trade decision. Nothing auto-selects for AI Trading.') }}</p>
@@ -601,7 +601,7 @@
   {# ── Tab 4: Rising Now ── #}
   {% elif tab == 'rising_now' %}
     <div class="hero-line">{{ data.rising_headline or (_('Rising Now') ~ ': ' ~ (data.rising_rows|length)) }}</div>
-    <p class="hint">{{ data.rising_rules or _('Up Days ≥ 3/5 · 5D Return ≥ +3%') }} · {{ _('Weak entry filter only. Rising Score ranks how strong / persistent the rise is (independent of Knife Risk).') }}</p>
+    <p class="hint">{{ data.rising_rules or _('Up Days ≥ 3/5 · 5D Return ≥ +3%') }} · {{ _('Weak entry filter only. Rising Score ranks how strong / persistent the rise is (independent of Downside Risk).') }}</p>
     <div class="panel wl-panel">
       {% if not data.rising_rows %}
         <p class="meta" style="padding:12px">{{ _('No Rising Now stocks under the current rules.') }}</p>
@@ -616,9 +616,9 @@
             <th class="sortable num" data-col="4" data-type="num">{{ _('5D Return') }}</th>
             <th class="sortable num" data-col="5" data-type="num">{{ _('63D Position') }}</th>
             <th class="sortable num" data-col="6" data-type="num"
-                title="{{ _('Rising Score 0–100 — strength & persistence of the uptrend (not 100−Knife).') }}">{{ _('Rising Score') }}</th>
+                title="{{ _('Rising Score 0–100 — strength & persistence of the uptrend (not 100−Downside Risk).') }}">{{ _('Rising Score') }}</th>
             <th class="sortable num" data-col="7" data-type="num"
-                title="{{ _('Knife Risk — falling speed + relative weakness. Independent of Rising Score.') }}">{{ _('Knife Risk') }}</th>
+                title="{{ _('Downside Risk — falling speed + relative weakness. Independent of Rising Score.') }}">{{ _('Downside Risk') }}</th>
             <th class="sortable num" data-col="8" data-type="num">AI</th>
           </tr>
         </thead>
@@ -662,9 +662,9 @@
             <td class="num" data-sort="{{ k.score if k and k.score is not none else '' }}"
                 {% if k and k.detail %}title="{{ k.detail }}"{% endif %}>
               {% if k and k.score is not none %}
-                {% set kcls = 'knife' if k.level == 'KNIFE' else ('high' if k.level == 'HIGH' else ('watch' if k.level == 'WATCH' else 'low')) %}
+                {% set kcls = 'knife' if k.level in ('EXTREME', 'KNIFE') else ('high' if k.level == 'HIGH' else ('watch' if k.level == 'WATCH' else 'low')) %}
                 <span class="knife-badge {{ kcls }}">
-                  {% if k.level == 'KNIFE' %}🔴{% elif k.level == 'HIGH' %}🟠{% elif k.level == 'WATCH' %}🟡{% else %}🟢{% endif %}
+                  {% if k.level in ('EXTREME', 'KNIFE') %}🔴{% elif k.level == 'HIGH' %}🟠{% elif k.level == 'WATCH' %}🟡{% else %}🟢{% endif %}
                   {{ k.score }} {{ k.level }}
                 </span>
                 {% if k.auto_blocked %}<div class="knife-block">🚫 {{ _('Blocked') }}</div>{% endif %}
@@ -837,7 +837,7 @@
             <th class="sortable num" data-col="4" data-type="num">{{ _('20D %') }}</th>
             <th class="sortable num" data-col="5" data-type="num">{{ _('Rising Score') }}</th>
             <th class="sortable" data-col="6" data-type="text">{{ _('Strong') }}</th>
-            <th class="sortable num" data-col="7" data-type="num">{{ _('Knife Risk') }}</th>
+            <th class="sortable num" data-col="7" data-type="num">{{ _('Downside Risk') }}</th>
             <th class="sortable num" data-col="8" data-type="num">{{ _('63D Position') }}</th>
             <th class="sortable num" data-col="9" data-type="num">{{ _('Dist. SMA25') }}</th>
             <th class="sortable" data-col="10" data-type="text">{{ _('Line') }}</th>

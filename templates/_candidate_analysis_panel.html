@@ -44,7 +44,7 @@
         <th class="sortable num" data-col="11" data-type="num">{{ _('News') }}</th>
         <th class="sortable num" data-col="12" data-type="num">{{ _('AI Score') }}</th>
         <th class="sortable num" data-col="13" data-type="num"
-            title="{{ _('Knife Risk — falling speed + relative weakness. Independent of AI Score.') }}">{{ _('Knife Risk') }}</th>
+            title="{{ _('Downside Risk — falling speed + relative weakness. Independent of AI Score.') }}">{{ _('Downside Risk') }}</th>
         <th class="sortable num" data-col="14" data-type="num">{{ _('MOS T') }}</th>
         <th class="sortable num" data-col="15" data-type="num">{{ _('Target Ratio') }}</th>
         <th>{{ _('My Watchlist') }}</th>
@@ -127,9 +127,9 @@
         <td class="num" data-sort="{{ k.score if k and k.score is not none else '' }}"
             {% if k and k.detail %}title="{{ k.detail }}"{% endif %}>
           {% if k and k.score is not none %}
-            {% set kcls = 'knife' if k.level == 'KNIFE' else ('high' if k.level == 'HIGH' else ('watch' if k.level == 'WATCH' else 'low')) %}
+            {% set kcls = 'knife' if k.level in ('EXTREME', 'KNIFE') else ('high' if k.level == 'HIGH' else ('watch' if k.level == 'WATCH' else 'low')) %}
             <span class="knife-badge {{ kcls }}">
-              {% if k.level == 'KNIFE' %}🔴{% elif k.level == 'HIGH' %}🟠{% elif k.level == 'WATCH' %}🟡{% else %}🟢{% endif %}
+              {% if k.level in ('EXTREME', 'KNIFE') %}🔴{% elif k.level == 'HIGH' %}🟠{% elif k.level == 'WATCH' %}🟡{% else %}🟢{% endif %}
               {{ k.score }} {{ k.level }}
             </span>
             {% if k.auto_blocked %}<div class="knife-block">🚫 {{ _('Blocked') }}</div>{% endif %}

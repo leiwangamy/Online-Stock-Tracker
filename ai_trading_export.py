@@ -50,8 +50,13 @@ def _write_sheet(wb: Workbook, title: str, headers: list[str], rows: list[list[A
         ws.column_dimensions[get_column_letter(i)].width = width
 
 
-def build_ai_trading_workbook() -> bytes:
-    """Build .xlsx bytes for the current AI Trading experiment snapshot."""
+def build_ai_trading_workbook(strategy_id: str | None = None) -> bytes:
+    """Build .xlsx bytes for the current AI Trading experiment snapshot.
+
+    When strategy_id is set, Summary / Open / History are scoped to that
+    strategy book. Discovery / Saved News sheets are included only for the
+    full (unscoped) export.
+    """
     from ai_discovery import list_discovery_candidates
     from paper_trading import (
         format_source_label,
@@ -60,26 +65,36 @@ def build_ai_trading_workbook() -> bytes:
         list_open_trades,
         normalize_exit_reason,
         portfolio_summary,
+        portfolio_summary_for_strategy,
     )
+    from strategies import normalize_strategy_id, strategy_label
 
     init_db()
-    summary = portfolio_summary()
-    opens = list_open_trades()
-    closed = list_closed_trades(limit=5000)
-    discovery = list_discovery_candidates(
-        limit=500,
-        recent_only=True,
-        exclude_negative=False,
-        history_mode=False,
-    )
-    # Saved News = ★ news priority (research pin), not Priority Buy.
-    all_hist = list_discovery_candidates(
-        limit=500,
-        recent_only=False,
-        exclude_negative=False,
-        history_mode=True,
-    )
-    saved = [r for r in all_hist if int(r.get("is_news_priority") or 0)]
+    sid = normalize_strategy_id(strategy_id) if strategy_id else None
+    if sid:
+        summary = portfolio_summary_for_strategy(sid)
+        opens = list_open_trades(strategy_id=sid)
+        closed = list_closed_trades(strategy_id=sid, limit=5000)
+        discovery: list[dict[str, Any]] = []
+        saved: list[dict[str, Any]] = []
+    else:
+        summary = portfolio_summary()
+        opens = list_open_trades()
+        closed = list_closed_trades(limit=5000)
+        discovery = list_discovery_candidates(
+            limit=500,
+            recent_only=True,
+            exclude_negative=False,
+            history_mode=False,
+        )
+        # Saved News = ★ news priority (research pin), not Priority Buy.
+        all_hist = list_discovery_candidates(
+            limit=500,
+            recent_only=False,
+            exclude_negative=False,
+            history_mode=True,
+        )
+        saved = [r for r in all_hist if int(r.get("is_news_priority") or 0)]
 
     wb = Workbook()
     # Remove default sheet; we create named sheets.
@@ -87,12 +102,18 @@ def build_ai_trading_workbook() -> bytes:
     wb.remove(default)
 
     exported_at = _pt_now_str()
-    _write_sheet(
-        wb,
-        "Summary",
-        ["Metric", "Value"],
+    summary_rows: list[list[Any]] = [
+        ["Export date/time", exported_at],
+    ]
+    if sid:
+        summary_rows.extend(
+            [
+                ["Strategy", strategy_label(sid)],
+                ["Strategy ID", sid],
+            ]
+        )
+    summary_rows.extend(
         [
-            ["Export date/time", exported_at],
             ["Starting Capital", summary.get("starting_capital")],
             ["Current Equity", summary.get("current_equity")],
             ["Cash", summary.get("cash")],
@@ -104,8 +125,9 @@ def build_ai_trading_workbook() -> bytes:
             ["Closed Trades", summary.get("closed_trades")],
             ["Open Positions", summary.get("open_trades")],
             ["Today's P&L", summary.get("today_pnl")],
-        ],
+        ]
     )
+    _write_sheet(wb, "Summary", ["Metric", "Value"], summary_rows)
 
     hist_headers = [
         "Ticker",
@@ -125,7 +147,7 @@ def build_ai_trading_workbook() -> bytes:
         "AI Score at Entry",
         "Financial",
         "News",
-        "Knife Risk",
+        "Downside Risk",
         "63D at Entry",
         "Priority Buy",
     ]
@@ -202,71 +224,72 @@ def build_ai_trading_workbook() -> bytes:
     ]
     _write_sheet(wb, "Open Positions", open_headers, open_rows)
 
-    disc_headers = [
-        "Ticker",
-        "Event",
-        "Source",
-        "Event Score",
-        "Direction",
-        "Event Date",
-        "Period",
-        "Status",
-        "Discovery Price",
-        "AI Score",
-        "Knife",
-        "PRIORITY (Saved)",
-        "Recent",
-    ]
-    disc_rows = [
-        [
-            r.get("ticker"),
-            r.get("event_summary"),
-            r.get("source_display") or r.get("primary_source") or r.get("source_tags"),
-            r.get("event_score"),
-            r.get("sentiment"),
-            r.get("event_date"),
-            r.get("event_period"),
-            r.get("status"),
-            r.get("discovery_price") or r.get("price"),
-            r.get("ai_score"),
-            r.get("knife_score"),
-            "Y" if r.get("is_news_priority") else "",
-            "Y" if r.get("is_recent") else "",
+    if not sid:
+        disc_headers = [
+            "Ticker",
+            "Event",
+            "Source",
+            "Event Score",
+            "Direction",
+            "Event Date",
+            "Period",
+            "Status",
+            "Discovery Price",
+            "AI Score",
+            "Downside Risk",
+            "PRIORITY (Saved)",
+            "Recent",
         ]
-        for r in discovery
-    ]
-    _write_sheet(wb, "AI Discovery", disc_headers, disc_rows)
+        disc_rows = [
+            [
+                r.get("ticker"),
+                r.get("event_summary"),
+                r.get("source_display") or r.get("primary_source") or r.get("source_tags"),
+                r.get("event_score"),
+                r.get("sentiment"),
+                r.get("event_date"),
+                r.get("event_period"),
+                r.get("status"),
+                r.get("discovery_price") or r.get("price"),
+                r.get("ai_score"),
+                r.get("knife_score"),
+                "Y" if r.get("is_news_priority") else "",
+                "Y" if r.get("is_recent") else "",
+            ]
+            for r in discovery
+        ]
+        _write_sheet(wb, "AI Discovery", disc_headers, disc_rows)
 
-    saved_headers = [
-        "Ticker",
-        "Event",
-        "Source",
-        "Event Score",
-        "Direction",
-        "Event Date",
-        "Period",
-        "Status",
-        "AI Score",
-        "Knife",
-        "Saved At",
-    ]
-    saved_rows = [
-        [
-            r.get("ticker"),
-            r.get("event_summary"),
-            r.get("source_display") or r.get("primary_source") or r.get("source_tags"),
-            r.get("event_score"),
-            r.get("sentiment"),
-            r.get("event_date"),
-            r.get("event_period"),
-            r.get("status"),
-            r.get("ai_score"),
-            r.get("knife_score"),
-            r.get("news_priority_at"),
+        saved_headers = [
+            "Ticker",
+            "Event",
+            "Source",
+            "Event Score",
+            "Direction",
+            "Event Date",
+            "Period",
+            "Status",
+            "AI Score",
+            "Downside Risk",
+            "Saved At",
         ]
-        for r in saved
-    ]
-    _write_sheet(wb, "Saved News", saved_headers, saved_rows)
+        saved_rows = [
+            [
+                r.get("ticker"),
+                r.get("event_summary"),
+                r.get("source_display") or r.get("primary_source") or r.get("source_tags"),
+                r.get("event_score"),
+                r.get("sentiment"),
+                r.get("event_date"),
+                r.get("event_period"),
+                r.get("status"),
+                r.get("ai_score"),
+                r.get("knife_score"),
+                r.get("news_priority_at"),
+            ]
+            for r in saved
+        ]
+        _write_sheet(wb, "Saved News", saved_headers, saved_rows)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -441,4 +464,153 @@ def reset_ai_trading(*, archive_first: bool = True) -> dict[str, Any]:
         "reset_at": now,
         "legacy_archive": archive_info,
         "architecture": "AI_SELECT_AI_BUY",
+    }
+
+
+def reset_strategy_trading(strategy_id: str) -> dict[str, Any]:
+    """
+    Wipe one strategy's paper book and restore that account's cash.
+
+    Does not touch other strategies, AI Discovery / Saved News / Watchlist /
+    Research, or global paper_priority (except ALERT_BUY which also clears
+    Alert Buy candidate snapshots).
+    """
+    from paper_trading import (
+        _sync_legacy_portfolio_from_alert_buy,
+        ensure_portfolio,
+        ensure_strategy_accounts,
+        get_strategy_account,
+    )
+    from strategies import STRATEGY_ALERT_BUY, normalize_strategy_id, strategy_label
+
+    sid = normalize_strategy_id(strategy_id)
+    init_db()
+    ensure_strategy_accounts()
+    acct = get_strategy_account(sid)
+    start = float(acct["starting_capital"])
+    now = _utc_now_iso()
+
+    with get_conn() as conn:
+        n_trades = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM paper_trades
+            WHERE UPPER(COALESCE(strategy_id, 'ALERT_BUY')) = ?
+            """,
+            (sid,),
+        ).fetchone()["n"]
+        n_open = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM paper_trades
+            WHERE status = 'open'
+              AND UPPER(COALESCE(strategy_id, 'ALERT_BUY')) = ?
+            """,
+            (sid,),
+        ).fetchone()["n"]
+        n_closed = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM paper_trades
+            WHERE status = 'closed'
+              AND UPPER(COALESCE(strategy_id, 'ALERT_BUY')) = ?
+            """,
+            (sid,),
+        ).fetchone()["n"]
+
+        trade_ids = [
+            int(r["id"])
+            for r in conn.execute(
+                """
+                SELECT id FROM paper_trades
+                WHERE UPPER(COALESCE(strategy_id, 'ALERT_BUY')) = ?
+                """,
+                (sid,),
+            ).fetchall()
+        ]
+        if trade_ids:
+            ph = ",".join("?" * len(trade_ids))
+            conn.execute(
+                f"""
+                UPDATE ai_discovery_candidates
+                SET paper_trade_id = NULL,
+                    status = CASE
+                      WHEN status = 'ORDER_CREATED' THEN 'WATCH'
+                      ELSE status
+                    END,
+                    updated_at = ?
+                WHERE paper_trade_id IN ({ph})
+                """,
+                (now, *trade_ids),
+            )
+
+        conn.execute(
+            """
+            DELETE FROM paper_trades
+            WHERE UPPER(COALESCE(strategy_id, 'ALERT_BUY')) = ?
+            """,
+            (sid,),
+        )
+        try:
+            conn.execute(
+                "DELETE FROM strategy_candidates WHERE UPPER(strategy_id) = ?",
+                (sid,),
+            )
+        except Exception:
+            pass
+
+        n_pri = 0
+        n_cand = 0
+        if sid == STRATEGY_ALERT_BUY:
+            n_pri = conn.execute("SELECT COUNT(*) AS n FROM paper_priority").fetchone()[
+                "n"
+            ]
+            n_cand = conn.execute(
+                "SELECT COUNT(*) AS n FROM paper_candidates"
+            ).fetchone()["n"]
+            conn.execute("DELETE FROM paper_priority")
+            conn.execute("DELETE FROM paper_candidates")
+            try:
+                conn.execute("DELETE FROM ai_buy_snapshots")
+            except Exception:
+                pass
+            try:
+                conn.execute("DELETE FROM ai_select_candidates")
+            except Exception:
+                pass
+
+        conn.execute(
+            """
+            UPDATE paper_strategy_accounts
+            SET cash = starting_capital, updated_at = ?
+            WHERE strategy_id = ?
+            """,
+            (now, sid),
+        )
+
+    if sid == STRATEGY_ALERT_BUY:
+        ensure_portfolio()
+        _sync_legacy_portfolio_from_alert_buy()
+        from db import set_setting
+
+        for k in (
+            "paper_candidates_as_of",
+            "paper_last_daily_update",
+            "ai_select_as_of",
+            "ai_select_built_at",
+            "ai_buy_as_of",
+            "ai_buy_built_at",
+        ):
+            try:
+                set_setting(k, "")
+            except Exception:
+                pass
+
+    return {
+        "strategy_id": sid,
+        "strategy_label": strategy_label(sid),
+        "trades_deleted": int(n_trades or 0),
+        "open_deleted": int(n_open or 0),
+        "closed_deleted": int(n_closed or 0),
+        "priority_cleared": int(n_pri or 0),
+        "candidates_cleared": int(n_cand or 0),
+        "cash_restored": start,
+        "reset_at": now,
     }

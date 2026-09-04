@@ -15,6 +15,7 @@ STRATEGY_DEEP_RECOVERY = "DEEP_RECOVERY"
 STRATEGY_STABLE_GROWTH = "STABLE_GROWTH"
 STRATEGY_SAFE_MARGIN = "SAFE_MARGIN"
 STRATEGY_SHORT_SELL = "SHORT_SELL"
+STRATEGY_MOMENTUM = "MOMENTUM"
 
 STRATEGY_IDS = (
     STRATEGY_ALERT_BUY,
@@ -22,6 +23,7 @@ STRATEGY_IDS = (
     STRATEGY_STABLE_GROWTH,
     STRATEGY_SAFE_MARGIN,
     STRATEGY_SHORT_SELL,
+    STRATEGY_MOMENTUM,
 )
 
 # Per-strategy paper capital defaults (independent experiments).
@@ -126,17 +128,33 @@ STRATEGY_META: dict[str, dict[str, Any]] = {
         "name": "Short Sell",
         "short": "SHORT SELL",
         "hypothesis": (
-            "SHORT-sleeve names extended above SMA25 (Dist DESC) with 63D>80% "
-            "and a red day are sold short; cover stop +3% above entry and "
-            "Take Profit −6% below entry; rotate to the next unused queue name on cover."
+            "Dist25 Top-X% of the broad stock universe = SHORT WATCH (high "
+            "position only). Same MOMENTUM P/D/A 5D TOTAL: negative → DOWN. "
+            "Paper shorts DOWN only (5D ASC), cover +3%, no Take Profit."
         ),
         "primary_metric": "dist_sma25",
         "primary_metric_label": "Dist SMA25 (DESC)",
         "rank_direction": "desc",
         "status": "active",
         "side": "short",
-        "universe": "watchlist_short",
-        "source_pool_label": "Watchlist SHORT (Dist DESC · 63D>80% · Day%<0)",
+        "universe": "dist25_top_pct_watch",
+        "source_pool_label": "SHORT WATCH · Dist25 Top 1% (configurable)",
+    },
+    STRATEGY_MOMENTUM: {
+        "name": "Momentum",
+        "short": "MOMENTUM",
+        "hypothesis": (
+            "Continuation experiment on compounded PRE×REGULAR×AFTER daily "
+            "totals: rank ABS(5D TOTAL) DESC; sign(5D) sets LONG/SHORT; fixed "
+            "1% stop. No artificial AI scores — collect outcomes for later stats."
+        ),
+        "primary_metric": "abs_5d_total",
+        "primary_metric_label": "|5D TOTAL| (DESC)",
+        "rank_direction": "desc",
+        "status": "active",
+        "side": "both",
+        "universe": "watchlist_momentum",
+        "source_pool_label": "Watchlist MOMENTUM · ABS(5D) continuation",
     },
 }
 
@@ -151,6 +169,8 @@ def normalize_strategy_id(value: str | None) -> str:
         "STABLE": STRATEGY_STABLE_GROWTH,
         "SAFE": STRATEGY_SAFE_MARGIN,
         "SHORT": STRATEGY_SHORT_SELL,
+        "MOMENTUM": STRATEGY_MOMENTUM,
+        "MOMO": STRATEGY_MOMENTUM,
     }
     raw = aliases.get(raw, raw)
     if raw in STRATEGY_IDS:
@@ -234,7 +254,7 @@ def normalize_block_reasons(reasons: list[str] | None) -> list[str]:
         if not code:
             continue
         # Map legacy free-text fragments to structured codes when obvious.
-        if "KNIFE" in code and "BLOCK" not in code:
+        if ("KNIFE" in code or "DOWNSIDE" in code) and "BLOCK" not in code:
             code = BLOCK_KNIFE
         elif code in ("HIGH", "HIGH_PRICE"):
             code = BLOCK_HIGH

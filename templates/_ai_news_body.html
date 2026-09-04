@@ -40,12 +40,12 @@
         <p style="margin:0 0 8px"><strong>{{ _('News Auto Trading method') }}</strong></p>
         <ol style="margin:0;padding-left:1.15rem">
           <li>{{ _('Discover → resolve ticker confidently → store unique underlying event (ticker + category + period).') }}</li>
-          <li>{{ _('Analyze with existing Financial / AI Score / Knife / price-location gates (same as Paper Auto Trading).') }}</li>
-          <li>{{ _('Auto TRADE_CANDIDATE only if ALL pass: not 🔴 Negative · event is recent · Event Score ≥ 70 · AI Score ≥ 45 · price location OR gate · Knife below AUTO BLOCK (default ≥ 45 blocks).') }}</li>
+          <li>{{ _('Analyze with existing Financial / AI Score / Downside Risk / price-location gates (same as Paper Auto Trading).') }}</li>
+          <li>{{ _('Auto TRADE_CANDIDATE only if ALL pass: not 🔴 Negative · event is recent · Event Score ≥ 70 · AI Score ≥ 45 · price location OR gate · Downside Risk below AUTO BLOCK (default ≥ 45 blocks).') }}</li>
           <li>{{ _('Price location OR (any one): Dist from SMA25 ≤ −20% · or Target Ratio ≤ 70% · or 63D Position ≤ 10%.') }}</li>
           <li>{{ _('Politician-purchase clues are discovery-only — never auto-ordered.') }}</li>
           <li>{{ _('Paper order source = AI_DISCOVERY. At most one order per underlying event. Cash + trading limit apply. Default Stop −5% / Take +10% (Admin settings).') }}</li>
-          <li>{{ _('🔴 Negative / stale / Knife-blocked / price-fail → WATCH or AUTO_BLOCK — never Priority, never auto trade.') }}</li>
+          <li>{{ _('🔴 Negative / stale / Downside-blocked / price-fail → WATCH or AUTO_BLOCK — never Priority, never auto trade.') }}</li>
         </ol>
       </div>
 
@@ -156,7 +156,7 @@
             <th class="num">{{ _('Event Score') }}</th>
             <th>{{ _('Status') }}</th>
             <th class="num">{{ _('AI Score') }}</th>
-            <th class="num">{{ _('Knife') }}</th>
+            <th class="num">{{ _('Downside Risk') }}</th>
             <th>{{ _('Period') }}</th>
             <th class="num">{{ _('5D') }}</th>
             <th class="num">{{ _('20D') }}</th>
@@ -243,7 +243,7 @@
                 <th class="num">{{ _('Event Score') }}</th>
                 <th>{{ _('Status') }}</th>
                 <th class="num">{{ _('AI Score') }}</th>
-                <th class="num">{{ _('Knife') }}</th>
+                <th class="num">{{ _('Downside Risk') }}</th>
                 <th>{{ _('Period') }}</th>
                 <th class="num">{{ _('5D') }}</th>
                 <th class="num">{{ _('20D') }}</th>

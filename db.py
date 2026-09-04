@@ -666,6 +666,61 @@ def init_db() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS momentum_session_obs (
+                symbol TEXT NOT NULL,
+                trading_date TEXT NOT NULL,
+                session TEXT NOT NULL,
+                start_ts TEXT,
+                end_ts TEXT,
+                start_price REAL,
+                end_price REAL,
+                return_pct REAL,
+                source TEXT NOT NULL DEFAULT 'YAHOO',
+                data_status TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (symbol, trading_date, session, source)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_momentum_session_sym_date
+            ON momentum_session_obs(symbol, trading_date)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS momentum_trade_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                paper_trade_id INTEGER,
+                symbol TEXT NOT NULL,
+                signal_ts TEXT NOT NULL,
+                d_m4 REAL,
+                d_m3 REAL,
+                d_m2 REAL,
+                d_m1 REAL,
+                d_0 REAL,
+                total_5d REAL,
+                direction TEXT NOT NULL,
+                entry_price REAL,
+                stop_price REAL,
+                exit_price REAL,
+                exit_reason TEXT,
+                pnl REAL,
+                return_pct REAL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_momentum_trade_log_trade
+            ON momentum_trade_log(paper_trade_id)
+            """
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS strategy_candidates (
                 as_of_date TEXT NOT NULL,
                 strategy_id TEXT NOT NULL,

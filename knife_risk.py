@@ -63,7 +63,7 @@ def knife_level(score: int | None) -> str | None:
     if score is None:
         return None
     if score >= 70:
-        return "KNIFE"
+        return "EXTREME"
     if score >= 45:
         return "HIGH"
     if score >= 25:
@@ -519,7 +519,7 @@ def compute_knife_risk(
             "partial": True,
             "coverage": "none",
             "auto_blocked": False,
-            "detail": "Knife Risk unavailable - need >=6 daily closes",
+            "detail": "Downside Risk unavailable - need >=6 daily closes",
             "components": {},
         }
 
@@ -707,7 +707,7 @@ def _format_detail(
     t10 = mom.get("trend_10d")
     t20 = mom.get("trend_20d")
     lines = [
-        f"Knife Risk {score}" + (f" {level}" if level else ""),
+        f"Downside Risk {score}" + (f" {level}" if level else ""),
         f"1D Return: {mom['ret_1d']:+.2f}%",
         f"3D Return: {mom['ret_3d']:+.2f}%",
         f"5D Return: {mom['ret_5d']:+.2f}%",
@@ -746,7 +746,7 @@ def _format_detail(
     lines.append(f"Trend Persistence: {trend_pts:.1f}/30")
     if vol_adj:
         lines.append(f"Volume confirm: +{vol_adj:.1f}")
-    lines.append(f"Final Knife Risk: {score}")
+    lines.append(f"Final Downside Risk: {score}")
     if coverage == "market_only":
         lines.append("Coverage: Market only (sector missing)")
     elif coverage == "sector_only":
@@ -759,7 +759,7 @@ def _format_detail(
         "AUTO TRADE: BLOCKED" if blocked else "AUTO TRADE: eligible (if other gates pass)"
     )
     lines.append(
-        "Note: Knife Risk != oversold. Ignores 63D / SMA distance / Financial / News."
+        "Note: Downside Risk != oversold. Ignores 63D / SMA distance / Financial / News."
     )
     return "\n".join(lines)
 
@@ -833,7 +833,7 @@ def attach_knife_risk(
                 "partial": True,
                 "coverage": "error",
                 "auto_blocked": False,
-                "detail": "Knife Risk calculation error",
+                "detail": "Downside Risk calculation error",
                 "components": {},
             }
 

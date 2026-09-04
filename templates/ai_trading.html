@@ -392,7 +392,15 @@
           data-take-pct="{{ t.take_profit_pct if t.take_profit_pct is not none else take_pct }}"
           data-default-stop="{% if t.default_stop is not none %}{{ t.default_stop }}{% endif %}"
           data-default-take="{% if t.default_take is not none %}{{ t.default_take }}{% endif %}">
-        <td class="freeze-col freeze-edge"><strong>{{ t.ticker }}</strong>{% if t.is_priority %} <span class="pri">⭐</span>{% endif %}</td>
+        <td class="freeze-col freeze-edge">
+          <strong>{{ t.ticker }}</strong>{% if t.is_priority %} <span class="pri">⭐</span>{% endif %}
+          {% set sd = (t.side or 'long')|lower %}
+          {% if sd == 'short' %}
+            <div class="hint down" style="margin:0">SHORT</div>
+          {% elif (t.strategy_id or '')|upper == 'MOMENTUM' %}
+            <div class="hint up" style="margin:0">LONG</div>
+          {% endif %}
+        </td>
         <td>{{ t.entry_date }}</td>
         <td class="num">{{ money(t.entry_price) }}</td>
         <td class="num">{{ money(t.current_price) }}</td>
@@ -441,9 +449,9 @@
             <button type="button" class="lvl-reset js-lvl-reset" data-field="take" data-trade-id="{{ t.id }}"
                     title="{{ _('Reset to AUTO') }}" {% if t.take_source != 'manual' %}hidden{% endif %}>↺</button>
           </div>
-          <span class="lvl-sub js-take-reward">{% if t.reward_pct is not none %}{{ _('Reward') }} {{ '%.1f'|format(t.reward_pct) }}%{% endif %}</span>
+          <span class="lvl-sub js-take-reward">{% if t.no_take_profit %}{{ _('None') }}{% elif t.reward_pct is not none %}{{ _('Reward') }} {{ '%.1f'|format(t.reward_pct) }}%{% endif %}</span>
           {% else %}
-            {{ money(t.take_profit_price) }}{% if t.take_source == 'manual' %} <span class="lvl-mark">M</span>{% endif %}
+            {% if t.no_take_profit %}{{ _('None') }}{% else %}{{ money(t.take_profit_price) }}{% if t.take_source == 'manual' %} <span class="lvl-mark">M</span>{% endif %}{% endif %}
             {% if t.reward_pct is not none %}<span class="lvl-sub">{{ _('Reward') }} {{ '%.1f'|format(t.reward_pct) }}%</span>{% endif %}
           {% endif %}
         </td>
@@ -485,7 +493,7 @@
     {{ _('All trades on this page are simulated. Results do not represent guaranteed real-world execution, fill quality, or slippage. This project is for educational and research purposes and does not constitute investment advice.') }}
   </div>
 
-  {% if tab not in ('deep_recovery', 'stable_growth', 'safe_margin', 'short_sell') %}
+  {% if tab not in ('deep_recovery', 'stable_growth', 'safe_margin', 'short_sell', 'momentum') %}
   <div class="summary-grid">
     <div class="cell"><span class="k">{{ _('Starting Capital') }}</span><span class="v">{{ money(summary.starting_capital) }}</span></div>
     <div class="cell"><span class="k">{{ _('Current Equity') }}</span><span class="v">{{ money(summary.current_equity) }}</span></div>
@@ -514,7 +522,7 @@
       · {{ _('On EXIT → auto-buy next unused on Target queue') }}
       {% elif tab == 'short_sell' %}
       {{ _('Cover Stop') }} +{{ stop_pct }}% · {{ _('Take Profit') }} {% if take_pct is none %}{{ _('None') }}{% else %}−{{ take_pct }}%{% endif %}
-      · {{ _('Queue') }}: {{ _('SHORT Dist SMA25 DESC · 63D>80% · Day%<0') }}
+      · {{ _('Queue') }}: {{ _('SHORT WATCH · Dist25 Top 1% (configurable)') }}
       · {{ _('On EXIT → auto-short next unused on Dist queue') }}
       {% else %}
       {{ _('Stop Loss') }} −{{ stop_pct }}% · {{ _('Take Profit') }} {% if take_pct is none %}{{ _('None') }}{% else %}+{{ take_pct }}%{% endif %}
@@ -522,9 +530,9 @@
         Dist ≤ {{ '%.0f'|format(ai_auto_sma25_dist) }}%
         {{ _('or') }} Target ≤ {{ '%.0f'|format(ai_auto_target_ratio * 100) }}%
         {{ _('or') }} 63D ≤ {{ '%.0f'|format(ai_auto_63d_pos) }}%
-        → Knife ≥ {{ ai_auto_knife_block }}
+        → {{ _('Downside Risk') }} ≥ {{ ai_auto_knife_block }}
       {% if can_manage %}
-        · {{ _('Admin: click Stop/Take to override; Reset restores AUTO. Manual does not bypass Knife Risk.') }}
+        · {{ _('Admin: click Stop/Take to override; Reset restores AUTO. Manual does not bypass Downside Risk.') }}
       {% else %}
         · {{ _('Stop/Take shown read-only — Admin can override before Create Paper Orders.') }}
       {% endif %}
@@ -542,6 +550,7 @@
     <a class="{% if tab == 'stable_growth' %}active{% endif %}" href="{{ url_for('ai_trading', tab='stable_growth') }}">{{ _('Stable Growth') }}</a>
     <a class="{% if tab == 'safe_margin' %}active{% endif %}" href="{{ url_for('ai_trading', tab='safe_margin') }}">{{ _('Safe Margin') }}</a>
     <a class="{% if tab == 'short_sell' %}active{% endif %}" href="{{ url_for('ai_trading', tab='short_sell') }}">{{ _('Short Sell') }}</a>
+    <a class="{% if tab == 'momentum' %}active{% endif %}" href="{{ url_for('ai_trading', tab='momentum') }}">{{ _('Momentum') }}</a>
     <a class="{% if tab == 'open' %}active{% endif %}" href="{{ url_for('ai_trading', tab='open') }}">{{ _('All Positions') }}{% if open_count_all is defined %} ({{ open_count_all }}){% endif %}</a>
     <a class="{% if tab == 'history' %}active{% endif %}" href="{{ url_for('ai_trading', tab='history', strategy='ALERT_BUY') }}">{{ _('History') }}</a>
   </div>
@@ -572,9 +581,10 @@
       <input type="hidden" name="action" value="validate_market_data_batch">
       <button class="btn" type="submit">{{ _('Validate Market Data') }}</button>
     </form>
-    <a class="btn" href="{{ url_for('ai_trading_export_xlsx') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
-    <button type="button" class="btn btn-reset-ai-trading"
-            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET AI TRADING') }}</button>
+    <a class="btn" href="{{ url_for('ai_trading_export_xlsx', strategy='ALERT_BUY') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
+    <button type="button" class="btn btn-reset-strategy"
+            data-reset-strategy="ALERT_BUY"
+            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET STRATEGY') }}</button>
   </div>
   {% elif can_manage and tab == 'deep_recovery' %}
   <div class="actions">
@@ -584,12 +594,16 @@
     </form>
     <form method="post" action="{{ url_for('ai_trading', tab='deep_recovery') }}" style="display:inline" class="js-lei-confirm-form"
           data-confirm-title="{{ _('AI AUTO TRADING') }}"
-          data-confirm-message="{{ _('SIMULATE Deep Recovery paper orders from READY / STABILIZING?') }}"
+          data-confirm-message="{{ _('SIMULATE Deep Recovery paper orders from READY?') }}"
           data-confirm-ok="{{ _('SIMULATE') }}">
       <input type="hidden" name="action" value="create_deep_recovery_orders">
       <button class="btn primary" type="submit">{{ _('AI AUTO TRADING') }}</button>
     </form>
     <a class="btn" href="{{ url_for('watchlist', tab='setup') }}">{{ _('Oversold pullback') }}</a>
+    <a class="btn" href="{{ url_for('ai_trading_export_xlsx', strategy='DEEP_RECOVERY') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
+    <button type="button" class="btn btn-reset-strategy"
+            data-reset-strategy="DEEP_RECOVERY"
+            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET STRATEGY') }}</button>
   </div>
   {% elif can_manage and tab == 'stable_growth' %}
   <div class="actions">
@@ -605,7 +619,10 @@
       <button class="btn primary" type="submit">{{ _('AI AUTO TRADING') }}</button>
     </form>
     <a class="btn" href="{{ url_for('watchlist', tab='growth') }}">{{ _('GROWTH') }}</a>
-    <a class="btn" href="{{ url_for('ai_trading', tab='history', strategy='STABLE_GROWTH') }}">{{ _('History') }}</a>
+    <a class="btn" href="{{ url_for('ai_trading_export_xlsx', strategy='STABLE_GROWTH') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
+    <button type="button" class="btn btn-reset-strategy"
+            data-reset-strategy="STABLE_GROWTH"
+            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET STRATEGY') }}</button>
   </div>
   {% elif can_manage and tab == 'safe_margin' %}
   <div class="actions">
@@ -621,7 +638,10 @@
       <button class="btn primary" type="submit">{{ _('AI AUTO TRADING') }}</button>
     </form>
     <a class="btn" href="{{ url_for('watchlist', tab='low_target') }}">{{ _('Target Ratio < 80%') }}</a>
-    <a class="btn" href="{{ url_for('ai_trading', tab='history', strategy='SAFE_MARGIN') }}">{{ _('History') }}</a>
+    <a class="btn" href="{{ url_for('ai_trading_export_xlsx', strategy='SAFE_MARGIN') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
+    <button type="button" class="btn btn-reset-strategy"
+            data-reset-strategy="SAFE_MARGIN"
+            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET STRATEGY') }}</button>
   </div>
   {% elif can_manage and tab == 'short_sell' %}
   <div class="actions">
@@ -631,51 +651,92 @@
     </form>
     <form method="post" action="{{ url_for('ai_trading', tab='short_sell') }}" style="display:inline" class="js-lei-confirm-form"
           data-confirm-title="{{ _('AI AUTO TRADING') }}"
-          data-confirm-message="{{ _('SIMULATE Short Sell paper orders (SELL SHORT · cover +3% / Take −6%)?') }}"
+          data-confirm-message="{{ _('SIMULATE Short Sell paper orders (DOWN only · 5D ASC · cover +3% · no Take)?') }}"
           data-confirm-ok="{{ _('SIMULATE') }}">
       <input type="hidden" name="action" value="create_short_sell_orders">
       <button class="btn primary" type="submit">{{ _('AI AUTO TRADING') }}</button>
     </form>
     <a class="btn" href="{{ url_for('watchlist', tab='short') }}">{{ _('SHORT') }}</a>
-    <a class="btn" href="{{ url_for('ai_trading', tab='history', strategy='SHORT_SELL') }}">{{ _('History') }}</a>
+    <a class="btn" href="{{ url_for('ai_trading_export_xlsx', strategy='SHORT_SELL') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
+    <button type="button" class="btn btn-reset-strategy"
+            data-reset-strategy="SHORT_SELL"
+            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET STRATEGY') }}</button>
   </div>
-  {% elif can_manage and tab not in ('overview', 'deep_recovery', 'stable_growth', 'safe_margin', 'short_sell') %}
+  {% elif can_manage and tab == 'momentum' %}
+  <div class="actions">
+    <form method="post" action="{{ url_for('ai_trading', tab='momentum') }}" style="display:inline">
+      <input type="hidden" name="action" value="refresh_momentum">
+      <button class="btn" type="submit">{{ _('Refresh Momentum Sessions') }}</button>
+    </form>
+    <form method="post" action="{{ url_for('ai_trading', tab='momentum') }}" style="display:inline" class="js-lei-confirm-form"
+          data-confirm-title="{{ _('MOMENTUM') }}"
+          data-confirm-message="{{ _('SIMULATE Momentum paper orders (ABS(5D) continuation · 1% stop · no Take)?') }}">
+      <input type="hidden" name="action" value="create_momentum_orders">
+      <button class="btn" type="submit">{{ _('SIMULATE') }}</button>
+    </form>
+    <a class="btn" href="{{ url_for('ai_trading_export_xlsx', strategy='MOMENTUM') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
+    <button type="button" class="btn btn-reset-strategy"
+            data-reset-strategy="MOMENTUM"
+            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET STRATEGY') }}</button>
+  </div>
+  {% elif can_manage and tab in ('open', 'history') %}
   <div class="actions">
     <a class="btn" href="{{ url_for('ai_trading_export_xlsx') }}">{{ _('DOWNLOAD AI TRADING DATA (.XLSX)') }}</a>
-    <button type="button" class="btn btn-reset-ai-trading"
-            style="border-color:#dc2626;color:#b91c1c">{{ _('RESET AI TRADING') }}</button>
+    <span class="hint" style="margin-left:8px">{{ _('To clear one book, open that strategy tab and use RESET STRATEGY.') }}</span>
   </div>
   {% endif %}
 
-  {# Shared reset modal — only one id in DOM #}
-  {% if can_manage and tab != 'overview' %}
-  <div id="reset-ai-trading-modal" class="lei-modal danger" hidden aria-hidden="true">
+  {# Shared strategy-only reset modal (never wipes all strategies from this UI) #}
+  {% if can_manage %}
+  <div id="reset-strategy-modal" class="lei-modal danger" hidden aria-hidden="true">
     <div class="lei-modal-backdrop" data-reset-close></div>
-    <div class="lei-modal-card" role="dialog" aria-modal="true" aria-labelledby="reset-ai-title">
+    <div class="lei-modal-card" role="dialog" aria-modal="true" aria-labelledby="reset-strategy-title">
       <div class="lei-modal-icon" aria-hidden="true">!</div>
-      <h3 id="reset-ai-title" class="lei-modal-title">{{ _('Reset AI Trading?') }}</h3>
+      <h3 id="reset-strategy-title" class="lei-modal-title">{{ _('Reset this strategy?') }}</h3>
       <div class="lei-modal-body" style="text-align:left">
-        <p style="margin:0 0 8px">{{ _('This will permanently clear the current AI Trading experiment, including:') }}</p>
-        <p style="margin:0 0 8px"><code>Positions · Orders · Trade History · Priority Buy · Trading P&amp;L and Statistics</code></p>
-        <p style="margin:0 0 8px">{{ _('It will NOT delete:') }}</p>
-        <p style="margin:0 0 8px"><code>AI News · Saved News ★ · My Watchlist · Research · Settings · AI Approved</code></p>
-        <p style="margin:0">{{ _('Download Excel first if you want to keep a copy of this trading experiment.') }}</p>
+        <p style="margin:0 0 8px">{{ _('This resets ONLY the current strategy book:') }}</p>
+        <p style="margin:0 0 8px"><code id="reset-strategy-label">STRATEGY</code></p>
+        <p style="margin:0 0 8px"><code>{{ _('Open Positions · Closed History · Cash / P&L for this strategy') }}</code></p>
+        <p style="margin:0 0 8px">{{ _('Other strategies are NOT touched. Watchlist / News / Settings stay.') }}</p>
+        <p style="margin:0">{{ _('Download Excel first if you want to keep a copy of this strategy experiment.') }}</p>
       </div>
       <div class="lei-modal-actions">
         <button type="button" class="btn lei-modal-cancel" data-reset-close>{{ _('Cancel') }}</button>
-        <a class="btn" href="{{ url_for('ai_trading_export_xlsx') }}">{{ _('Download Excel') }}</a>
-        <form method="post" action="{{ url_for('ai_trading', tab='buy') }}" style="display:inline;margin:0">
-          <input type="hidden" name="action" value="reset_ai_trading">
-          <button class="btn primary lei-modal-ok" type="submit">{{ _('RESET AI TRADING') }}</button>
+        <a class="btn" id="reset-strategy-export-link" href="{{ url_for('ai_trading_export_xlsx') }}">{{ _('Download Excel') }}</a>
+        <form method="post" id="reset-strategy-form" action="{{ url_for('ai_trading', tab=tab) }}" style="display:inline;margin:0">
+          <input type="hidden" name="action" value="reset_strategy">
+          <input type="hidden" name="strategy_id" id="reset-strategy-id" value="" required>
+          <button class="btn primary lei-modal-ok" type="submit">{{ _('RESET STRATEGY') }}</button>
         </form>
       </div>
     </div>
   </div>
   <script>
   (function () {
-    var modal = document.getElementById("reset-ai-trading-modal");
+    var modal = document.getElementById("reset-strategy-modal");
     if (!modal) return;
-    function open() {
+    var exportLink = document.getElementById("reset-strategy-export-link");
+    var strategyInput = document.getElementById("reset-strategy-id");
+    var labelEl = document.getElementById("reset-strategy-label");
+    var form = document.getElementById("reset-strategy-form");
+    var exportBase = {{ url_for('ai_trading_export_xlsx')|tojson }};
+    var tabRedirect = {
+      ALERT_BUY: {{ url_for('ai_trading', tab='buy')|tojson }},
+      DEEP_RECOVERY: {{ url_for('ai_trading', tab='deep_recovery')|tojson }},
+      STABLE_GROWTH: {{ url_for('ai_trading', tab='stable_growth')|tojson }},
+      SAFE_MARGIN: {{ url_for('ai_trading', tab='safe_margin')|tojson }},
+      SHORT_SELL: {{ url_for('ai_trading', tab='short_sell')|tojson }},
+      MOMENTUM: {{ url_for('ai_trading', tab='momentum')|tojson }}
+    };
+    function open(strategyId) {
+      var sid = (strategyId || "").trim().toUpperCase();
+      if (!sid) return;
+      if (strategyInput) strategyInput.value = sid;
+      if (labelEl) labelEl.textContent = sid;
+      if (exportLink) {
+        exportLink.href = exportBase + (exportBase.indexOf("?") >= 0 ? "&" : "?") + "strategy=" + encodeURIComponent(sid);
+      }
+      if (form && tabRedirect[sid]) form.action = tabRedirect[sid];
       modal.hidden = false;
       modal.setAttribute("aria-hidden", "false");
       document.body.style.overflow = "hidden";
@@ -685,12 +746,22 @@
       modal.setAttribute("aria-hidden", "true");
       document.body.style.overflow = "";
     }
-    document.querySelectorAll(".btn-reset-ai-trading").forEach(function (btn) {
-      btn.addEventListener("click", open);
+    document.querySelectorAll(".btn-reset-strategy").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        open(btn.getAttribute("data-reset-strategy") || "");
+      });
     });
     modal.querySelectorAll("[data-reset-close]").forEach(function (el) {
       el.addEventListener("click", close);
     });
+    if (form) {
+      form.addEventListener("submit", function (e) {
+        if (!(strategyInput && strategyInput.value.trim())) {
+          e.preventDefault();
+          alert({{ _('Pick a strategy first. RESET STRATEGY never clears all books.')|tojson }});
+        }
+      });
+    }
     document.addEventListener("keydown", function (e) {
       if (!modal.hidden && e.key === "Escape") close();
     });
@@ -705,6 +776,9 @@
   {% if tab == 'overview' %}
     <p class="hint" style="text-align:left;margin:0 0 12px">
       {{ _('Choose a strategy to open its Cash / Positions / History workspace.') }}
+      {% if can_manage %}
+      {{ _('Use RESET STRATEGY on a row to clear only that book — other strategies stay.') }}
+      {% endif %}
     </p>
     <div class="panel" style="overflow:auto;margin-bottom:16px">
       <table class="strat-table">
@@ -719,6 +793,7 @@
             <th class="num">{{ _('Equity') }}</th>
             <th class="num">{{ _('Total P&L') }}</th>
             <th>{{ _('Primary Rank') }}</th>
+            {% if can_manage %}<th></th>{% endif %}
           </tr>
         </thead>
         <tbody>
@@ -728,7 +803,9 @@
             else url_for('ai_trading', tab='deep_recovery') if mid == 'DEEP_RECOVERY'
             else url_for('ai_trading', tab='stable_growth') if mid == 'STABLE_GROWTH'
             else url_for('ai_trading', tab='safe_margin') if mid == 'SAFE_MARGIN'
-            else url_for('ai_trading', tab='short_sell') %}
+            else url_for('ai_trading', tab='short_sell') if mid == 'SHORT_SELL'
+            else url_for('ai_trading', tab='momentum') if mid == 'MOMENTUM'
+            else url_for('ai_trading', tab='overview') %}
           <tr>
             <td><a href="{{ href }}"><strong>{{ s.label }}</strong></a></td>
             <td>
@@ -748,8 +825,11 @@
                 {{ _('RATIO < 80%') }}
                 <span class="hint">({{ _('risk-filtered top 10–20') }})</span>
               {% elif mid == 'SHORT_SELL' %}
-                <a href="{{ url_for('watchlist', tab='short') }}">{{ _('SHORT') }}</a>
-                <span class="hint">({{ _('Dist DESC') }})</span>
+                {{ _('SHORT WATCH') }}
+                <span class="hint">({{ _('Dist25 Top 1%') }})</span>
+              {% elif mid == 'MOMENTUM' %}
+                {{ _('Watchlist') }} {{ _('MOMENTUM') }}
+                <span class="hint">({{ _('ABS(5D) continuation · 1% stop') }})</span>
               {% else %}
                 {{ (s.meta.source_pool_label if s.meta else None) or '—' }}
               {% endif %}
@@ -769,9 +849,16 @@
               {% if s.total_pnl is not none %}${{ '%+.2f'|format(s.total_pnl) }}{% else %}—{% endif %}
             </td>
             <td class="hint">{{ (s.meta.primary_metric_label if s.meta else None) or '—' }}</td>
+            {% if can_manage %}
+            <td style="white-space:nowrap">
+              <button type="button" class="btn btn-reset-strategy"
+                      data-reset-strategy="{{ mid }}"
+                      style="padding:2px 10px;font-size:0.8rem;border-color:#dc2626;color:#b91c1c">{{ _('RESET STRATEGY') }}</button>
+            </td>
+            {% endif %}
           </tr>
           {% else %}
-          <tr><td colspan="9" class="empty">{{ _('No strategy accounts yet.') }}</td></tr>
+          <tr><td colspan="{{ 10 if can_manage else 9 }}" class="empty">{{ _('No strategy accounts yet.') }}</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -803,37 +890,32 @@
     <div class="paper-banner" style="margin-bottom:12px">
       {% if is_short_tab %}
       <strong>{{ _('Short Sell') }}</strong> —
-      {{ _('SHORT → 63D>80% · Day%<0 → Dist DESC top 10–20 → SELL SHORT') }}
-      <span class="hint" style="margin-left:8px">{{ _('Cover stop +3% · Take Profit −6% · EXIT → next unused · independent $2k book.') }}</span>
-      · <a href="{{ url_for('ai_trading', tab='history', strategy='SHORT_SELL') }}">{{ _('History') }}</a>
+      {{ _('Broad universe → Dist25 DESC → Top 1% SHORT WATCH → 5D TOTAL negative = DOWN → SHORT') }}
+      <span class="hint" style="margin-left:8px">{{ _('High Dist25 is position only. Paper: DOWN only · cover +3% · no Take.') }}</span>
       {% elif is_safe %}
       <strong>{{ _('Safe Margin') }}</strong> —
       {{ _('Target Ratio < 80% → risk filters → Target ASC top 10–20 → BUY') }}
       <span class="hint" style="margin-left:8px">{{ _('10% trailing stop · no Take Profit · EXIT → next unused on Target queue · independent $2k book.') }}</span>
-      · <a href="{{ url_for('ai_trading', tab='history', strategy='SAFE_MARGIN') }}">{{ _('History') }}</a>
       {% elif is_stable %}
       <strong>{{ _('Stable Growth') }}</strong> —
       {{ _('GROWTH → Dist SMA25 ASC → top 10–20 queue → BUY') }}
       <span class="hint" style="margin-left:8px">{{ _('Stop −3% · no Take Profit · EXIT → next unused on Dist queue · independent $2k book.') }}</span>
-      · <a href="{{ url_for('ai_trading', tab='history', strategy='STABLE_GROWTH') }}">{{ _('History') }}</a>
       {% elif is_deep %}
       <strong>{{ _('Deep Recovery') }}</strong> —
       {{ _('OVERSOLD PULLBACK top 15 → Dist / Recovery timing (Alert Buy rules)') }}
       <span class="hint" style="margin-left:8px">{{ _('Mid/small bias · lower quality · larger rebound potential · independent $2k paper book.') }}</span>
-      · <a href="{{ url_for('ai_trading', tab='history', strategy='DEEP_RECOVERY') }}">{{ _('History') }}</a>
       {% else %}
       <strong>{{ _('Alert Buy') }}</strong> —
       {{ _('MY ∪ NDX100 ∪ AI APPROVED → SMA ALERT → BUY TIMING') }}
       <span class="hint" style="margin-left:8px">{{ _('No auto real orders in V1 — READY is for Owner / paper decision.') }}</span>
-      · <a href="{{ url_for('ai_trading', tab='history', strategy='ALERT_BUY') }}">{{ _('History') }}</a>
       {% endif %}
     </div>
     {% set pipe = strategy_pipeline or {} %}
     <div class="shell-card buy-pipe" style="margin-bottom:12px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;font-size:0.86rem;line-height:1.65;color:#334155">
       <div><strong>{{ _('SOURCE') }}</strong> —
         {% if is_short_tab %}
-        <a href="{{ url_for('watchlist', tab='short') }}">{{ _('SHORT') }}</a>
-        <span class="hint">({{ _('pool') }} {{ bv.pool_count or 0 }} → {{ _('passed') }} {{ bv.passed_count or 0 }} → {{ _('top') }} {{ bv.top_n or 15 }})</span>
+        {{ _('Broad stock universe') }}
+        <span class="hint">({{ _('eligible') }} {{ bv.pool_count or 0 }} → {{ _('Top') }} {{ bv.top_pct or 1 }}% → {{ _('WATCH') }} {{ bv.watch_count or bv.universe_count or 0 }}{% if bv.cutoff_dist25 is defined and bv.cutoff_dist25 is not none %} · Dist25≥{{ '%+.1f'|format(bv.cutoff_dist25) }}%{% endif %})</span>
         {% elif is_safe %}
         <a href="{{ url_for('watchlist', tab='low_target') }}">{{ _('Target Ratio < 80%') }}</a>
         <span class="hint">({{ _('pool') }} {{ bv.pool_count or 0 }} → {{ _('passed') }} {{ bv.passed_count or 0 }} → {{ _('top') }} {{ bv.top_n or 15 }})</span>
@@ -850,14 +932,14 @@
         {% if pipe.member_count is defined %} <span class="hint">({{ pipe.member_count }})</span>{% endif %}
         {% endif %}
       </div>
-      <div>↓ <strong>{{ _('FILTER') }}</strong> — {% if is_short_tab %}{{ _('63D Position > 80% · Day % < 0 → top 10–20') }}{% elif is_safe %}{{ _('MCap>$2B · Price>$5 · AvgVol<3% · Fin≥60% · Knife≠HIGH → top 10–20') }}{% elif is_stable %}{{ _('Top 10–20 · Dist SMA25 ascending') }}{% elif is_deep %}{{ _('Top 15 · Watchlist sort (UP > MIXED > DOWN, Dist%)') }}{% else %}{{ pipe.filter or _('Alert-zone candidates') }}{% endif %}</div>
+      <div>↓ <strong>{{ _('FILTER') }}</strong> — {% if is_short_tab %}{{ _('Dist25 Top X% (default 1%) → SHORT WATCH') }}{% elif is_safe %}{{ _('MCap>$2B · Price>$5 · AvgVol<3% · Fin≥60% · Downside≠HIGH → top 10–20') }}{% elif is_stable %}{{ _('Top 10–20 · Dist SMA25 ascending') }}{% elif is_deep %}{{ _('Top 15 · Watchlist sort (UP > MIXED > DOWN, Dist%)') }}{% else %}{{ pipe.filter or _('Alert-zone candidates') }}{% endif %}</div>
       <div>↓ <strong>{{ _('RANK') }}</strong> — {% if is_short_tab %}{{ _('Dist SMA25 — highest first') }}{% elif is_safe %}{{ _('Target Ratio — lowest first') }}{% elif is_stable %}{{ _('Dist SMA25 — deepest first') }}{% else %}{{ pipe.rank or _('Dist SMA25 — deepest first') }}{% endif %}</div>
-      <div>↓ <strong>{{ _('BLOCK') }}</strong> — {% if is_short_tab %}{{ _('Candidate filters applied before queue') }}{% elif is_safe %}{{ _('Risk filters applied before queue (Knife HIGH blocked)') }}{% elif is_stable %}{{ _('Knife / HIGH / News (DATA Admin-only)') }}{% elif is_deep %}{{ _('Knife / HIGH / News (DATA is Admin-only, not BLOCK)') }}{% else %}{{ pipe.block or _('Data / News / Knife / strategy gates') }}{% endif %}</div>
-      <div>↓ <strong>{% if is_short_tab %}{{ _('SHORT CANDIDATE') }}{% else %}{{ _('BUY QUEUE') }}{% endif %}</strong> ({{ bv.universe_count or 0 }}) — {% if is_short_tab %}{{ _('Dist DESC · SELL SHORT · cover +3%/−6% · EXIT auto-refill') }}{% elif is_safe %}{{ _('Target order · 10% trailing stop · no Take · EXIT auto-refill') }}{% elif is_stable %}{{ _('Dist order · Stop −3% · no Take · EXIT auto-refill') }}{% else %}{{ _('Dist order · BLOCK included · scroll table') }}{% endif %}</div>
+      <div>↓ <strong>{{ _('BLOCK') }}</strong> — {% if is_short_tab %}{{ _('WATCH = high position only; auto SHORT only when 5D TOTAL is negative (DOWN)') }}{% elif is_safe %}{{ _('Risk filters applied before queue (Downside Risk HIGH blocked)') }}{% elif is_stable %}{{ _('Downside Risk / HIGH / News (DATA Admin-only)') }}{% elif is_deep %}{{ _('News PASS + Fin≥60% only (HIGH / Downside Risk / scores display-only; DATA Admin-only)') }}{% else %}{{ _('News PASS + Fin≥60% only (HIGH / Downside Risk / scores display-only; DATA Admin-only)') }}{% endif %}</div>
+      <div>↓ <strong>{% if is_short_tab %}{{ _('SHORT WATCH') }}{% else %}{{ _('BUY QUEUE') }}{% endif %}</strong> ({{ bv.universe_count or 0 }}) — {% if is_short_tab %}{{ _('Dist DESC discovery · DOWN = negative 5D TOTAL · cover +3% · no Take') }}{% elif is_safe %}{{ _('Target order · 10% trailing stop · no Take · EXIT auto-refill') }}{% elif is_stable %}{{ _('Dist order · Stop −3% · no Take · EXIT auto-refill') }}{% else %}{{ _('Dist order · BLOCK included · scroll table') }}{% endif %}</div>
     </div>
     <p class="buy-hint">
       {% if is_short_tab %}
-      {{ _('SHORT sleeve filtered by 63D>80% and Day%<0, sorted Dist SMA25 descending (10–20). Paper slots $250→$150, max 6. SELL SHORT with cover stop +3% and Take Profit −6%; on EXIT auto-short the then-top unused Dist queue name.') }}
+      {{ _('Broad stock universe ranked by Dist25 DESC; Top X% enter SHORT WATCH (high position only). Inspect MOMENTUM D-4…D0 / 5D TOTAL. Auto SHORT only when 5D TOTAL is negative (DOWN), ranked 5D ASC, cover +3%, no Take.') }}
       {% elif is_safe %}
       {{ _('Target Ratio watchlist, risk-filtered, Target ASC (10–20 names). Paper slots $250→$150, max 6. 10% trailing stop, no take-profit; on EXIT auto-buy the then-top unused Target queue name.') }}
       {% elif is_stable %}
@@ -865,7 +947,7 @@
       {% elif is_deep %}
       {{ _('Deepest Oversold pullback names (often mid/small). Weaker quality than Alert Buy; larger rebound potential. Paper slots $250→$150, max 6.') }}
       {% else %}
-      {{ _('Buy candidates = My Watchlist + Nasdaq-100 + AI Approved names currently marked 🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME (Dist SMA25 bands). Dist + Recovery decide READY / STABILIZING …') }}
+      {{ _('Buy candidates = My Watchlist + Nasdaq-100 + AI Approved names currently marked 🟡 WATCH / 🟢 LOW / 🟠 DEEP / 🔵 EXTREME (Dist SMA25 bands). Dist + Recovery decide READY / WAIT …') }}
       {% endif %}
     </p>
     <div class="buy-queue-actions">
@@ -876,7 +958,7 @@
       </form>
       <form method="post" action="{{ url_for('ai_trading', tab='short_sell') }}" style="display:inline;margin:0" class="js-lei-confirm-form"
             data-confirm-title="{{ _('AI AUTO TRADING') }}"
-            data-confirm-message="{{ _('SIMULATE Short Sell paper orders (SELL SHORT · cover +3% / Take −6%)?') }}"
+            data-confirm-message="{{ _('SIMULATE Short Sell paper orders (DOWN only · 5D ASC · cover +3% · no Take)?') }}"
             data-confirm-ok="{{ _('SIMULATE') }}">
         <input type="hidden" name="action" value="create_short_sell_orders">
         <button class="btn primary" type="submit">{{ _('AI AUTO TRADING') }}</button>
@@ -915,7 +997,7 @@
       </form>
       <form method="post" action="{{ url_for('ai_trading', tab='deep_recovery') }}" style="display:inline;margin:0" class="js-lei-confirm-form"
             data-confirm-title="{{ _('AI AUTO TRADING') }}"
-            data-confirm-message="{{ _('SIMULATE Deep Recovery paper orders from READY / STABILIZING?') }}"
+            data-confirm-message="{{ _('SIMULATE Deep Recovery paper orders from READY?') }}"
             data-confirm-ok="{{ _('SIMULATE') }}">
         <input type="hidden" name="action" value="create_deep_recovery_orders">
         <button class="btn primary" type="submit">{{ _('AI AUTO TRADING') }}</button>
@@ -937,19 +1019,28 @@
       <a class="btn primary" href="{{ url_for('owner_login', next=url_for('ai_trading', tab=tab)) }}">{{ _('Sign in') }} — {{ _('AI AUTO TRADING') }}</a>
       {% endif %}
     </div>
-    {% set stab_n = (bc.STABILIZING or 0) + (bc.APPROACHING or 0) + (bc.WATCH or 0) + (bc.ALERT or 0) + (bc.WAIT or 0) + (bc.REVIEW or 0) %}
+    {% set wait_n = (bc.WAIT or 0) + (bc.APPROACHING or 0) + (bc.WATCH or 0) + (bc.ALERT or 0) + (bc.REVIEW or 0) + (bc.STABILIZING or 0) %}
     {% set block_n = bc.BLOCKED or 0 %}
+    {% set hist_strategy = 'SHORT_SELL' if is_short_tab else ('SAFE_MARGIN' if is_safe else ('STABLE_GROWTH' if is_stable else ('DEEP_RECOVERY' if is_deep else 'ALERT_BUY'))) %}
     <div class="buy-status-bar" id="ai-buy-status-bar">
-      <button type="button" class="btn active" data-buy-filter="all">{% if is_short_tab %}{{ _('SHORT CANDIDATE') }}{% else %}{{ _('BUY QUEUE') }}{% endif %} ({{ bv.universe_count or 0 }})</button>
+      <button type="button" class="btn active" data-buy-filter="all">{% if is_short_tab %}{{ _('SHORT WATCH') }}{% else %}{{ _('BUY QUEUE') }}{% endif %} ({{ bv.universe_count or 0 }})</button>
+      {% if is_short_tab %}
+      <button type="button" class="btn" data-buy-filter="DOWN"><span class="buy-st">🔻 {{ _('DOWN') }} ({{ bc.DOWN or 0 }})</span></button>
+      <button type="button" class="btn" data-buy-filter="WATCH"><span class="buy-st">🟡 {{ _('WATCH') }} ({{ bc.WATCH or 0 }})</span></button>
+      {% else %}
       <button type="button" class="btn" data-buy-filter="READY"><span class="buy-st ready">🟢 {{ _('READY') }}</span></button>
-      <button type="button" class="btn" data-buy-filter="STABILIZING"><span class="buy-st stabilizing">🟡 {{ _('STABILIZING') }} ({{ stab_n }})</span></button>
+      <button type="button" class="btn" data-buy-filter="WAIT"><span class="buy-st">🟦 {{ _('WAIT') }} ({{ wait_n }})</span></button>
+      {% endif %}
+      {% if not is_short_tab %}
       <button type="button" class="btn" data-buy-filter="BLOCK"><span class="buy-st blocked">🔴 {{ _('BLOCK') }} ({{ block_n }})</span></button>
+      {% endif %}
       <button type="button" class="btn" data-buy-filter="HOLD"><span class="buy-st holding">💼 {{ _('HOLDING') }} ({{ bc.HOLD or 0 }})</span></button>
+      <a class="btn" href="{{ url_for('ai_trading', tab='history', strategy=hist_strategy) }}">{{ _('History') }}</a>
       <span class="hint" id="ai-buy-filter-count" style="margin:0"></span>
     </div>
     <p class="buy-hint">
       {{ _('BUY QUEUE = Dist SMA25 ascending (including BLOCK). Scroll the table for more rows.') }}
-      · {{ _('READY · STABILIZING · BLOCK · HOLDING') }}
+      · {{ _('READY · WAIT · BLOCK · HOLDING') }}
       {% if bv.as_of %} · {{ _('As of') }} {{ bv.as_of }}{% endif %}
     </p>
     {% if can_manage and mdv_batch_report %}
@@ -982,9 +1073,7 @@
     {% set buy_rows = bv.rows or [] %}
     {% if not buy_rows %}
       {% if is_short_tab %}
-      <p class="empty">{{ _('No SHORT candidates yet (need 63D>80% and Day%<0). Refresh Watchlist prices, then Refresh Short Sell.') }}
-        <a href="{{ url_for('watchlist', tab='short') }}">{{ _('SHORT') }}</a>
-      </p>
+      <p class="empty">{{ _('No SHORT WATCH names yet (need Dist25 on the broad stock universe). Refresh prices, then Refresh Short Sell.') }}</p>
       {% elif is_safe %}
       <p class="empty">{{ _('No Target Ratio names passed risk filters yet. Refresh Watchlist prices / fund cache, then Refresh Safe Margin.') }}
         <a href="{{ url_for('watchlist', tab='low_target') }}">{{ _('Target Ratio < 80%') }}</a>
@@ -1004,6 +1093,115 @@
         <a href="{{ url_for('watchlist', tab='ai_approved') }}">{{ _('AI Approved') }}</a>
       </p>
       {% endif %}
+    {% else %}
+    {% if is_short_tab %}
+    <div class="panel" style="margin-bottom:12px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;font-size:0.86rem;line-height:1.55;color:#334155;text-align:left">
+      <strong>{{ _('Guidance') }}</strong>
+      <p style="margin:6px 0 0">{{ _('High position alone is not a short signal. The SHORT pool contains stocks with the highest Dist25 relative to the market. Wait for actual downward movement before shorting. Give particular attention to the most recent 1–2 days and to acceleration/deceleration. A stock that remains strongly upward should not be shorted merely because it is high. A weakening rise followed by increasingly negative recent movement provides stronger evidence of a downward transition. All directional judgments are probabilistic.') }}</p>
+    </div>
+    <div class="panel ai-buy-queue-panel" id="ai-buy-queue-panel">
+      <table class="data" id="short-watch-table">
+        <thead>
+          <tr>
+            <th class="freeze-col freeze-edge">{{ _('Symbol') }}</th>
+            <th class="num">{{ _('Price') }}</th>
+            <th class="num" title="{{ _('SMA25 from dashboard cache') }}">{{ _('SMA25') }}</th>
+            <th class="num" title="{{ _('Primary rank: Dist25 = (Price/SMA25 − 1)×100, descending.') }}">{{ _('Dist25') }}</th>
+            <th class="num" title="{{ _('Percentile of Dist25 among eligible stocks (100 = most extended).') }}">{{ _('Dist25 Percentile') }}</th>
+            <th class="num" title="{{ _('Same MOMENTUM method: compounded PRE×REGULAR×AFTER.') }}">{{ _('D-4') }}</th>
+            <th class="num" title="{{ _('Same MOMENTUM method: compounded PRE×REGULAR×AFTER.') }}">{{ _('D-3') }}</th>
+            <th class="num" title="{{ _('Same MOMENTUM method: compounded PRE×REGULAR×AFTER.') }}">{{ _('D-2') }}</th>
+            <th class="num" title="{{ _('Same MOMENTUM method: compounded PRE×REGULAR×AFTER.') }}">{{ _('D-1') }}</th>
+            <th class="num" title="{{ _('Same MOMENTUM method: compounded PRE×REGULAR×AFTER.') }}">{{ _('D0') }}</th>
+            <th class="num" title="{{ _('Product of daily totals. Negative → DOWN (paper short eligible). Discovery rank stays Dist25 DESC.') }}">{{ _('5D TOTAL') }}</th>
+            <th title="{{ _('WATCH = high position only. DOWN = 5D TOTAL negative (auto SHORT experiment).') }}">{{ _('Status') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in buy_rows %}
+          {% set st = (r.buy_status or r.short_status or 'WATCH')|upper %}
+          {% set timing = (r.short_status or r.timing_status or 'WATCH')|upper %}
+          {% set totals = r.day_totals if r.day_totals is defined else [none, none, none, none, none] %}
+          <tr data-buy-status="{{ st }}" data-buy-bucket="{{ 'HOLD' if st == 'HOLD' else timing }}" data-ticker="{{ r.ticker }}"
+              data-dist="{{ r.dist_pct if r.dist_pct is not none else '' }}">
+            <td class="freeze-col freeze-edge">
+              <strong>{{ r.ticker }}</strong>
+              {% if r.name %}<div class="hint name-sub" style="text-align:left;margin:0">{{ r.name }}</div>{% endif %}
+            </td>
+            <td class="num">{% if r.price is not none %}${{ '%.2f'|format(r.price) }}{% else %}—{% endif %}</td>
+            <td class="num">{% if r.sma25 is not none %}${{ '%.2f'|format(r.sma25) }}{% elif r.sma is not none %}${{ '%.2f'|format(r.sma) }}{% else %}—{% endif %}</td>
+            <td class="num {% if r.dist_pct is not none and r.dist_pct > 0 %}down{% elif r.dist_pct is not none and r.dist_pct < 0 %}up{% endif %}">
+              {% if r.dist_pct is not none %}{{ '%+.1f'|format(r.dist_pct) }}%{% else %}—{% endif %}
+            </td>
+            <td class="num">
+              {% if r.dist25_percentile is not none %}{{ '%.1f'|format(r.dist25_percentile) }}{% else %}—{% endif %}
+            </td>
+            {% for i in range(5) %}
+            {% set tv = totals[i] if totals|length > i else none %}
+            <td class="num {% if tv is not none and tv > 0 %}up{% elif tv is not none and tv < 0 %}down{% endif %}">
+              {% if tv is not none %}{{ '%+.1f'|format(tv) }}{% else %}N/A{% endif %}
+            </td>
+            {% endfor %}
+            <td class="num {% if r.total_5d_pct is not none and r.total_5d_pct > 0 %}up{% elif r.total_5d_pct is not none and r.total_5d_pct < 0 %}down{% endif %}">
+              {% if r.total_5d_pct is not none %}{{ '%+.1f'|format(r.total_5d_pct) }}{% else %}N/A{% endif %}
+            </td>
+            <td>
+              {% if st == 'HOLD' %}
+                <span class="buy-st holding">💼 {{ _('HOLDING') }}</span>
+                <div class="hint" style="margin:0">{{ _('was') }} {{ timing }}</div>
+              {% elif timing == 'DOWN' %}
+                <span class="buy-st" style="color:#b91c1c">🔻 {{ _('DOWN') }}</span>
+              {% else %}
+                <span class="buy-st">🟡 {{ _('WATCH') }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="hint" style="text-align:left;margin-top:8px">
+      {{ _('Table rank = Dist25 DESC (HIGH POSITION). Status DOWN when 5D TOTAL is negative (same MOMENTUM session method). Paper SIMULATE shorts DOWN only, ordered by 5D ASC, cover +3%, no Take.') }}
+      {% if bv.down_count is defined %} · {{ _('DOWN') }} {{ bv.down_count or 0 }}{% endif %}
+    </p>
+    <script>
+    (function () {
+      var bar = document.getElementById("ai-buy-status-bar");
+      var table = document.getElementById("short-watch-table");
+      var countEl = document.getElementById("ai-buy-filter-count");
+      if (!bar || !table) return;
+      var mode = "all";
+      function apply() {
+        var tbody = table.tBodies[0];
+        if (!tbody) return;
+        var rows = tbody.rows;
+        var matched = 0;
+        for (var i = 0; i < rows.length; i++) {
+          var st = (rows[i].getAttribute("data-buy-status") || "").toUpperCase();
+          var bucket = (rows[i].getAttribute("data-buy-bucket") || st || "").toUpperCase();
+          var ok = true;
+          if (mode === "HOLD") ok = st === "HOLD";
+          else if (mode === "DOWN") ok = bucket === "DOWN" || st === "DOWN";
+          else if (mode === "WATCH") ok = (bucket === "WATCH" || st === "WATCH") && st !== "HOLD";
+          else if (mode !== "all") ok = bucket === mode || st === mode;
+          rows[i].style.display = ok ? "" : "none";
+          if (ok) matched++;
+        }
+        if (countEl) countEl.textContent = matched + " / " + rows.length;
+      }
+      bar.querySelectorAll("[data-buy-filter]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          mode = (btn.getAttribute("data-buy-filter") || "all").toUpperCase();
+          if (mode === "ALL" || mode === "SHORT WATCH") mode = "all";
+          bar.querySelectorAll("[data-buy-filter]").forEach(function (b) {
+            b.classList.toggle("active", b === btn);
+          });
+          apply();
+        });
+      });
+      apply();
+    })();
+    </script>
     {% else %}
     <div class="panel ai-buy-queue-panel" id="ai-buy-queue-panel">
       <table class="data" id="ai-buy-table">
@@ -1034,10 +1232,21 @@
             {% else %}
             <th class="num sortable" data-col="8" data-type="num">{{ _('Recovery') }}</th>
             {% endif %}
-            <th class="num sortable" data-col="9" data-type="num">{{ _('Knife') }}</th>
+            <th class="num sortable" data-col="9" data-type="num"
+                title="{{ _('Recent downside price-behavior risk indicator. Informational only in ALERT BUY and DEEP RECOVERY.') }}">{{ _('Downside Risk') }}</th>
+            {% if not is_stable and not is_safe and not is_short_tab %}
+            <th class="num" data-col="10"
+                title="{{ _('Percentage price changes for the five most recent completed regular trading sessions.') }}">{{ _('5D Change') }}</th>
+            <th class="num" data-col="11"
+                title="{{ _('Change from the latest regular-session close to the latest available extended-hours price.') }}">{{ _('LIVE') }}</th>
+            <th data-col="12">{{ _('News') }}</th>
+            <th data-col="13" title="{{ _('Timing / HOLDING / BLOCK — eligibility only; does not change Dist rank order.') }}">{{ _('Status') }}</th>
+            <th data-col="14">{{ _('Reason') }}</th>
+            {% else %}
             <th data-col="10">{{ _('News') }}</th>
             <th data-col="11" title="{{ _('Timing / HOLDING / BLOCK — eligibility only; does not change Dist rank order.') }}">{{ _('Status') }}</th>
             <th data-col="12">{{ _('Reason') }}</th>
+            {% endif %}
           </tr>
         </thead>
         <tbody>
@@ -1051,8 +1260,8 @@
           {% elif st == 'BLOCKED' %}
             {% set bucket = 'BLOCK' %}
           {% else %}
-            {# APPROACHING / WAIT / REVIEW / WATCH / ALERT → STABILIZING (display only) #}
-            {% set bucket = 'STABILIZING' %}
+            {# APPROACHING / WAIT / REVIEW / legacy STABILIZING → WAIT (not tradeable) #}
+            {% set bucket = 'WAIT' %}
           {% endif %}
           <tr data-buy-status="{{ st }}" data-buy-bucket="{{ bucket }}" data-data-quality="{{ dq }}"
               data-ticker="{{ r.ticker }}"
@@ -1126,22 +1335,39 @@
               {% if r.recovery_score is not none %}{{ r.recovery_score }}{% else %}—{% endif %}
             </td>
             {% endif %}
-            <td class="num" data-sort="{{ r.knife_score if r.knife_score is not none else '' }}">
+            <td class="num" data-sort="{{ r.knife_score if r.knife_score is not none else '' }}"
+                title="{{ _('Downside Risk') }}{% if r.knife and r.knife.level %} · {{ r.knife.level }}{% endif %}{% if not is_stable and not is_safe and not is_short_tab %} · {{ _('Informational only') }}{% endif %}">
               {% if r.knife_score is not none %}{{ r.knife_score }}{% else %}—{% endif %}
+              {% if r.knife and r.knife.level %}
+                <div class="hint" style="margin:0;font-size:0.72rem">{{ r.knife.level }}</div>
+              {% endif %}
             </td>
+            {% if not is_stable and not is_safe and not is_short_tab %}
+            <td class="num" style="font-variant-numeric:tabular-nums;white-space:nowrap;font-size:0.78rem"
+                title="{% if r.day_pcts_5 %}{{ _('5D Change') }}: {% for p in r.day_pcts_5 %}{{ '%+.1f'|format(p) }}{% if not loop.last %} | {% endif %}{% endfor %}{% if r.ret_5d_total is not none %} · {{ _('5D Total') }} {{ '%+.1f'|format(r.ret_5d_total) }}%{% endif %}{% if r.session_up_days is not none %} · ↑{{ r.session_up_days }} ↓{{ r.session_down_days }}{% endif %}{% if r.session_5d_direction %} · {{ r.session_5d_direction }}{% endif %}{% else %}N/A{% endif %}">
+              {% if r.day_pcts_5 and r.day_pcts_5|length == 5 %}
+                {% for p in r.day_pcts_5 %}<span class="{% if p > 0 %}up{% elif p < 0 %}down{% endif %}">{{ '%+.1f'|format(p) }}</span>{% if not loop.last %} {% endif %}{% endfor %}
+              {% else %}—{% endif %}
+            </td>
+            <td class="num {% if r.live_pct is not none and r.live_pct > 0 %}up{% elif r.live_pct is not none and r.live_pct < 0 %}down{% endif %}"
+                data-sort="{{ r.live_pct if r.live_pct is not none else '' }}"
+                title="{% if r.live_pct is not none %}{{ _('LIVE') }} {{ '%+.2f'|format(r.live_pct) }}% · {{ r.live_source or 'yahoo' }}{% else %}{{ _('N/A — no reliable Yahoo extended-hours price') }}{% endif %}">
+              {% if r.live_pct is not none %}{{ '%+.1f'|format(r.live_pct) }}%{% else %}N/A{% endif %}
+            </td>
+            {% endif %}
             <td>{% if r.news_status %}{{ r.news_status }}{% else %}—{% endif %}</td>
             <td>
               {% if st == 'HOLD' %}
                 {% set was = (r.timing_status or '')|string|upper %}
                 {% if not was and (r.reason or '') %}
                   {% set ns = namespace(was='') %}
-                  {% for part in (r.reason or '')|string|split(' · ') %}
+                  {% for part in ((r.reason or '')|string).split(' · ') %}
                     {% if part.startswith('was=') %}{% set ns.was = part[4:]|upper %}{% endif %}
                   {% endfor %}
                   {% set was = ns.was %}
                 {% endif %}
-                {% if was in ('APPROACHING', 'WATCH', 'ALERT', 'WAIT', 'REVIEW') %}
-                  {% set was_disp = 'STABILIZING' %}
+                {% if was in ('APPROACHING', 'WATCH', 'ALERT', 'WAIT', 'REVIEW', 'STABILIZING') %}
+                  {% set was_disp = 'WAIT' %}
                 {% elif was == 'BLOCKED' %}
                   {% set was_disp = 'BLOCK' %}
                 {% else %}
@@ -1152,8 +1378,8 @@
                 </span>
                 {% if was_disp == 'READY' %}
                   <div class="buy-st ready" style="margin:2px 0 0;font-size:0.78rem">🟢 {{ _('was') }} {{ _('READY') }}</div>
-                {% elif was_disp == 'STABILIZING' %}
-                  <div class="buy-st stabilizing" style="margin:2px 0 0;font-size:0.78rem">🟡 {{ _('was') }} {{ _('STABILIZING') }}</div>
+                {% elif was_disp == 'WAIT' %}
+                  <div class="hint" style="margin:2px 0 0;font-size:0.78rem">🟦 {{ _('was') }} {{ _('WAIT') }}</div>
                 {% elif was_disp == 'BLOCK' %}
                   <div class="buy-st blocked" style="margin:2px 0 0;font-size:0.78rem">🔴 {{ _('was') }} {{ _('BLOCK') }}</div>
                 {% elif was_disp %}
@@ -1166,7 +1392,7 @@
               {% elif bucket == 'BLOCK' %}
                 <span class="buy-st blocked">{{ r.status_emoji or '🔴' }} {{ _('BLOCK') }}</span>
               {% else %}
-                <span class="buy-st stabilizing">🟡 {{ _('STABILIZING') }}</span>
+                <span class="buy-st">🟦 {% if st == 'APPROACHING' %}{{ _('APPROACHING') }}{% else %}{{ _('WAIT') }}{% endif %}</span>
               {% endif %}
             </td>
             <td class="hint" style="text-align:left;white-space:normal;max-width:220px">{{ r.reason or '—' }}</td>
@@ -1175,6 +1401,7 @@
         </tbody>
       </table>
     </div>
+    {% endif %}
     <script>
     (function () {
       var bar = document.getElementById("ai-buy-status-bar");
@@ -1262,12 +1489,12 @@
         <p style="margin:0 0 8px"><strong>{{ _('News Auto Trading method') }}</strong></p>
         <ol style="margin:0;padding-left:1.15rem">
           <li>{{ _('Discover → resolve ticker confidently → store unique underlying event (ticker + category + period).') }}</li>
-          <li>{{ _('Analyze with existing Financial / AI Score / Knife / price-location gates (same as Paper Auto Trading).') }}</li>
-          <li>{{ _('Auto TRADE_CANDIDATE only if ALL pass: not 🔴 Negative · event is recent · Event Score ≥ 70 · AI Score ≥ 45 · price location OR gate · Knife below AUTO BLOCK (default ≥ 45 blocks).') }}</li>
+          <li>{{ _('Analyze with existing Financial / AI Score / Downside Risk / price-location gates (same as Paper Auto Trading).') }}</li>
+          <li>{{ _('Auto TRADE_CANDIDATE only if ALL pass: not 🔴 Negative · event is recent · Event Score ≥ 70 · AI Score ≥ 45 · price location OR gate · Downside Risk below AUTO BLOCK (default ≥ 45 blocks).') }}</li>
           <li>{{ _('Price location OR (any one): Dist from SMA25 ≤ −20% · or Target Ratio ≤ 70% · or 63D Position ≤ 10%.') }}</li>
           <li>{{ _('Politician-purchase clues are discovery-only — never auto-ordered.') }}</li>
           <li>{{ _('Paper order source = AI_DISCOVERY. At most one order per underlying event. Cash + trading limit apply. Default Stop −5% / Take +10% (Admin settings).') }}</li>
-          <li>{{ _('🔴 Negative / stale / Knife-blocked / price-fail → WATCH or AUTO_BLOCK — never Priority, never auto trade.') }}</li>
+          <li>{{ _('🔴 Negative / stale / Downside-blocked / price-fail → WATCH or AUTO_BLOCK — never Priority, never auto trade.') }}</li>
         </ol>
       </div>
 
@@ -1378,7 +1605,7 @@
             <th class="num">{{ _('Event Score') }}</th>
             <th>{{ _('Status') }}</th>
             <th class="num">{{ _('AI Score') }}</th>
-            <th class="num">{{ _('Knife') }}</th>
+            <th class="num">{{ _('Downside Risk') }}</th>
             <th>{{ _('Period') }}</th>
             <th class="num">{{ _('5D') }}</th>
             <th class="num">{{ _('20D') }}</th>
@@ -1465,7 +1692,7 @@
                 <th class="num">{{ _('Event Score') }}</th>
                 <th>{{ _('Status') }}</th>
                 <th class="num">{{ _('AI Score') }}</th>
-                <th class="num">{{ _('Knife') }}</th>
+                <th class="num">{{ _('Downside Risk') }}</th>
                 <th>{{ _('Period') }}</th>
                 <th class="num">{{ _('5D') }}</th>
                 <th class="num">{{ _('20D') }}</th>
@@ -1585,6 +1812,118 @@
     </div>
   {% endif %}
 
+  {% if tab == 'momentum' %}
+    {% set mv = momentum_view if momentum_view is defined else {} %}
+    {% set sh = strategy_shell or {} %}
+    {% set acct = sh.account or {} %}
+    {% set ss = sh.summary or {} %}
+    <div class="summary-grid" style="margin-bottom:12px">
+      <div class="cell"><span class="k">{{ _('Capital') }}</span><span class="v">${{ '%.0f'|format(acct.starting_capital or 2000) }}</span></div>
+      <div class="cell"><span class="k">{{ _('Cash') }}</span><span class="v">${{ '%.2f'|format(acct.cash if acct.cash is not none else 2000) }}</span></div>
+      <div class="cell"><span class="k">{{ _('Trading limit') }}</span><span class="v">${{ '%.0f'|format(acct.trading_limit or 1500) }}</span></div>
+      <div class="cell"><span class="k">{{ _('Holding') }}</span><span class="v">{{ ss.open_trades or 0 }}</span></div>
+      <div class="cell"><span class="k">{{ _('Equity') }}</span><span class="v">${{ '%.2f'|format(ss.equity if ss.equity is not none else (acct.cash or 2000)) }}</span></div>
+      <div class="cell"><span class="k">{{ _('Total P&L') }}</span><span class="v">{{ '—' if (ss.total_pnl is none or ss.total_pnl == 0) and not (ss.open_trades or 0) and not (ss.closed_trades or 0) else ('$%.2f'|format(ss.total_pnl or 0)) }}</span></div>
+    </div>
+    <div class="paper-banner" style="margin-bottom:12px">
+      <strong>{{ _('Momentum') }}</strong> —
+      {{ _('ABS(5D TOTAL) DESC · +5D LONG / −5D SHORT · $750 + $750 sleeves · fixed 1% stop') }}
+      <span class="hint" style="margin-left:8px">{{ mv.notes or '' }}</span>
+      · <a href="{{ url_for('ai_trading', tab='history', strategy='MOMENTUM') }}">{{ _('History') }}</a>
+    </div>
+    <div class="panel" style="margin-bottom:12px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;font-size:0.86rem;line-height:1.55;color:#334155;text-align:left">
+      <strong>{{ _('Guidance') }}</strong>
+      <p style="margin:6px 0 0">{{ _('MOMENTUM follows the current dominant price movement rather than predicting a reversal. Review the five recent daily movements from oldest to newest. Give particular attention to the most recent 1–2 days and to acceleration/deceleration. A sequence whose movements continue in the same direction, especially with increasing magnitude, provides stronger evidence of continuation. If recent movements are shrinking, changing sign, or repeatedly alternating between positive and negative, continuation is less clear and the trade may be skipped. This is a probabilistic observation, not a prediction of certainty.') }}</p>
+    </div>
+    {% if can_manage %}
+    <div class="actions" style="margin-bottom:10px">
+      <form method="post" action="{{ url_for('ai_trading', tab='momentum') }}" style="display:inline;margin:0">
+        <input type="hidden" name="action" value="refresh_momentum">
+        <button class="btn" type="submit">{{ _('Refresh Momentum Sessions') }}</button>
+      </form>
+      <form method="post" action="{{ url_for('ai_trading', tab='momentum') }}" style="display:inline;margin:0" class="js-lei-confirm-form"
+            data-confirm-title="{{ _('MOMENTUM') }}"
+            data-confirm-message="{{ _('SIMULATE Momentum paper orders (ABS(5D) · $750 LONG / $750 SHORT · 1% stop · no Take)?') }}">
+        <input type="hidden" name="action" value="create_momentum_orders">
+        <button class="btn" type="submit">{{ _('SIMULATE') }}</button>
+      </form>
+    </div>
+    {% endif %}
+
+    <h2 class="section" style="margin-top:8px">{{ _('Signal Queue') }} ({{ (mv.rows or [])|length }})</h2>
+    <p class="hint" style="text-align:left;margin:0 0 8px">{{ _('Watchlist ranked by |5D TOTAL| DESC — research / SIMULATE input only. Not live P&L.') }}</p>
+    <div class="panel" style="overflow:auto">
+      <table class="data" id="momentum-table">
+        <thead>
+          <tr>
+            <th>{{ _('Symbol') }}</th>
+            <th class="num">{{ _('Price') }}</th>
+            <th class="num" title="{{ _('Compounded (1+P)×(1+D)×(1+A)−1. N/A if any required session missing.') }}">{{ _('D-4') }}</th>
+            <th class="num" title="{{ _('Compounded (1+P)×(1+D)×(1+A)−1. N/A if any required session missing.') }}">{{ _('D-3') }}</th>
+            <th class="num" title="{{ _('Compounded (1+P)×(1+D)×(1+A)−1. N/A if any required session missing.') }}">{{ _('D-2') }}</th>
+            <th class="num" title="{{ _('Compounded (1+P)×(1+D)×(1+A)−1. N/A if any required session missing.') }}">{{ _('D-1') }}</th>
+            <th class="num" title="{{ _('Compounded (1+P)×(1+D)×(1+A)−1. N/A if any required session missing.') }}">{{ _('D0') }}</th>
+            <th class="num" title="{{ _('Product of (1 + each daily total) − 1. Primary rank uses ABS(5D TOTAL) DESC.') }}">{{ _('5D TOTAL') }}</th>
+            <th title="{{ _('Sign of 5D TOTAL: positive → LONG, negative → SHORT.') }}">{{ _('Direction') }}</th>
+            <th class="num" title="{{ _('Configured 1% stop: LONG Entry×0.99 · SHORT Entry×1.01. Gaps/slippage may differ.') }}">{{ _('Stop') }}</th>
+            {% if can_manage %}
+            <th title="{{ _('Admin only. Oldest → newest. P=PRE · D=REGULAR · A=AFTER. NIGHT=N/A.') }}">{{ _('SESSION HISTORY') }}</th>
+            {% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in mv.rows or [] %}
+          {% set totals = r.day_totals if r.day_totals is defined else [none, none, none, none, none] %}
+          <tr>
+            <td><strong>{{ r.ticker }}</strong>{% if r.name %}<div class="hint" style="margin:0">{{ r.name }}</div>{% endif %}</td>
+            <td class="num">{% if r.price is not none %}${{ '%.2f'|format(r.price) }}{% else %}—{% endif %}</td>
+            {% for i in range(5) %}
+            {% set tv = totals[i] if totals|length > i else none %}
+            <td class="num {% if tv is not none and tv > 0 %}up{% elif tv is not none and tv < 0 %}down{% endif %}">
+              {% if tv is not none %}{{ '%+.1f'|format(tv) }}{% else %}N/A{% endif %}
+            </td>
+            {% endfor %}
+            <td class="num {% if r.total_5d_pct is not none and r.total_5d_pct > 0 %}up{% elif r.total_5d_pct is not none and r.total_5d_pct < 0 %}down{% endif %}">
+              {% if r.total_5d_pct is not none %}{{ '%+.1f'|format(r.total_5d_pct) }}{% else %}N/A{% endif %}
+            </td>
+            <td>
+              {% set md = (r.momentum_direction or 'NEUTRAL')|upper %}
+              {% if md == 'LONG' %}<span class="up">LONG</span>
+              {% elif md == 'SHORT' %}<span class="down">SHORT</span>
+              {% else %}NEUTRAL{% endif %}
+            </td>
+            <td class="num">
+              {% if r.stop_price is not none %}${{ '%.2f'|format(r.stop_price) }}{% else %}—{% endif %}
+              {% if r.stop_loss_pct is not none %}<div class="hint" style="margin:0">{{ '%.0f'|format(r.stop_loss_pct) }}%</div>{% endif %}
+            </td>
+            {% if can_manage %}
+            <td style="font-family:ui-monospace,Consolas,monospace;font-size:0.72rem;white-space:nowrap;max-width:52rem;overflow-x:auto"
+                title="{% for d in (r.session_history.days if r.session_history else []) %}{{ d.text }}&#10;{% endfor %}">
+              {{ r.session_history_compact or '—' }}
+            </td>
+            {% endif %}
+          </tr>
+          {% else %}
+          <tr><td colspan="{{ 11 if can_manage else 10 }}" class="empty">{{ _('No MOMENTUM watchlist symbols yet.') }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="hint" style="text-align:left;margin-top:8px">
+      {{ _('Daily totals compound PRE × REGULAR × AFTER (not a simple sum). Rank = |5D TOTAL| DESC. Paper: $750 LONG + $750 SHORT sleeves · 1% stop.') }}
+      {% if can_manage %}
+        {{ _('SESSION HISTORY (raw P/D/A) is Admin-only.') }}
+      {% endif %}
+    </p>
+
+    <h2 class="section" style="margin-top:22px">{{ _('Open Positions') }} · {{ _('Gain & Loss') }} ({{ opens|length }})</h2>
+    {% if not opens %}
+      <p class="hint">{{ _('No open MOMENTUM paper positions yet. SIMULATE opens from the signal queue above.') }}</p>
+    {% else %}
+      {{ open_table(opens, can_manage) }}
+    {% endif %}
+  {% endif %}
+
   {% if tab == 'open' %}
     <h2 class="section">{{ _('Open Positions') }}</h2>
     {% if not opens %}
@@ -1608,7 +1947,7 @@
           {% endif %}
         </span>
       </h2>
-      <p class="hint">{{ _('Recently closed (last 63 trading days), not currently held. Shows the Top 8 by current relevance; View All keeps the full pool. Re-enter opens a new trade at current price / AI Score / Knife / Stop / Take — never reuses the old trade. Manual only.') }}</p>
+      <p class="hint">{{ _('Recently closed (last 63 trading days), not currently held. Shows the Top 8 by current relevance; View All keeps the full pool. Re-enter opens a new trade at the current price / AI Score / Downside Risk / Stop / Take — never reuses the old trade. Manual only.') }}</p>
       <div class="panel">
         <table class="data">
           <thead>
@@ -1649,7 +1988,7 @@
                   <button class="btn primary js-rebuy" type="button"
                           data-ticker="{{ t.ticker }}"
                           data-confirm-title="{{ _('Re-enter') }}"
-                          data-confirm="{{ _('Re-enter {ticker} as a new trade at the current price, AI Score, Knife Risk, Stop and Take? Cash and trading limit still apply. The old closed trade stays in History.')|replace('{ticker}', t.ticker) }}"
+                          data-confirm="{{ _('Re-enter {ticker} as a new trade at the current price, AI Score, Downside Risk, Stop and Take? Cash and trading limit still apply. The old closed trade stays in History.')|replace('{ticker}', t.ticker) }}"
                           style="padding:2px 10px;font-size:0.8rem">{{ _('Re-enter') }}</button>
                 </form>
               </td>
@@ -1858,7 +2197,7 @@
                 <button class="btn js-rebuy" type="button"
                         data-ticker="{{ t.ticker }}"
                         data-confirm-title="{{ _('Re-enter') }}"
-                        data-confirm="{{ _('Re-enter {ticker} as a new trade at the current price, AI Score, Knife Risk, Stop and Take? Cash and trading limit still apply. The old closed trade stays in History.')|replace('{ticker}', t.ticker) }}"
+                        data-confirm="{{ _('Re-enter {ticker} as a new trade at the current price, AI Score, Downside Risk, Stop and Take? Cash and trading limit still apply. The old closed trade stays in History.')|replace('{ticker}', t.ticker) }}"
                         style="padding:2px 8px;font-size:0.75rem">{{ _('Re-enter') }}</button>
               </form>
               {% else %}

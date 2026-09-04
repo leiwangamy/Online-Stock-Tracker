@@ -477,7 +477,7 @@
 
           <th class="sortable col-ai" data-col="4" data-type="num" title="{{ _('AI Score V1 = opportunity − risk. Uses public MOS T; excludes Admin Est.Value / real MOS and 63D Position.') }}">AI</th>
           <th class="sortable num col-knife" data-col="5" data-type="num"
-              title="{{ _('Knife Risk 0–100 — downside velocity + relative weakness vs SPY/sector. Independent of AI Score. Not an oversold score.') }}">{{ _("Knife Risk") }}</th>
+              title="{{ _('Downside Risk 0–100 — downside velocity + relative weakness vs SPY/sector. Independent of AI Score. Not an oversold score.') }}">{{ _("Downside Risk") }}</th>
 
           <th class="sortable" data-col="6" data-type="num" title="{{ _('Long-term trend: SMA63 vs SMA252 + SMA252 slope') }}">{{ _("Trend") }}</th>
           <th class="sortable num" data-col="7" data-type="num">{{ _("Price") }}</th>
@@ -612,14 +612,14 @@
             <td class="num col-knife" data-sort="{{ k.score if k and k.score is not none else '' }}"
                 {% if k and k.detail %}title="{{ k.detail }}"{% endif %}>
               {% if k and k.score is not none %}
-                {% set kcls = 'knife' if k.level == 'KNIFE' else ('high' if k.level == 'HIGH' else ('watch' if k.level == 'WATCH' else 'low')) %}
+                {% set kcls = 'knife' if k.level in ('EXTREME', 'KNIFE') else ('high' if k.level == 'HIGH' else ('watch' if k.level == 'WATCH' else 'low')) %}
                 <div class="knife-cell">
                   <span class="knife-badge {{ kcls }}{% if k.partial %} partial{% endif %}">
-                    {% if k.level == 'KNIFE' %}🔴{% elif k.level == 'HIGH' %}🟠{% elif k.level == 'WATCH' %}🟡{% else %}🟢{% endif %}
+                    {% if k.level in ('EXTREME', 'KNIFE') %}🔴{% elif k.level == 'HIGH' %}🟠{% elif k.level == 'WATCH' %}🟡{% else %}🟢{% endif %}
                     {{ k.score }} {{ k.level }}
                   </span>
                   {% if k.auto_blocked %}
-                    <span class="knife-block" title="{{ _('AUTO BLOCK — Knife Risk above Auto Trading threshold') }}">🚫 {{ _('Blocked') }}</span>
+                    <span class="knife-block" title="{{ _('AUTO BLOCK — Downside Risk above Auto Trading threshold') }}">🚫 {{ _('Blocked') }}</span>
                   {% endif %}
                 </div>
               {% else %}—{% endif %}
@@ -1077,7 +1077,7 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         <p class="hint" style="text-align:left;margin:6px 0 0">{{ _("Risk penalties: severe financial −0~15, volume dump −0~5, high vol/low liquidity −0~5, near earnings −0~15. News is not double-counted in risk (only ±5 News Score). Hover AI for breakdown. Green≥70 / yellow 40–69 / red <40. 63D Position and Admin-only Intrinsic Value / real MOS are excluded from AI Score V1.") }}</p>
       </div>
       <div class="legend-col">
-        <strong>{{ _("Knife Risk (0–100) — independent of AI Score") }}</strong>
+        <strong>{{ _("Downside Risk (0–100) — independent of AI Score") }}</strong>
         <ul style="columns:1">
           <li>{{ _("Speed") }} <code>35</code> — {{ _("5D / 3D decline, consecutive down days, acceleration") }}</li>
           <li>{{ _("Relative weakness") }} <code>35</code> — {{ _("5D vs SPY (~20) + sector ETF (~15)") }}</li>
@@ -1090,14 +1090,14 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         </p>
         <p class="hint" style="text-align:left;margin:6px 0 0">
           <strong>{{ _("AUTO BLOCK:") }}</strong>
-          {{ _("Knife Risk ≥ 45 blocks AI Auto Trading / Create Paper Orders (threshold configurable). Watchlist and Research still show the name. AI Score cannot override.") }}
+          {{ _("Downside Risk ≥ 45 blocks AI Auto Trading / Create Paper Orders (threshold configurable). Watchlist and Research still show the name. AI Score cannot override.") }}
         </p>
         <p class="hint" style="text-align:left;margin:6px 0 0">
-          {{ _("Not an oversold / price-location score. Does not use 63D Position, Dist. from SMA, Financial, or News. Hover Knife for component breakdown.") }}
+          {{ _("Not an oversold / price-location score. Does not use 63D Position, Dist. from SMA, Financial, or News. Hover Downside Risk for component breakdown.") }}
         </p>
       </div>
       <div class="legend-col">
-        <strong>{{ _("Rising Score (0–100) — independent of Knife Risk & AI Score") }}</strong>
+        <strong>{{ _("Rising Score (0–100) — independent of Downside Risk & AI Score") }}</strong>
         <p class="hint" style="text-align:left;margin:0 0 6px">
           <strong>{{ _("Rising Now entry (weak filter only):") }}</strong>
           {{ _("Up Days ≥ 3/5 · 5D Return ≥ +3%. Means “currently rising” — not how strong the rise is.") }}
@@ -1115,16 +1115,16 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         </p>
         <p class="hint" style="text-align:left;margin:6px 0 0">
           <strong>{{ _("Independence:") }}</strong>
-          {{ _("Rising Score ≠ 100 − Knife Risk. Same stock can be Rising 85 / Knife 15 (stable uptrend) or Rising 85 / Knife 70 (strong but volatile). Uses the same local daily_bars history as Knife — no separate download.") }}
+          {{ _("Rising Score ≠ 100 − Downside Risk. Same stock can be Rising 85 / Downside 15 (stable uptrend) or Rising 85 / Downside 70 (strong but volatile). Uses the same local daily_bars history as Downside Risk — no separate download.") }}
         </p>
         <p class="hint" style="text-align:left;margin:6px 0 0">
-          {{ _("Does not remove Knife BLOCK / WATCH / PASS. High Rising Score can still be AUTO BLOCKED by Knife Risk. Shown on Research → Rising Now (sortable); hover Rising for component breakdown.") }}
+          {{ _("Does not remove Downside Risk BLOCK / WATCH / PASS. High Rising Score can still be AUTO BLOCKED by Downside Risk. Shown on Research → Rising Now (sortable); hover Rising for component breakdown.") }}
         </p>
       </div>
       <div class="legend-col">
         <strong>{{ _("Sector Rotation (Research) — market-context layer") }}</strong>
         <p class="hint" style="text-align:left;margin:0 0 6px">
-          {{ _("Answers: which GICS sectors are becoming stronger or weaker. Not a Buy/Sell signal. Does not place orders or change Rising / Strong / Knife rules.") }}
+          {{ _("Answers: which GICS sectors are becoming stronger or weaker. Not a Buy/Sell signal. Does not place orders or change Rising / Strong / Downside Risk rules.") }}
         </p>
         <ul style="columns:1">
           <li>{{ _("Universe") }} — {{ _("11 GICS sectors via existing sector→ETF map (XLK / XLF / XLV / …)") }}</li>
@@ -1303,33 +1303,25 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
       <p>If consistent profits can be achieved by going LONG, prefer LONG positions whenever reasonable.</p>
       {% endif %}
     </aside>
+    {% set sw = short_watch_meta if short_watch_meta is defined else {} %}
     <p class="hint" style="margin:0 0 10px;text-align:left">
-      {{ _('SHORT pool — ETF / index / leveraged + stable stocks. Same quotes as My Watchlist; ALERT not enabled yet. Funds/ETFs skip Financial & News; KO/PEP/WMT/MCD/PG/JNJ/JPM still load them.') }}
+      {{ _('SHORT WATCH — Dist25 Top % of the broad stock universe (dynamic). High position only — not a short signal. Timing / paper short lives on AI Trading → Short Sell.') }}
+      {% if sw.eligible_n %}
+        · {{ _('eligible') }} {{ sw.eligible_n }}
+        → {{ _('Top') }} {{ sw.top_pct or 1 }}%
+        → {{ sw.watch_n or (short_list|length) }}
+        {% if sw.cutoff_dist25 is not none %} · Dist25≥{{ '%+.1f'|format(sw.cutoff_dist25) }}%{% endif %}
+      {% endif %}
+      · <a href="{{ url_for('ai_trading', tab='short_sell') }}">{{ _('AI Trading · Short Sell') }}</a>
     </p>
-    {% if can_edit_pool|default(can_edit_mine|default(false)) %}
-    <form class="temp-form" method="post" action="{{ url_for('watchlist', tab='short') }}" style="margin-bottom:8px">
-      <input type="hidden" name="action" value="add_short">
-      <input type="hidden" name="next_tab" value="short">
-      <input type="text" name="pool_tickers" placeholder="{{ _('Add tickers, comma-separated') }}" required>
-      <button class="btn primary" type="submit">{{ _('Add to SHORT') }}</button>
-    </form>
     <p class="hint" style="margin:0 0 12px;text-align:left">
-      {{ _("Current list:") }}
+      {{ _('Current Top % list (Dist25 DESC):') }}
       {% for t in short_list|default([]) %}
-        <form method="post" action="{{ url_for('watchlist', tab='short') }}" style="display:inline;margin:0 6px 4px 0">
-          <input type="hidden" name="action" value="remove_short">
-          <input type="hidden" name="ticker" value="{{ t }}">
-          <button class="btn" type="submit" title="{{ _('Remove from SHORT') }} {{ t }}" style="padding:2px 8px;font-size:0.85rem">{{ t }} ×</button>
-        </form>
+        <span class="btn" style="padding:2px 8px;font-size:0.85rem;pointer-events:none;margin:0 4px 4px 0">{{ t }}</span>
       {% else %}
-        {{ _("(empty)") }}
+        {{ _('(empty — refresh dashboard Dist25 / prices)') }}
       {% endfor %}
     </p>
-    {% else %}
-    <p class="hint" style="margin:0 0 12px">{{ _('Sign in to edit SHORT.') }}
-      <a href="{{ url_for('owner_login', next=url_for('watchlist', tab='short')) }}">{{ _("Sign in") }}</a>
-    </p>
-    {% endif %}
   {% endif %}
 
   {% if tab == 'ndx100' %}
@@ -1397,7 +1389,7 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     {% set thr = cr.thresholds or {} %}
     <div class="paper-banner" style="background:#f0fdf4;border-color:#86efac;color:#14532d;margin-bottom:12px">
       <strong>{{ _('CORE UNIVERSE FILTER') }}</strong> —
-      {{ _('Deterministic PASS/FAIL · no LLM ranking · no short-term Rising/Knife/SMA25') }}
+      {{ _('Deterministic PASS/FAIL · no LLM ranking · no short-term Rising/Downside Risk/SMA25') }}
       {% if cr.as_of %} · {{ _('As of') }} {{ cr.as_of }}{% endif %}
       {% if cr.built_at %} · {{ cr.built_at|format_ui_datetime }}{% endif %}
     </div>

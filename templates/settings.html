@@ -98,14 +98,16 @@
             {'strategy_id':'DEEP_RECOVERY','name':'Deep Recovery','short':'DEEP RECOVERY','side':'long','stop_loss_pct':5.0,'take_profit_pct':10.0},
             {'strategy_id':'STABLE_GROWTH','name':'Stable Growth','short':'STABLE GROWTH','side':'long','stop_loss_pct':3.0,'take_profit_pct': none},
             {'strategy_id':'SAFE_MARGIN','name':'Safe Margin','short':'SAFE MARGIN','side':'long','stop_loss_pct':10.0,'take_profit_pct': none},
-            {'strategy_id':'SHORT_SELL','name':'Short Sell','short':'SHORT SELL','side':'short','stop_loss_pct':3.0,'take_profit_pct':6.0}
+            {'strategy_id':'SHORT_SELL','name':'Short Sell','short':'SHORT SELL','side':'short','stop_loss_pct':3.0,'take_profit_pct': none},
+            {'strategy_id':'MOMENTUM','name':'Momentum','short':'MOMENTUM','side':'both','stop_loss_pct':1.0,'take_profit_pct': none}
           ] %}
           {% set name_zh = {
             'Alert Buy': '警报买入',
             'Deep Recovery': '深度反弹',
             'Stable Growth': '稳健增长',
             'Safe Margin': '安全边际',
-            'Short Sell': '做空'
+            'Short Sell': '做空',
+            'Momentum': '动量'
           } %}
           {% for row in exit_rows %}
           <tr>

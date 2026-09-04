@@ -4,11 +4,9 @@ Deep Recovery — Alert Buy–style timing on Watchlist Oversold pullback.
 SOURCE = Watchlist 「Oversold pullback」 (Dist% < −10%), same sort as that tab:
   Trend UP > MIXED > DOWN, then deepest Dist% first.
 FILTER = take top TOP_N (default 15 — middle of Owner's 10–20 band).
-RANK / BLOCK / READY = same Dist + Recovery + gate rules as Alert Buy.
-
-Hypothesis: mid/small names with deep SMA25 discounts can rebound hard;
-quality is weaker than MY∪NDX∪AI, so expect more KNIFE/DATA BLOCKs —
-keep gates honest; do not loosen Knife for this experiment.
+READY = Financial PASS (≥60%) + News PASS only (same as Alert Buy v3).
+HIGH / Downside Risk / Recovery·Buy scores are display-only — do not gate Status.
+Primary rank remains Dist SMA25 ASC. 5D + LIVE are observational (Yahoo LIVE).
 """
 
 from __future__ import annotations
@@ -17,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ai_buy import (
+    attach_news_fin_eligibility,
     compute_buy_score,
     compute_recovery_score,
     eval_blocks,
@@ -31,6 +30,7 @@ from strategies import STRATEGY_DEEP_RECOVERY, assign_primary_ranks, cap_categor
 # that the queue stays actionable (paper ladder still only fills ~6 slots).
 TOP_N = 15
 DIST_THRESHOLD = -10.0
+DEEP_RECOVERY_RULES_VERSION = "v3_news_fin_only"
 
 META_AS_OF = "deep_recovery_as_of"
 META_BUILT = "deep_recovery_built_at"
@@ -112,6 +112,20 @@ def build_deep_recovery_snapshot(
         except Exception:
             for r in rows:
                 r.setdefault("rising", None)
+        try:
+            from session_moves import attach_session_moves
+
+            attach_session_moves(rows, include_live=True)
+        except Exception:
+            for r in rows:
+                r.setdefault("day_pcts_5", None)
+                r.setdefault("live_pct", None)
+        try:
+            attach_news_fin_eligibility(rows)
+        except Exception:
+            for r in rows:
+                r.setdefault("financial_status", "FAIL")
+                r.setdefault("news_status", r.get("news_status") or "PASS")
 
     out: list[dict[str, Any]] = []
     counts = {
@@ -136,13 +150,14 @@ def build_deep_recovery_snapshot(
             r.setdefault("data_block", False)
             r.setdefault("data_quality_status", "WARNING")
 
-        blocks = eval_blocks(r)
+        # Eligibility = News PASS + Fin PASS only.
+        blocks = eval_blocks(r, downside_risk_blocks=False)
         r.update(blocks)
 
         ps, zone = price_score_from_dist(r.get("dist_pct"))
         r["price_score"] = ps
         r["price_zone"] = zone
-        rec = compute_recovery_score(r)
+        rec = compute_recovery_score(r, use_downside_risk=False)
         r["recovery_score"] = rec
         if blocks["buy_allowed"]:
             bs = compute_buy_score(price_score=ps, recovery_score=rec)
@@ -221,9 +236,11 @@ def build_deep_recovery_snapshot(
         "rows": out,
         "definition": "oversold_pullback_top_n",
         "strategy_id": STRATEGY_DEEP_RECOVERY,
+        "rules_version": DEEP_RECOVERY_RULES_VERSION,
         "notes": (
             f"Top {int(top_n or TOP_N)} of Oversold pullback "
-            f"(pool {pool_count}). Mid/small bias · same BLOCK gates as Alert Buy."
+            f"(pool {pool_count}). Dist ASC · READY = Fin≥60% + News PASS · "
+            f"HIGH/Knife/scores display-only · 5D/LIVE observational."
         ),
     }
 

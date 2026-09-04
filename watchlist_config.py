@@ -162,9 +162,17 @@ def collect_watchlist_tickers(temp_tickers: Iterable[str] | None = None) -> list
     except Exception:
         pass
     try:
-        pools.extend(get_short_watchlist())
+        from short_sell import select_short_watch
+
+        pools.extend(
+            (r.get("ticker") or "")
+            for r in (select_short_watch().get("rows") or [])
+        )
     except Exception:
-        pools.extend(DEFAULT_SHORT_WATCHLIST)
+        try:
+            pools.extend(get_short_watchlist())
+        except Exception:
+            pools.extend(DEFAULT_SHORT_WATCHLIST)
     if temp_tickers:
         pools.extend(temp_tickers)
     for t in pools:
@@ -296,6 +304,16 @@ _SHORT_DEFAULT_FUNDS = frozenset(
 
 SETTING_GROWTH = "wl_pool_growth"
 SETTING_SHORT = "wl_pool_short"
+SETTING_MOMENTUM = "wl_pool_momentum"
+
+# Initial MOMENTUM pool — editable; not hard-wired into scoring.
+DEFAULT_MOMENTUM_WATCHLIST = [
+    "META",
+    "DELL",
+    "NVDA",
+    "TSLA",
+    "PLTR",
+]
 
 
 def _parse_ticker_list(raw: Any) -> list[str]:
@@ -348,7 +366,13 @@ def remove_growth_watchlist_ticker(ticker: str) -> list[str]:
 
 
 def get_short_watchlist() -> list[str]:
-    """SHORT pool — seeds curated ETF/stable list once when unset."""
+    """
+    Legacy curated ETF/stable sleeve (settings key wl_pool_short).
+
+    Watchlist → Short and AI Trading → Short Sell now use Dist25 Top %
+    via short_sell.select_short_watch(). Kept for backward-compatible
+    settings / rare callers only.
+    """
     from db import get_setting, set_setting
 
     raw = get_setting(SETTING_SHORT, None)
@@ -380,6 +404,42 @@ def add_short_watchlist_ticker(ticker: str) -> list[str]:
 def remove_short_watchlist_ticker(ticker: str) -> list[str]:
     t = (ticker or "").strip().upper()
     return set_short_watchlist([x for x in get_short_watchlist() if x != t])
+
+
+def get_momentum_watchlist() -> list[str]:
+    """MOMENTUM pool — seeds META/DELL/NVDA/TSLA/PLTR when unset or empty."""
+    from db import get_setting, set_setting
+
+    raw = get_setting(SETTING_MOMENTUM, None)
+    parsed = _parse_ticker_list(raw) if isinstance(raw, list) else []
+    if raw is None or not parsed:
+        seed = list(DEFAULT_MOMENTUM_WATCHLIST)
+        set_setting(SETTING_MOMENTUM, seed)
+        return seed
+    return parsed
+
+
+def set_momentum_watchlist(tickers: Iterable[str]) -> list[str]:
+    from db import set_setting
+
+    out = _parse_ticker_list(list(tickers))
+    set_setting(SETTING_MOMENTUM, out)
+    return out
+
+
+def add_momentum_watchlist_ticker(ticker: str) -> list[str]:
+    t = (ticker or "").strip().upper()
+    if not validate_ticker_token(t):
+        raise ValueError("invalid ticker")
+    cur = get_momentum_watchlist()
+    if t not in cur:
+        cur.append(t)
+    return set_momentum_watchlist(cur)
+
+
+def remove_momentum_watchlist_ticker(ticker: str) -> list[str]:
+    t = (ticker or "").strip().upper()
+    return set_momentum_watchlist([x for x in get_momentum_watchlist() if x != t])
 
 
 def is_fund_like(ticker: str, row: dict | None = None) -> bool:

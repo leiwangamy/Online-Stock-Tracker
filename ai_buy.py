@@ -9,6 +9,11 @@ V1 pool (Owner definition):
 PRICE = opportunity. BLOCK = permission.
 CORE SCORE is informational only — never merged into BUY SCORE.
 No auto real orders in V1.
+
+Rules version note (Alert Buy):
+  v3_news_fin_only — READY when Financial Pass (≥60%) and News Pass
+  (PASS / POSITIVE / NEUTRAL). HIGH / Downside Risk / Recovery·Buy scores
+  do not gate Status. Dist SMA25 ASC ranking unchanged. 5D + LIVE observational.
 """
 
 from __future__ import annotations
@@ -28,7 +33,11 @@ from db import (
 from watchlist_config import get_my_watchlist
 
 META_BUY_AS_OF = "ai_buy_as_of"
+ALERT_BUY_RULES_VERSION = "v3_news_fin_only"
 META_BUY_BUILT = "ai_buy_built_at"
+
+# News column PASS (and analyzed non-negative tones) = 过关.
+_NEWS_PASS_STATUSES = frozenset({"PASS", "POSITIVE", "NEUTRAL", "NO_NEWS", "NONE"})
 
 # Watchlist SMA Alert states that mean "marked for buy consideration"
 # Dist bands: WATCH / LOW / DEEP / EXTREME (+ legacy ALERT alias of LOW)
@@ -101,10 +110,14 @@ def price_score_from_dist(dist_pct: float | None) -> tuple[int | None, str | Non
     return _price_score_continuous(d), _zone_from_dist(d)
 
 
-def compute_recovery_score(row: dict[str, Any]) -> int:
+def compute_recovery_score(
+    row: dict[str, Any], *, use_downside_risk: bool = True
+) -> int:
     """
     Timing confirmation after price enters ALERT/DEEP zones.
-    V1 heuristic from available fields (Rising / Knife / short rebound).
+    V1 heuristic from available fields (Rising / Downside Risk / short rebound).
+
+    use_downside_risk=False → Downside Risk is display-only (Alert Buy / Deep Recovery).
     """
     score = 40
     if row.get("in_rising"):
@@ -112,13 +125,14 @@ def compute_recovery_score(row: dict[str, Any]) -> int:
     rs = (row.get("rising") or {}).get("score") if isinstance(row.get("rising"), dict) else row.get("rising_score")
     if rs is not None:
         score += min(20, int(float(rs) / 5))
-    knife = row.get("knife_score")
-    if knife is not None:
-        k = float(knife)
-        if k < 25:
-            score += 15
-        elif k >= 45:
-            score -= 25
+    if use_downside_risk:
+        knife = row.get("knife_score")
+        if knife is not None:
+            k = float(knife)
+            if k < 25:
+                score += 15
+            elif k >= 45:
+                score -= 25
     reb = row.get("rebound_pct")
     if reb is not None and float(reb) > 0:
         score += min(15, int(float(reb)))
@@ -137,11 +151,55 @@ def compute_buy_score(*, price_score: int | None, recovery_score: int | None) ->
     return int(round(_clamp(raw)))
 
 
-def eval_blocks(row: dict[str, Any]) -> dict[str, Any]:
+def attach_news_fin_eligibility(rows: list[dict[str, Any]]) -> None:
+    """Attach cached Financial + News onto rows (no network). Sets PASS/FAIL fields."""
+    from market_data import (
+        fund_pass_rate,
+        fund_qualifies_for_news,
+        get_fund_cached_only,
+        get_news_cached_only,
+    )
+
+    tickers: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        t = (r.get("ticker") or "").strip().upper()
+        if t and t not in seen:
+            seen.add(t)
+            tickers.append(t)
+    if not tickers:
+        return
+    fund_map = get_fund_cached_only(tickers)
+    news_map = get_news_cached_only(tickers)
+    for r in rows:
+        t = (r.get("ticker") or "").strip().upper()
+        fund = fund_map.get(t)
+        rate = fund_pass_rate(fund)
+        r["financial_pass_rate"] = rate
+        fin_ok = fund_qualifies_for_news(fund)
+        r["financial_status"] = "PASS" if fin_ok else "FAIL"
+        nw = news_map.get(t)
+        if isinstance(nw, dict) and nw.get("status"):
+            r["news_status"] = str(nw.get("status") or "PASS").upper()
+        elif not fin_ok:
+            r["news_status"] = "SKIPPED"
+        else:
+            # Fin passed and no cached news analysis yet — existing PASS column.
+            r["news_status"] = (r.get("news_status") or "PASS").upper()
+
+
+def eval_blocks(
+    row: dict[str, Any], *, downside_risk_blocks: bool = True
+) -> dict[str, Any]:
     """Hard gates — never soft-subtract into a still-allowed buy.
 
     DATA quality is Admin diagnostics only — never a Status BLOCK.
-    Trading BLOCK = HIGH / Knife / News (and strategy gates elsewhere).
+
+    downside_risk_blocks=False (Alert Buy / Deep Recovery):
+      buy_allowed = Financial PASS (≥60%) AND News PASS only.
+      HIGH / Knife are computed for display but do not BLOCK Status.
+    downside_risk_blocks=True (e.g. Stable Growth):
+      Trading BLOCK = HIGH / Knife / News.
     """
     # Attach quality labels for Admin DATA column; do not gate buy_allowed.
     if row.get("data_quality_status") is None:
@@ -163,21 +221,45 @@ def eval_blocks(row: dict[str, Any]) -> dict[str, Any]:
     knife = row.get("knife_score")
     if knife is None and isinstance(row.get("knife"), dict):
         knife = row["knife"].get("score")
-    knife_block = knife is not None and float(knife) >= 45
+    knife_block = bool(
+        downside_risk_blocks and knife is not None and float(knife) >= 45
+    )
     news_status = (row.get("news_status") or "PASS").upper()
-    news_block = news_status in ("BLOCK", "BLOCKED")
-    buy_allowed = not (high_block or knife_block or news_block)
-    reasons = []
-    if high_block:
-        reasons.append("HIGH")
-    if knife_block:
-        reasons.append("KNIFE")
-    if news_block:
-        reasons.append("NEWS")
+    news_block = news_status not in _NEWS_PASS_STATUSES
+    fin_status = (row.get("financial_status") or "").upper()
+    if fin_status:
+        fin_block = fin_status != "PASS"
+    elif row.get("financial_pass_rate") is not None:
+        try:
+            fin_block = float(row["financial_pass_rate"]) < 0.60
+        except (TypeError, ValueError):
+            fin_block = True
+    else:
+        # Not attached yet — do not invent FAIL for strategies that skip attach.
+        fin_block = False
+
+    if not downside_risk_blocks:
+        # Alert Buy / Pull Back: News + Financial only.
+        buy_allowed = not (news_block or fin_block)
+        reasons = []
+        if fin_block:
+            reasons.append("FIN")
+        if news_block:
+            reasons.append("NEWS")
+    else:
+        buy_allowed = not (high_block or knife_block or news_block)
+        reasons = []
+        if high_block:
+            reasons.append("HIGH")
+        if knife_block:
+            reasons.append("DOWNSIDE")
+        if news_block:
+            reasons.append("NEWS")
     return {
         "high_block": high_block,
         "knife_block": knife_block,
         "news_block": news_block,
+        "fin_block": fin_block,
         "data_block": data_block,  # diagnostic flag only — not a Status BLOCK
         "buy_allowed": buy_allowed,
         "block_reasons": reasons,
@@ -212,32 +294,22 @@ def derive_buy_status(
 def timing_status_without_hold(
     *,
     buy_allowed: bool,
-    price_zone: str | None,
-    buy_score: int | None,
-    recovery_score: int | None,
+    price_zone: str | None = None,
+    buy_score: int | None = None,
+    recovery_score: int | None = None,
     review_flag: bool = False,
 ) -> str:
-    """Buy timing status as if the ticker were not already held (READY / …)."""
+    """
+    Buy timing for Alert Buy / Deep Recovery (Pull Back).
+
+    READY ↔ Financial PASS + News PASS (buy_allowed).
+    Recovery / Buy scores and Dist zone are display-only — not Status gates.
+    """
     if review_flag:
         return "REVIEW"
     if not buy_allowed:
         return "BLOCKED"
-    zone = (price_zone or "WAIT").upper()
-    rec = recovery_score if recovery_score is not None else 0
-    bs = buy_score if buy_score is not None else 0
-    if zone in ("GOOD", "DEEP", "VERY_DEEP", "EXTREME", "WATCH", "ALERT") and rec >= 55 and bs >= 55:
-        if zone not in ("WATCH", "ALERT") and rec >= 60 and bs >= 60:
-            return "READY"
-        if zone in ("WATCH", "ALERT") and rec >= 65 and bs >= 62:
-            return "READY"
-        return "STABILIZING"
-    if zone in ("WATCH", "ALERT", "GOOD", "DEEP", "VERY_DEEP", "EXTREME"):
-        if rec >= 45:
-            return "STABILIZING"
-        return "APPROACHING"
-    if zone == "HIGH":
-        return "WAIT"
-    return "WAIT"
+    return "READY"
 
 
 def status_emoji(status: str | None) -> str:
@@ -321,6 +393,7 @@ def build_ai_buy_snapshot(*, persist: bool = True) -> dict[str, Any]:
     from rising_now import list_rising_now
     from knife_risk import attach_knife_risk, ensure_benchmark_returns
     from rising_score import attach_rising_score
+    from session_moves import attach_session_moves
 
     mine_set = {t.strip().upper() for t in get_my_watchlist() if t}
     ndx_set = set(ndx100_tickers())
@@ -387,6 +460,19 @@ def build_ai_buy_snapshot(*, persist: bool = True) -> dict[str, Any]:
         except Exception:
             for r in rows:
                 r.setdefault("rising", None)
+        try:
+            # Yahoo default for LIVE; daily_bars (+ Yahoo fallback) for 5D.
+            attach_session_moves(rows, include_live=True)
+        except Exception:
+            for r in rows:
+                r.setdefault("day_pcts_5", None)
+                r.setdefault("live_pct", None)
+        try:
+            attach_news_fin_eligibility(rows)
+        except Exception:
+            for r in rows:
+                r.setdefault("financial_status", "FAIL")
+                r.setdefault("news_status", r.get("news_status") or "PASS")
 
     out: list[dict[str, Any]] = []
     counts = {
@@ -414,13 +500,14 @@ def build_ai_buy_snapshot(*, persist: bool = True) -> dict[str, Any]:
             r.setdefault("data_block", False)
             r.setdefault("data_quality_status", "WARNING")
 
-        blocks = eval_blocks(r)
+        # Eligibility = News PASS + Fin PASS only (scores / HIGH display-only).
+        blocks = eval_blocks(r, downside_risk_blocks=False)
         r.update(blocks)
 
         ps, zone = price_score_from_dist(r.get("dist_pct"))
         r["price_score"] = ps
         r["price_zone"] = zone
-        rec = compute_recovery_score(r)
+        rec = compute_recovery_score(r, use_downside_risk=False)
         r["recovery_score"] = rec
         if blocks["buy_allowed"]:
             bs = compute_buy_score(price_score=ps, recovery_score=rec)
@@ -507,6 +594,7 @@ def build_ai_buy_snapshot(*, persist: bool = True) -> dict[str, Any]:
         "counts": counts,
         "rows": out,
         "definition": "my_ndx_ai_approved_sma_alert",
+        "rules_version": ALERT_BUY_RULES_VERSION,
     }
 
 
@@ -625,6 +713,7 @@ def load_ai_buy_view(*, recompute: bool = True) -> dict[str, Any]:
         "rows": out,
         "from_cache": True,
         "definition": "my_ndx_ai_approved_sma_alert",
+        "rules_version": ALERT_BUY_RULES_VERSION,
     }
 
 

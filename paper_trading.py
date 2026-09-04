@@ -100,7 +100,8 @@ STRATEGY_EXIT_DEFAULTS: dict[str, dict[str, float | None]] = {
     "DEEP_RECOVERY": {"stop": 5.0, "take": 10.0},
     "STABLE_GROWTH": {"stop": 3.0, "take": None},
     "SAFE_MARGIN": {"stop": 10.0, "take": None},
-    "SHORT_SELL": {"stop": 3.0, "take": 6.0},
+    "SHORT_SELL": {"stop": 3.0, "take": None},
+    "MOMENTUM": {"stop": 1.0, "take": None},
 }
 
 
@@ -986,6 +987,37 @@ def _trade_side(tr: dict[str, Any] | None) -> str:
     return "short" if side == "short" else "long"
 
 
+def _unrealized_mark(
+    entry: float,
+    px: float,
+    shares: float,
+    *,
+    side: str = "long",
+) -> tuple[float, float, float]:
+    """
+    Mark-to-market for an open paper trade.
+
+    Returns (market_value, unrealized_pnl, unrealized_pnl_pct).
+
+    Long:  upnl = (px − entry) × shares ; MV = px × shares
+    Short: upnl = (entry − px) × shares ; MV = cost + upnl
+           (price down → profit for shorts)
+    """
+    entry_f = float(entry)
+    px_f = float(px)
+    sh = float(shares)
+    cost = entry_f * sh
+    if (side or "long").strip().lower() == "short":
+        upnl = round((entry_f - px_f) * sh, 4)
+        upct = round((entry_f - px_f) / entry_f * 100.0, 4) if entry_f else 0.0
+        mv = round(cost + upnl, 4)
+    else:
+        mv = round(px_f * sh, 4)
+        upnl = round((px_f - entry_f) * sh, 4)
+        upct = round((px_f - entry_f) / entry_f * 100.0, 4) if entry_f else 0.0
+    return mv, upnl, upct
+
+
 def get_level_overrides(
     tickers: list[str] | None = None,
 ) -> dict[str, dict[str, float | None]]:
@@ -1405,7 +1437,7 @@ def _score_universe_rows() -> list[dict[str, Any]]:
 def _ai_auto_eligible_ranked() -> list[dict[str, Any]]:
     """
     Full Auto-eligible universe, ranked for trading:
-      price-location OR → Knife AUTO BLOCK → Priority then AI Score.
+      price-location OR → Downside Risk AUTO BLOCK → Priority then AI Score.
     Not truncated to TOP_N (caller decides how many to keep / buy).
     """
     from knife_risk import knife_auto_blocked
@@ -1440,7 +1472,7 @@ def build_candidates(*, as_of_date: str | None = None, persist: bool = True) -> 
     Flow:
       Research universe (unchanged broader screens)
       → price-location OR gate (SMA25 / Target Ratio / 63D — any one)
-      → Knife Risk AUTO BLOCK (unchanged, independent hard gate)
+      → Downside Risk AUTO BLOCK (unchanged, independent hard gate)
       → rank by AI Score; take up to TOP_N (0 → NO TRADE / empty list)
     """
     cfg = _cfg()
@@ -1760,11 +1792,17 @@ def annotate_open_trade_levels(tr: dict[str, Any]) -> dict[str, Any]:
         take_pct = float(cfg["take_profit_pct"])
     tr["take_profit_pct"] = take_pct
     if entry is not None and entry > 0:
-        d_stop, d_take = stop_take_prices(entry, stop_pct, take_pct)
+        if is_short:
+            d_stop = round(entry * (1.0 + stop_pct / 100.0), 2)
+            d_take = round(entry * (1.0 - take_pct / 100.0), 2)
+        else:
+            d_stop, d_take = stop_take_prices(entry, stop_pct, take_pct)
+            d_stop = None if d_stop is None else round(float(d_stop), 2)
+            d_take = None if d_take is None else round(float(d_take), 2)
     else:
         d_stop = d_take = None
-    tr["default_stop"] = None if d_stop is None else round(float(d_stop), 2)
-    tr["default_take"] = None if d_take is None else round(float(d_take), 2)
+    tr["default_stop"] = d_stop
+    tr["default_take"] = d_take
     try:
         cur_stop = float(tr["stop_price"]) if tr.get("stop_price") is not None else None
     except (TypeError, ValueError):
@@ -1795,13 +1833,37 @@ def annotate_open_trade_levels(tr: dict[str, Any]) -> dict[str, Any]:
         )
         else "default"
     )
-    tr.update(risk_reward_metrics(entry, cur_stop, cur_take))
-    tr["levels_valid"] = (
-        entry is not None
-        and cur_stop is not None
-        and cur_take is not None
-        and validate_long_levels(entry, cur_stop, cur_take) is None
-    )
+    if is_short:
+        risk = (
+            round((cur_stop - entry) / entry * 100.0, 2)
+            if entry is not None and cur_stop is not None and entry > 0
+            else None
+        )
+        reward = (
+            round((entry - cur_take) / entry * 100.0, 2)
+            if entry is not None and cur_take is not None and entry > 0
+            else None
+        )
+        rr = None
+        if risk is not None and reward is not None and risk > 0:
+            rr = round(reward / risk, 2)
+        tr["stop_risk_pct"] = risk
+        tr["reward_pct"] = reward
+        tr["rr_ratio"] = rr
+        tr["levels_valid"] = (
+            entry is not None
+            and cur_stop is not None
+            and cur_take is not None
+            and validate_short_levels(entry, cur_stop, cur_take) is None
+        )
+    else:
+        tr.update(risk_reward_metrics(entry, cur_stop, cur_take))
+        tr["levels_valid"] = (
+            entry is not None
+            and cur_stop is not None
+            and cur_take is not None
+            and validate_long_levels(entry, cur_stop, cur_take) is None
+        )
     return tr
 
 
@@ -1868,9 +1930,9 @@ def update_open_trade_shares(trade_id: int, shares: float) -> dict[str, Any]:
             )
         except (TypeError, ValueError):
             current = entry
-        mv = round(current * new_shares, 4)
-        upnl = round((current - entry) * new_shares, 4)
-        upct = round((current - entry) / entry * 100.0, 4) if entry else 0.0
+        mv, upnl, upct = _unrealized_mark(
+            entry, current, new_shares, side=_trade_side(tr)
+        )
         now = _utc_now_iso()
         conn.execute(
             """
@@ -2128,26 +2190,29 @@ def create_paper_orders_from_candidates(
     return {"created": created, "skipped": skipped, "cash": cash, "invested": invested}
 
 
-# AI BUY statuses eligible for paper allocation / auto-replace after exits.
-AI_BUY_TRADE_STATUSES = frozenset({"READY", "STABILIZING"})
+# Alert Buy / Deep Recovery: only READY is paper-tradeable (STABILIZING retired).
+AI_BUY_TRADE_STATUSES = frozenset({"READY"})
 
 
 def create_paper_orders_from_ai_buy(
     *, as_of_date: str | None = None
 ) -> dict[str, Any]:
     """
-    Create simulated open positions from AI BUY READY + STABILIZING names.
+    Create simulated open positions from AI BUY READY names.
 
     Same ladder as legacy Create Paper Orders: ALLOC_LADDER top→bottom,
     cash / trading-limit gates, Settings stop/take % (or Admin level overrides).
+    Booked to ALERT_BUY strategy capital (independent of other strategies).
     Does not place real brokerage orders.
-    Skips tickers already open. Prefers never-traded names, then allows re-entry.
+    Skips tickers already open on this book. Prefers never-traded names, then re-entry.
     """
     from ai_buy import build_ai_buy_snapshot
+    from strategies import STRATEGY_ALERT_BUY
 
     day = as_of_date or trading_day_pt()
+    ensure_strategy_accounts()
     snap = build_ai_buy_snapshot(persist=True)
-    # Eligible = READY / STABILIZING timing. DATA quality is Admin-only (not a skip).
+    # Eligible = READY only. DATA quality is Admin-only (not a skip).
     trade_rows = []
     for r in snap.get("rows") or []:
         status = (r.get("buy_status") or "").upper()
@@ -2160,8 +2225,11 @@ def create_paper_orders_from_ai_buy(
 
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    open_tickers = {t["ticker"].upper() for t in list_open_trades()}
-    ever = _ever_traded_tickers()
+    open_tickers = {
+        t["ticker"].upper()
+        for t in list_open_trades(strategy_id=STRATEGY_ALERT_BUY)
+    }
+    ever = _ever_traded_tickers(strategy_id=STRATEGY_ALERT_BUY)
 
     # Prefer never-used names; then allow previously traded if cash still available.
     fresh = [r for r in trade_rows if (r.get("ticker") or "").upper() not in ever]
@@ -2245,6 +2313,7 @@ def create_paper_orders_from_ai_buy(
                 as_of_date=day,
                 target_usd=float(target),
                 rank_at_entry=ladder_i + 1,
+                strategy_id=STRATEGY_ALERT_BUY,
             )
             out["via"] = "ai_buy"
             out["buy_status"] = (r.get("buy_status") or "").upper()
@@ -2268,9 +2337,9 @@ def create_paper_orders_from_ai_buy(
 
     now = _utc_now_iso()
     set_setting("paper_last_order_at", now)
-    port = ensure_portfolio()
-    cash = float(port["cash"])
-    invested = sum_open_invested()
+    acct = get_strategy_account(STRATEGY_ALERT_BUY)
+    cash = float(acct.get("cash") or 0)
+    invested = sum_open_invested(strategy_id=STRATEGY_ALERT_BUY)
     try:
         save_equity_snapshot(as_of_date=day)
     except Exception:
@@ -2283,6 +2352,7 @@ def create_paper_orders_from_ai_buy(
         "universe_count": snap.get("universe_count", 0),
         "pool_count": snap.get("pool_count", 0),
         "counts": snap.get("counts") or {},
+        "strategy_id": STRATEGY_ALERT_BUY,
         "ready_count": sum(
             1
             for r in trade_rows
@@ -2302,7 +2372,7 @@ def create_paper_orders_from_deep_recovery(
     *, as_of_date: str | None = None
 ) -> dict[str, Any]:
     """
-    Paper orders for Deep Recovery — same READY/STABILIZING ladder as Alert Buy,
+    Paper orders for Deep Recovery — READY-only ladder (STABILIZING retired),
     booked to DEEP_RECOVERY strategy capital (independent of Alert Buy cash).
     """
     from deep_recovery import build_deep_recovery_snapshot
@@ -2326,7 +2396,7 @@ def create_paper_orders_from_deep_recovery(
     open_tickers = {
         t["ticker"].upper() for t in list_open_trades(strategy_id=STRATEGY_DEEP_RECOVERY)
     }
-    ever = _ever_traded_tickers()
+    ever = _ever_traded_tickers(strategy_id=STRATEGY_DEEP_RECOVERY)
     fresh = [r for r in trade_rows if (r.get("ticker") or "").upper() not in ever]
     reused = [r for r in trade_rows if (r.get("ticker") or "").upper() in ever]
     ordered = fresh + reused
@@ -2853,24 +2923,45 @@ def create_paper_orders_from_short_sell(
     *, as_of_date: str | None = None
 ) -> dict[str, Any]:
     """
-    Paper SELL SHORT orders — Dist DESC SHORT queue, SHORT_SELL book.
-    Cover stop +3% · Take Profit −6% (fixed from entry).
+    Paper SELL SHORT experiment on SHORT WATCH names with DOWN momentum.
+
+    Eligibility: Dist25 Top % pool AND 5D TOTAL < 0 (status DOWN).
+    Experimental rank among DOWN: 5D TOTAL ASC (most negative first).
+    Cover stop +3%; no Take Profit.
     """
-    from short_sell import build_short_sell_snapshot
+    from short_sell import STOP_LOSS_PCT, build_short_sell_snapshot
     from strategies import STRATEGY_SHORT_SELL
 
     day = as_of_date or trading_day_pt()
     ensure_strategy_accounts()
-    sync_open_short_sell_exit_levels()
-    snap = build_short_sell_snapshot(persist=True)
+    # Do not sync-rewrite open covers on create — preserves existing open levels.
+    snap = build_short_sell_snapshot(persist=True, refresh_sessions=True)
     trade_rows = []
     for r in snap.get("rows") or []:
         status = (r.get("buy_status") or "").upper()
         if status == "HOLD":
-            status = (r.get("timing_status") or "").upper()
-        if status != "READY":
+            status = (r.get("timing_status") or r.get("short_status") or "").upper()
+        if status != "DOWN":
+            continue
+        if r.get("total_5d_pct") is None:
+            continue
+        try:
+            if float(r.get("total_5d_pct")) >= 0:
+                continue
+        except (TypeError, ValueError):
             continue
         trade_rows.append(r)
+
+    # Timing rank for the experiment only — discovery table stays Dist25 DESC.
+    trade_rows.sort(
+        key=lambda x: (
+            float(x["total_5d_pct"])
+            if x.get("total_5d_pct") is not None
+            else 0.0,
+            -(float(x["dist_pct"]) if x.get("dist_pct") is not None else 0.0),
+            x.get("ticker") or "",
+        )
+    )
 
     created: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -2909,8 +3000,8 @@ def create_paper_orders_from_short_sell(
         row = dict(r)
         row["price"] = price_f
         row["side"] = "short"
-        if row.get("ai_score") is None:
-            row["ai_score"] = row.get("buy_score") or row.get("setup_rank")
+        # Store 5D TOTAL in ai_score_entry for later analysis (not an AI score).
+        row["ai_score"] = r.get("total_5d_pct")
         if not row.get("source_codes"):
             row["source_codes"] = "SHORT_SELL"
         try:
@@ -2920,11 +3011,16 @@ def create_paper_orders_from_short_sell(
                 target_usd=float(target),
                 rank_at_entry=ladder_i + 1,
                 strategy_id=STRATEGY_SHORT_SELL,
+                stop_loss_pct=float(STOP_LOSS_PCT),
+                take_profit_pct=None,
+                no_take_profit=True,
                 trailing_stop=False,
                 side="short",
             )
             out["via"] = "short_sell"
-            out["buy_status"] = (r.get("buy_status") or "").upper()
+            out["buy_status"] = "DOWN"
+            out["total_5d_pct"] = r.get("total_5d_pct")
+            out["dist25"] = r.get("dist_pct")
             created.append(out)
             open_tickers.add(t)
         except ValueError as e:
@@ -2947,7 +3043,6 @@ def create_paper_orders_from_short_sell(
         save_equity_snapshot(as_of_date=day)
     except Exception:
         log.exception("equity snapshot after short_sell create_orders failed")
-    exits = get_strategy_exit_pcts(STRATEGY_SHORT_SELL)
     return {
         "created": created,
         "skipped": skipped,
@@ -2956,29 +3051,28 @@ def create_paper_orders_from_short_sell(
         "universe_count": snap.get("universe_count", 0),
         "pool_count": snap.get("pool_count", 0),
         "passed_count": snap.get("passed_count", 0),
+        "watch_count": snap.get("watch_count", 0),
+        "down_count": snap.get("down_count", 0),
         "counts": snap.get("counts") or {},
         "strategy_id": STRATEGY_SHORT_SELL,
-        "stop_loss_pct": exits["stop_loss_pct"],
+        "stop_loss_pct": float(STOP_LOSS_PCT),
         "trailing_stop": False,
-        "take_profit_pct": exits["take_profit_pct"],
+        "take_profit_pct": None,
         "side": "short",
     }
 
 
 def sync_open_short_sell_exit_levels() -> dict[str, Any]:
     """
-    Rebase open SHORT_SELL covers to fixed +SL% / −TP% from entry
+    Rebase open SHORT_SELL covers to fixed +SL% from entry (no Take Profit)
     and clear trailing-stop flags (strategy rule change helper).
     """
     from strategies import STRATEGY_SHORT_SELL
 
     exits = get_strategy_exit_pcts(STRATEGY_SHORT_SELL)
     stop_pct = float(exits["stop_loss_pct"])
-    take_pct = exits["take_profit_pct"]
-    if take_pct is None:
-        take_pct = float(STRATEGY_EXIT_DEFAULTS["SHORT_SELL"]["take"] or 6.0)
-    else:
-        take_pct = float(take_pct)
+    take_pct = exits["take_profit_pct"]  # None = stop-only
+    no_take = take_pct is None
 
     now = _utc_now_iso()
     updated: list[dict[str, Any]] = []
@@ -3001,7 +3095,13 @@ def sync_open_short_sell_exit_levels() -> dict[str, Any]:
             if entry <= 0:
                 continue
             stop = round(entry * (1.0 + stop_pct / 100.0), 4)
-            take = round(entry * (1.0 - take_pct / 100.0), 4)
+            # DB take_profit_price is NOT NULL — unreachable placeholder when stop-only.
+            if no_take:
+                take = round(entry * 0.01, 4)
+                store_take_pct = None
+            else:
+                take = round(entry * (1.0 - float(take_pct) / 100.0), 4)
+                store_take_pct = float(take_pct)
             conn.execute(
                 """
                 UPDATE paper_trades SET
@@ -3015,7 +3115,7 @@ def sync_open_short_sell_exit_levels() -> dict[str, Any]:
                     stop,
                     take,
                     stop_pct,
-                    take_pct,
+                    store_take_pct,
                     now,
                     int(r["id"]),
                 ),
@@ -3026,7 +3126,7 @@ def sync_open_short_sell_exit_levels() -> dict[str, Any]:
                     "ticker": (r["ticker"] or "").upper(),
                     "entry": entry,
                     "stop": stop,
-                    "take": take,
+                    "take": None if no_take else take,
                 }
             )
     return {
@@ -3150,10 +3250,208 @@ def auto_replace_short_sell_exits(
     }
 
 
+def create_paper_orders_from_momentum(
+    *, as_of_date: str | None = None, max_new: int = 0
+) -> dict[str, Any]:
+    """
+    Paper MOMENTUM continuation experiment.
+
+    Rank ABS(5D TOTAL) DESC.
+    +5D → LONG from the $750 long sleeve; −5D → SHORT from the $750 short sleeve.
+    Auto-split each sleeve across remaining names (ABS order) until cash /
+    sleeve / trading-limit room is used up. Skip names already open.
+    max_new<=0 → no cap on new opens this run.
+    """
+    from momentum import (
+        LONG_SLEEVE_USD,
+        SHORT_SLEEVE_USD,
+        STOP_LOSS_PCT,
+        build_momentum_snapshot,
+        record_momentum_trade_open,
+    )
+    from strategies import STRATEGY_MOMENTUM
+
+    day = as_of_date or trading_day_pt()
+    ensure_strategy_accounts()
+    snap = build_momentum_snapshot(persist=True, refresh_sessions=True)
+    # Snapshot rows are already ABS(5D) DESC.
+    trade_rows = [
+        r
+        for r in (snap.get("rows") or [])
+        if r.get("tradeable")
+        and (r.get("momentum_direction") or "").upper() in ("LONG", "SHORT")
+    ]
+
+    created: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    open_trades = list_open_trades(strategy_id=STRATEGY_MOMENTUM)
+    open_tickers = {(t.get("ticker") or "").upper() for t in open_trades}
+
+    def _side_invested(side: str) -> float:
+        s = (side or "long").strip().lower()
+        total = 0.0
+        for tr in open_trades:
+            if _trade_side(tr) == s:
+                try:
+                    total += float(tr.get("cost") or 0)
+                except (TypeError, ValueError):
+                    pass
+        return total
+
+    remaining_long = max(0.0, float(LONG_SLEEVE_USD) - _side_invested("long"))
+    remaining_short = max(0.0, float(SHORT_SLEEVE_USD) - _side_invested("short"))
+
+    # Candidates still available (not already open), keep ABS order.
+    pending_long = [
+        r
+        for r in trade_rows
+        if (r.get("momentum_direction") or "").upper() == "LONG"
+        and (r.get("ticker") or "").upper() not in open_tickers
+    ]
+    pending_short = [
+        r
+        for r in trade_rows
+        if (r.get("momentum_direction") or "").upper() == "SHORT"
+        and (r.get("ticker") or "").upper() not in open_tickers
+    ]
+    # ABS-ordered work queue (same order as trade_rows).
+    ordered = [
+        r
+        for r in trade_rows
+        if (r.get("ticker") or "").upper() not in open_tickers
+    ]
+
+    limit = max(0, int(max_new or 0))
+    long_left_n = len(pending_long)
+    short_left_n = len(pending_short)
+
+    for r in ordered:
+        if limit and len(created) >= limit:
+            break
+        t = str(r.get("ticker") or "").upper()
+        if not t:
+            continue
+        if t in open_tickers:
+            skipped.append({"ticker": t, "reason": "already_open"})
+            continue
+        direction = (r.get("momentum_direction") or "").upper()
+        if direction == "LONG":
+            if long_left_n <= 0 or remaining_long < 1.0:
+                skipped.append({"ticker": t, "reason": "long_sleeve_full"})
+                long_left_n = max(0, long_left_n - 1)
+                continue
+            target = remaining_long / float(long_left_n)
+            long_left_n -= 1
+            side = "long"
+        elif direction == "SHORT":
+            if short_left_n <= 0 or remaining_short < 1.0:
+                skipped.append({"ticker": t, "reason": "short_sleeve_full"})
+                short_left_n = max(0, short_left_n - 1)
+                continue
+            target = remaining_short / float(short_left_n)
+            short_left_n -= 1
+            side = "short"
+        else:
+            skipped.append({"ticker": t, "reason": "neutral"})
+            continue
+
+        if target < 25.0:
+            skipped.append(
+                {
+                    "ticker": t,
+                    "reason": "no_allocation",
+                    "detail": f"sleeve remainder ${target:.2f}",
+                }
+            )
+            continue
+        try:
+            price_f = float(r.get("price") or 0)
+        except (TypeError, ValueError):
+            price_f = 0.0
+        if price_f <= 0:
+            skipped.append({"ticker": t, "reason": "no_allocation", "detail": "no price"})
+            continue
+
+        row = dict(r)
+        row["price"] = price_f
+        row["side"] = side
+        row["source_codes"] = "MOMENTUM"
+        # Store 5D TOTAL in ai_score_entry slot for history tables (not an AI score).
+        row["ai_score"] = r.get("total_5d_pct")
+        try:
+            out = _open_auto_replace_position(
+                row,
+                as_of_date=day,
+                target_usd=float(target),
+                rank_at_entry=int(r.get("primary_rank") or len(created) + 1),
+                strategy_id=STRATEGY_MOMENTUM,
+                stop_loss_pct=float(STOP_LOSS_PCT),
+                no_take_profit=True,
+                trailing_stop=False,
+                side=side,
+            )
+            spent = float(out.get("cost") or 0)
+            if side == "long":
+                remaining_long = max(0.0, remaining_long - spent)
+            else:
+                remaining_short = max(0.0, remaining_short - spent)
+            out["via"] = "momentum"
+            out["momentum_direction"] = direction
+            out["total_5d_pct"] = r.get("total_5d_pct")
+            out["sleeve_target"] = round(float(target), 2)
+            try:
+                record_momentum_trade_open(
+                    paper_trade_id=out.get("trade_id"),
+                    row=r,
+                    entry_price=float(out.get("entry_price") or price_f),
+                    stop_price=out.get("stop_price"),
+                    signal_ts=_utc_now_iso(),
+                )
+            except Exception:
+                log.exception("momentum_trade_log open failed for %s", t)
+            created.append(out)
+            open_tickers.add(t)
+        except ValueError as e:
+            msg = str(e)
+            low = msg.lower()
+            if "insufficient cash" in low:
+                reason = "insufficient_cash"
+            elif "trading limit" in low:
+                reason = "trading_limit"
+            else:
+                reason = "no_allocation"
+            skipped.append({"ticker": t, "reason": reason, "detail": msg})
+            if reason in ("insufficient_cash", "trading_limit"):
+                # Stop only the side that ran out of book room; cash/limit
+                # usually blocks everything further.
+                break
+
+    acct = get_strategy_account(STRATEGY_MOMENTUM)
+    try:
+        save_equity_snapshot(as_of_date=day)
+    except Exception:
+        log.exception("equity snapshot after momentum create_orders failed")
+    exits = get_strategy_exit_pcts(STRATEGY_MOMENTUM)
+    return {
+        "created": created,
+        "skipped": skipped,
+        "disabled": False,
+        "strategy_id": STRATEGY_MOMENTUM,
+        "cash": float(acct.get("cash") or 0),
+        "long_sleeve_usd": float(LONG_SLEEVE_USD),
+        "short_sleeve_usd": float(SHORT_SLEEVE_USD),
+        "long_remaining": round(remaining_long, 2),
+        "short_remaining": round(remaining_short, 2),
+        "stop_loss_pct": exits.get("stop_loss_pct") or STOP_LOSS_PCT,
+        "take_profit_pct": None,
+        "universe_count": len(trade_rows),
+    }
+
+
 def auto_buy_on_refresh(*, as_of_date: str | None = None) -> dict[str, Any]:
     """
     If paper_auto_buy_on_refresh is on and fund/limit room remains,
-    allocate READY + STABILIZING names not currently open.
+    allocate READY names not currently open.
     """
     enabled_raw = get_setting("paper_auto_buy_on_refresh", "1")
     enabled = str(enabled_raw if enabled_raw is not None else "1").strip().lower() not in (
@@ -3333,8 +3631,9 @@ def _open_auto_replace_position(
     peak_price = float(price) if trailing_stop else None
     trail_flag = 1 if trailing_stop else 0
     now = _utc_now_iso()
+    trade_id = 0
     with get_conn() as conn:
-        conn.execute(
+        cur = conn.execute(
             """
             INSERT INTO paper_trades (
               ticker, name, status, entry_date, entry_price, shares, shares_mode,
@@ -3382,6 +3681,7 @@ def _open_auto_replace_position(
                 now,
             ),
         )
+        trade_id = int(cur.lastrowid or 0)
         if use_strategy_book:
             conn.execute(
                 """
@@ -3404,9 +3704,11 @@ def _open_auto_replace_position(
     clear_level_overrides([t])
     return {
         "ticker": t,
+        "trade_id": trade_id,
         "shares": shares,
         "cost": cost,
         "entry_price": price,
+        "stop_price": stop,
         "ai_score": research_row.get("ai_score"),
         "knife_score": knife.get("score"),
         "via": "auto_replace",
@@ -3426,7 +3728,7 @@ def auto_replace_exits_with_top_unused(
 ) -> dict[str, Any]:
     """
     After Stop/Take exits: buy up to max_new names from AI BUY
-    READY + STABILIZING (not currently open). Previously closed tickers may
+    READY (not currently open). Previously closed tickers may
     re-enter if they qualify again — slots are refilled top→bottom.
     """
     n = max(0, int(max_new or 0))
@@ -3475,7 +3777,7 @@ def auto_replace_exits_with_top_unused(
 
     if not pick_rows:
         log.info(
-            "Auto-replace: no READY/STABILIZING names (need=%s open=%s alert=%s)",
+            "Auto-replace: no READY names (need=%s open=%s alert=%s)",
             n,
             len(open_tickers),
             snap.get("universe_count"),
@@ -3755,9 +4057,9 @@ def _add_to_open_trade(
     new_cost = round(old_cost + add_cost, 4)
     new_entry = round(new_cost / new_shares, 4) if new_shares else fill_price
     current = float(tr.get("current_price") or fill_price)
-    mv = round(current * new_shares, 4)
-    upnl = round(mv - new_cost, 4)
-    upct = round((current - new_entry) / new_entry * 100.0, 4) if new_entry else 0.0
+    mv, upnl, upct = _unrealized_mark(
+        new_entry, current, new_shares, side=_trade_side(tr)
+    )
     # Keep stop/take as absolute prices; optionally leave unchanged on add.
     now = _utc_now_iso()
     init_db()
@@ -3920,6 +4222,19 @@ def _close_trade(
             pass
     if sid != STRATEGY_ALERT_BUY:
         _sync_legacy_portfolio_from_alert_buy()
+    if sid == "MOMENTUM":
+        try:
+            from momentum import finalize_momentum_trade_log
+
+            finalize_momentum_trade_log(
+                int(trade_id),
+                exit_price=float(exit_price),
+                exit_reason=exit_reason,
+                pnl=float(realized),
+                return_pct=float(ret_pct),
+            )
+        except Exception:
+            log.exception("momentum_trade_log finalize failed for trade %s", trade_id)
     return {
         "id": trade_id,
         "ticker": tr["ticker"],
@@ -4496,15 +4811,9 @@ def run_daily_update(*, refresh_candidates: bool = True) -> dict[str, Any]:
                     continue
                 entry = float(tr["entry_price"])
                 shares = float(tr["shares"])
-                cost = float(tr.get("cost") or (entry * shares))
-                if _trade_side(tr) == "short":
-                    upnl = round((entry - px) * shares, 4)
-                    upct = round((entry - px) / entry * 100.0, 4) if entry else 0.0
-                    mv = round(cost + upnl, 4)
-                else:
-                    mv = round(px * shares, 4)
-                    upnl = round((px - entry) * shares, 4)
-                    upct = round((px - entry) / entry * 100.0, 4) if entry else 0.0
+                mv, upnl, upct = _unrealized_mark(
+                    entry, px, shares, side=_trade_side(tr)
+                )
                 with get_conn() as conn:
                     conn.execute(
                         """
@@ -4763,9 +5072,9 @@ def soft_mark_open_positions() -> dict[str, Any]:
             try:
                 entry = float(tr["entry_price"])
                 shares = float(tr["shares"])
-                mv = round(px * shares, 4)
-                upnl = round((px - entry) * shares, 4)
-                upct = round((px - entry) / entry * 100.0, 4) if entry else 0.0
+                mv, upnl, upct = _unrealized_mark(
+                    entry, px, shares, side=_trade_side(tr)
+                )
                 conn.execute(
                     """
                     UPDATE paper_trades SET
@@ -4854,7 +5163,7 @@ def maybe_auto_refresh_ai_trading(
             log.exception("auto AI BUY rebuild failed")
             out["buy_error"] = str(exc)
 
-    # After daily settle or AI BUY rebuild: fill READY/STABILIZING if cash remains.
+    # After daily settle or AI BUY rebuild: fill READY if cash remains.
     if out.get("ran_daily") or out.get("ran_buy"):
         try:
             out["auto_buy"] = auto_buy_on_refresh(as_of_date=day)
@@ -4901,18 +5210,17 @@ def save_equity_snapshot(*, as_of_date: str | None = None) -> dict[str, Any]:
     for t in opens:
         mv = t.get("market_value")
         if mv is None:
-            px = t.get("current_price")
-            if px is None:
-                px = t.get("entry_price")
+            entry = float(t.get("entry_price") or 0)
             sh = float(t.get("shares") or 0)
-            mv = float(px or 0) * sh
+            px = float(t.get("current_price") or entry)
+            mv, _, _ = _unrealized_mark(entry, px, sh, side=_trade_side(t))
         open_mv += float(mv or 0)
         up = t.get("unrealized_pnl")
         if up is None:
             entry = float(t.get("entry_price") or 0)
             sh = float(t.get("shares") or 0)
             px = float(t.get("current_price") or entry)
-            up = (px - entry) * sh
+            _, up, _ = _unrealized_mark(entry, px, sh, side=_trade_side(t))
         unrealized += float(up or 0)
 
     total_equity = round(cash + open_mv, 4)
