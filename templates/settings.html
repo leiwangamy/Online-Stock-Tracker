@@ -3,7 +3,7 @@
 {% block content %}
   <h1>{{ _('Settings') }}</h1>
   {% if can_edit %}
-  <p class="meta">{{ _('SMA period is configurable — change it below, then refresh prices on Market Dashboard.') }}</p>
+  <p class="meta">{% if leibot_lite %}{{ _('SMA period is configurable — change it below, then refresh My + Nasdaq-100 prices.') }}{% else %}{{ _('SMA period is configurable — change it below, then refresh prices on Market Dashboard.') }}{% endif %}</p>
   {% else %}
   <p class="meta">{{ _('Public view — Settings are read-only. Sign in as Admin to change values.') }}
     <a href="{{ url_for('owner_login', next=url_for('settings')) }}">{{ _('Sign in') }}</a>
@@ -34,11 +34,15 @@
 
     <h2 style="margin-top:28px;font-size:1.15rem">{{ _('Auto updates (Pacific Time)') }}</h2>
     <p class="meta">
+      {% if leibot_lite %}
+      {{ _('Universe / Nasdaq-100 members: refresh from Wikipedia one day per week.') }}<br>
+      {{ _('Lite prices: every US trading day after the close — My Watchlist + Nasdaq-100 + Sector Rotation only. No Paper Trading or full-universe scan.') }}
+      {% else %}
       {{ _('Universe / index members: refresh from Wikipedia one day per week.') }}<br>
       {{ _('Prices: every US trading day after the close, refresh all pools from Yahoo and sync Watchlist (including MANUAL).') }}<br>
       {{ _('Default 13:15 Pacific ≈ 16:15 Eastern. You can also click “Refresh all prices + Watchlist” on Dashboard / Watchlist.') }}
+      {% endif %}
     </p>
-
     <label for="schedule_universe_weekday">{{ _('Universe update · weekday') }}</label>
     <select id="schedule_universe_weekday" name="schedule_universe_weekday" {% if not can_edit %}disabled{% endif %}>
       {% for key, label in weekdays %}
@@ -72,11 +76,11 @@
     </p>
     {% endif %}
 
+    {% if not leibot_lite %}
     <h2 style="margin-top:28px;font-size:1.15rem">{{ _('AI Paper Trading') }}</h2>
     <p class="meta">
       {{ _('Simulation only — never places real brokerage orders. Stop / Take Profit % are fixed at paper-order entry and not recalculated daily.') }}
-    </p>
-    <p class="meta" style="margin-bottom:8px">
+    </p>    <p class="meta" style="margin-bottom:8px">
       {% if lang == 'zh' %}
       按策略分别设置（共 5 本账本）。止盈留空表示仅止损。做空：止损为入场价上方平仓；止盈为入场价下方平仓。
       {% else %}
@@ -158,14 +162,20 @@
         {% endif %}
       </span>
     </label>
+    {% endif %}
     </fieldset>
 
     <div style="margin-top:18px">
       {% if can_edit %}
       <button class="btn primary" type="submit">{{ _('Save') }}</button>
       {% endif %}
+      {% if leibot_lite %}
+      <a class="btn" href="{{ url_for('watchlist', tab='mine') }}">{{ _('Watchlist') }}</a>
+      <a class="btn" href="{{ url_for('strong_stock_monitor', tab='rotation') }}">{{ _('Sector Rotation') }}</a>
+      {% else %}
       <a class="btn" href="{{ url_for('market_dashboard') }}">{% if lang == 'zh' %}返回看板{% else %}{{ _('Back to Dashboard') }}{% endif %}</a>
       <a class="btn" href="{{ url_for('ai_trading') }}">{{ _('AI Trading') }}</a>
+      {% endif %}
     </div>
   </form>
 
@@ -173,7 +183,7 @@
   <form class="settings-form" method="post" action="{{ url_for('refresh_all_prices') }}" style="margin-top:16px"
         onsubmit="this.querySelector('button').textContent={{ _('Updating (may take a few minutes)…')|tojson }}; this.querySelector('button').disabled=true;">
     <input type="hidden" name="next" value="{{ url_for('settings') }}">
-    <button class="btn" type="submit" style="width:100%">{{ _('Refresh all prices + Watchlist now') }}</button>
+    <button class="btn" type="submit" style="width:100%">{% if leibot_lite %}{{ _('Refresh My + Nasdaq-100 + Sector Rotation now') }}{% else %}{{ _('Refresh all prices + Watchlist now') }}{% endif %}</button>
   </form>
   {% endif %}
 {% endblock %}

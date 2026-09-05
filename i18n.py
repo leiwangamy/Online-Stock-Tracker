@@ -17,6 +17,34 @@ ZH: dict[str, str] = {
     "Stock Tracker": "个股分析",
     "Market Dashboard": "市场看板",
     "Watchlist": "观察列表",
+    "This page is not available on the Lite site.": "精简站（Lite）不提供此页面。",
+    "Watchlist technicals, single-stock news lookup, and sector rotation — a lighter online companion.":
+        "观察列表技术指标、个股新闻查询与板块轮动 — 更轻量的线上版。",
+    "Charts, financials and news for any ticker.": "任意代码的图表、财务与新闻。",
+    "My Watchlist and Nasdaq-100 with full technical indicators.":
+        "「我的自选」与纳斯达克100，保留全部技术指标列。",
+    "Which GICS sectors are becoming stronger or weaker (research context only).":
+        "哪些 GICS 板块正在变强/变弱（仅研究上下文）。",
+    "Watchlist Technicals": "观察列表技术指标",
+    "SMA, Dist %, Trend, 63D range/position, Rebound, alerts — full columns on My and Nasdaq-100.":
+        "SMA、距均线%、趋势、63日区间/位置、反弹、预警 —「我的自选」与纳斯达克100 全列保留。",
+    "News lookup": "新闻查询",
+    "Open any ticker in Stock Tracker to review headlines and company context.":
+        "在个股分析中打开任意代码，查看新闻与公司背景。",
+    "GICS sector strength via sector ETFs, RS vs SPY and SMA25 (research only).":
+        "通过板块 ETF、相对 SPY 强度与 SMA25 观察 GICS 板块强弱（仅研究）。",
+    "Refresh My + Nasdaq-100 + Sector Rotation now":
+        "立即刷新：我的自选 + 纳斯达克100 + 板块轮动",
+    "AI Trading is local-only (not on the Lite site).":
+        "AI Trading 仅在本地完整版可用（精简站不含）。",
+    "Paper Trading is local-only.":
+        "Paper Trading 仅在本地完整版可用。",
+    "SMA period is configurable — change it below, then refresh My + Nasdaq-100 prices.":
+        "均线周期可在下方修改，然后刷新「我的自选 + 纳斯达克100」行情。",
+    "Universe / Nasdaq-100 members: refresh from Wikipedia one day per week.":
+        "成分股 / 纳斯达克100：每周一天从 Wikipedia 更新。",
+    "Lite prices: every US trading day after the close — My Watchlist + Nasdaq-100 + Sector Rotation only. No Paper Trading or full-universe scan.":
+        "Lite 行情：每个美股交易日收盘后，仅刷新「我的自选 + 纳斯达克100 + 板块轮动」。不含 Paper Trading 或全宇宙扫描。",
     "News Score":
         "新闻得分",
     "News gate (Watchlist primary groups)":

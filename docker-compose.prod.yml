@@ -18,6 +18,9 @@ services:
       - /etc/leibot/prod.env
     environment:
       - TZ=America/Los_Angeles
+      # Online slim site ONLY: Watchlist My+NDX100, Stock Tracker, Sector Rotation.
+      # AI Trading / Paper / Discovery / IBKR stay local FULL — not used online.
+      - LEIBOT_MODE=lite
     ports:
       - "127.0.0.1:8001:8001"
     volumes:

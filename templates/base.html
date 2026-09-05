@@ -379,17 +379,21 @@
     <a href="{{ url_for('home') }}" class="{% if request.endpoint == 'home' %}active{% endif %}">{{ _('Home') }}</a>
     <span class="sep">|</span>
     <a href="{{ url_for('stock_tracker') }}" class="{% if request.endpoint == 'stock_tracker' %}active{% endif %}">{{ _('Stock Tracker') }}</a>
+    {% if not leibot_lite %}
     <span class="sep">|</span>
     <a href="{{ url_for('market_dashboard') }}" class="{% if request.endpoint in ('market_dashboard', 'etf_dashboard') %}active{% endif %}">{{ _('Market Dashboard') }}</a>
+    {% endif %}
     <span class="sep">|</span>
     <a href="{{ url_for('watchlist') }}" class="{% if request.endpoint == 'watchlist' %}active{% endif %}">{{ _('Watchlist') }}</a>
     <span class="sep">|</span>
-    <a href="{{ url_for('strong_stock_monitor') }}" class="{% if request.endpoint == 'strong_stock_monitor' %}active{% endif %}">{{ _('Research') }}</a>
+    <a href="{% if leibot_lite %}{{ url_for('strong_stock_monitor', tab='rotation') }}{% else %}{{ url_for('strong_stock_monitor') }}{% endif %}" class="{% if request.endpoint == 'strong_stock_monitor' %}active{% endif %}">{% if leibot_lite %}{{ _('Sector Rotation') }}{% else %}{{ _('Research') }}{% endif %}</a>
+    {% if not leibot_lite %}
     <span class="sep">|</span>
     <a href="{{ url_for('ai_trading') }}" class="{% if request.endpoint == 'ai_trading' %}active{% endif %}">{{ _('AI Trading') }}</a>
+    {% endif %}
     <span class="sep">|</span>
     <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">{{ _('Settings') }}</a>
-    {% if is_owner %}
+    {% if is_owner and not leibot_lite %}
     <span class="sep">|</span>
     <a href="{{ url_for('admin_order_requests') }}" class="{% if request.endpoint == 'admin_order_requests' %}active{% endif %}">{{ _('Order Requests') }}</a>
     {% endif %}

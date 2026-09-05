@@ -201,6 +201,9 @@ Architecture:
 **Live:** https://stock.lwsoc.com (Docker container `stock_web_prod` on EC2)
 
 - Compose: `docker compose -f docker-compose.yml -f docker-compose.prod.yml`
+- **Online mode:** `LEIBOT_MODE=lite` — Watchlist (My + Nasdaq-100, full technicals), Stock Tracker (news/charts), Sector Rotation only.
+- **Local-only (FULL):** AI Trading, Paper Trading, AI Discovery, strategy experiments, IBKR sync, Market Dashboard, full Research — never required online.
+- Local FULL: leave `LEIBOT_MODE` unset (or `full`); desktop **LeiBot Full** uses `Online-Stock-Tracker-Full` on port 3001.
 - Gunicorn `--timeout 600` (long Yahoo refresh jobs)
 - Nginx terminates SSL; proxies to `127.0.0.1:8001`
 - App data persists under `/var/www/leibot/data`

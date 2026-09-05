@@ -80,6 +80,8 @@ def job_refresh_watchlist(*, max_workers: int = 2) -> dict:
     """
     Refresh all current Watchlist tickers (setup ∪ mine),
     including MANUAL names that are not in index universe pools.
+
+    Lite mode: My Watchlist ∪ Nasdaq-100 only.
     """
     log = _setup_logging()
     from db import get_setting, get_universe_flags, init_db, list_universe, save_dashboard_rows
@@ -87,17 +89,39 @@ def job_refresh_watchlist(*, max_workers: int = 2) -> dict:
     from watchlist_config import collect_watchlist_tickers, get_my_watchlist
 
     init_db()
-    tickers = collect_watchlist_tickers()
-    for t in get_my_watchlist():
-        if t not in tickers:
-            tickers.append(t)
+    try:
+        from leibot_mode import is_lite
+
+        lite = is_lite()
+    except Exception:
+        lite = False
+
+    if lite:
+        tickers: list[str] = []
+        seen: set[str] = set()
+        for t in get_my_watchlist():
+            u = (t or "").strip().upper()
+            if u and u not in seen:
+                seen.add(u)
+                tickers.append(u)
+        for r in list_universe(group="ndx100") or []:
+            u = (r.get("ticker") or "").strip().upper()
+            if u and u not in seen:
+                seen.add(u)
+                tickers.append(u)
+        log.info("LITE Watchlist refresh (%s tickers: mine+ndx100)…", len(tickers))
+    else:
+        tickers = collect_watchlist_tickers()
+        for t in get_my_watchlist():
+            if t not in tickers:
+                tickers.append(t)
+        log.info("Starting Watchlist refresh (%s tickers)…", len(tickers))
 
     sma_period = int(get_setting("sma_period", 25))
     rebound_lookback = int(get_setting("rebound_lookback", sma_period))
     meta_u = {r["ticker"]: r for r in list_universe()}
     flags = get_universe_flags(tickers)
 
-    log.info("Starting Watchlist refresh (%s tickers)…", len(tickers))
     rows: list[dict] = []
     errors = 0
 
@@ -124,7 +148,7 @@ def job_refresh_watchlist(*, max_workers: int = 2) -> dict:
 
     if rows:
         save_dashboard_rows(rows, replace_all=False)
-    result = {"ok": len(rows), "errors": errors, "tickers": len(tickers)}
+    result = {"ok": len(rows), "errors": errors, "tickers": len(tickers), "mode": "lite" if lite else "full"}
     log.info(
         "Watchlist done: ok=%s errors=%s tickers=%s",
         result["ok"],
@@ -134,11 +158,70 @@ def job_refresh_watchlist(*, max_workers: int = 2) -> dict:
     return result
 
 
+def job_refresh_prices_lite(*, max_workers: int = 2) -> dict:
+    """
+    Lite EOD: My Watchlist + Nasdaq-100 prices, sector ETFs, Sector Rotation.
+    Skips full universe, ETF universe, Paper Trading, Strong/Rising research.
+    """
+    log = _setup_logging()
+    now_pt = datetime.now(PRICE_TZ)
+    log.info(
+        "Starting LITE price refresh (PT %s)…",
+        now_pt.strftime("%Y-%m-%d %H:%M %Z"),
+    )
+    from db import init_db
+    from universe import ensure_universe
+
+    init_db()
+    ensure_universe()
+    workers = max(1, min(int(max_workers or 2), 3))
+    result: dict = {"mode": "lite"}
+
+    wl = job_refresh_watchlist(max_workers=workers)
+    result["watchlist_ok"] = wl.get("ok")
+    result["watchlist_errors"] = wl.get("errors")
+    result["watchlist_tickers"] = wl.get("tickers")
+
+    # Sector Rotation needs XL* + SPY series; refresh those symbols only.
+    try:
+        from market_data import refresh_dashboard_for_tickers
+        from sector_rotation import GICS_SECTORS, job_sector_rotation_update
+
+        sector_tickers = [etf for _, etf in GICS_SECTORS] + ["SPY"]
+        etf_res = refresh_dashboard_for_tickers(sector_tickers, max_workers=workers)
+        result["sector_etf_ok"] = etf_res.get("ok")
+        result["sector_etf_errors"] = etf_res.get("errors")
+        rot = job_sector_rotation_update(force=True)
+        result["sector_rotation"] = rot.get("as_of")
+        result["sector_count"] = rot.get("sectors")
+    except Exception:
+        log.exception("Lite sector rotation refresh failed (non-fatal)")
+        result["sector_rotation_error"] = 1
+
+    log.info(
+        "LITE prices done: wl_ok=%s wl_err=%s sector_ok=%s",
+        result.get("watchlist_ok"),
+        result.get("watchlist_errors"),
+        result.get("sector_etf_ok"),
+    )
+    return result
+
+
 def job_refresh_prices(*, max_workers: int = 2) -> dict:
     """
     Weekday EOD: Yahoo → full dashboard cache, Watchlist (incl. MANUAL),
     Paper Trading daily, then Research (Strong + daily_bars used by Rising Now).
+
+    When LEIBOT_MODE=lite, delegates to job_refresh_prices_lite().
     """
+    try:
+        from leibot_mode import is_lite
+
+        if is_lite():
+            return job_refresh_prices_lite(max_workers=max_workers)
+    except Exception:
+        pass
+
     log = _setup_logging()
     now_pt = datetime.now(PRICE_TZ)
     log.info("Starting dashboard price refresh (PT %s)…", now_pt.strftime("%Y-%m-%d %H:%M %Z"))
@@ -336,6 +419,15 @@ def job_strong_monitor_update(*, full: bool = False) -> dict:
 
 def job_paper_trading_daily() -> dict:
     """Once-per-day AI Paper Trading: Top 10 candidates + open-position OHLC settle."""
+    try:
+        from leibot_mode import is_lite
+
+        if is_lite():
+            log = _setup_logging()
+            log.info("Skipping AI Paper Trading daily update (LEIBOT_MODE=lite)")
+            return {"skipped": True, "reason": "lite", "closed": [], "marked": 0, "candidates": 0}
+    except Exception:
+        pass
     log = _setup_logging()
     log.info("Starting AI Paper Trading daily update…")
     from paper_trading import run_daily_update
@@ -357,7 +449,17 @@ def job_paper_intraday_mark() -> dict:
     """
     Intraday: soft-mark open paper P&L + refresh AI BUY snapshot.
     Complements the weekday EOD full settle (stops/targets).
+    Skipped when LEIBOT_MODE=lite.
     """
+    try:
+        from leibot_mode import is_lite
+
+        if is_lite():
+            log = _setup_logging()
+            log.info("Skipping AI Trading intraday mark (LEIBOT_MODE=lite)")
+            return {"skipped": True, "reason": "lite"}
+    except Exception:
+        pass
     log = _setup_logging()
     log.info("Starting AI Trading intraday mark…")
     from ai_buy import build_ai_buy_snapshot

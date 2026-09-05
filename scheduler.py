@@ -168,30 +168,48 @@ def start_scheduler() -> Any:
         coalesce=True,
     )
     # Intraday soft mark + AI BUY (Mon–Fri, every hour 7:30–12:30 PT)
-    sched.add_job(
-        job_paper_intraday_mark,
-        CronTrigger(
-            day_of_week="mon-fri",
-            hour="7-12",
-            minute=30,
-            timezone=PRICE_TZ,
-        ),
-        id="intraday_paper_mark",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
+    try:
+        from leibot_mode import is_lite as _is_lite
+
+        _lite = _is_lite()
+    except Exception:
+        _lite = False
+    if not _lite:
+        sched.add_job(
+            job_paper_intraday_mark,
+            CronTrigger(
+                day_of_week="mon-fri",
+                hour="7-12",
+                minute=30,
+                timezone=PRICE_TZ,
+            ),
+            id="intraday_paper_mark",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
     sched.start()
     _scheduler = sched
-    log.info(
-        "Scheduler started: universe %s %02d:%02d PT; prices Mon–Fri %02d:%02d PT; "
-        "intraday paper mark Mon–Fri 07:30–12:30 PT hourly",
-        universe_day,
-        u_hour,
-        u_min,
-        p_hour,
-        p_min,
-    )
+    if _lite:
+        log.info(
+            "Scheduler started (LITE): universe %s %02d:%02d PT; prices Mon–Fri %02d:%02d PT "
+            "(mine+ndx100+sector rotation; no paper intraday)",
+            universe_day,
+            u_hour,
+            u_min,
+            p_hour,
+            p_min,
+        )
+    else:
+        log.info(
+            "Scheduler started: universe %s %02d:%02d PT; prices Mon–Fri %02d:%02d PT; "
+            "intraday paper mark Mon–Fri 07:30–12:30 PT hourly",
+            universe_day,
+            u_hour,
+            u_min,
+            p_hour,
+            p_min,
+        )
     return sched
 
 

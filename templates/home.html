@@ -216,35 +216,70 @@
 {% endblock %}
 {% block content %}
   <div class="hero">
-    <h1>LeiBot 3.0</h1>
+    <h1>LeiBot 3.0{% if leibot_lite %} · Lite{% endif %}</h1>
     <p class="tagline">
-      {{ _("AI-assisted stock research, systematic screening, valuation references, and paper-trading experiments.") }}
+      {% if leibot_lite %}
+        {{ _("Watchlist technicals, single-stock news lookup, and sector rotation — a lighter online companion.") }}
+      {% else %}
+        {{ _("AI-assisted stock research, systematic screening, valuation references, and paper-trading experiments.") }}
+      {% endif %}
     </p>
-    <div class="product-grid">
+    <div class="product-grid" {% if leibot_lite %}style="grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 720px"{% endif %}>
       <a class="product-card" href="{{ url_for('stock_tracker') }}">
         <h3>{{ _("Stock Tracker") }}</h3>
-        <p>{{ _("Single-stock research, charts and financial analysis.") }}</p>
+        <p>{% if leibot_lite %}{{ _("Charts, financials and news for any ticker.") }}{% else %}{{ _("Single-stock research, charts and financial analysis.") }}{% endif %}</p>
         <span class="open-hint">{{ _("Open →") }}</span>
       </a>
+      {% if not leibot_lite %}
       <a class="product-card" href="{{ url_for('market_dashboard') }}">
         <h3>{{ _("Market Dashboard") }}</h3>
         <p>{{ _("Systematic market screening across supported stock universes.") }}</p>
         <span class="open-hint">{{ _("Open →") }}</span>
       </a>
-      <a class="product-card" href="{{ url_for('watchlist') }}">
+      {% endif %}
+      <a class="product-card" href="{{ url_for('watchlist', tab='mine') }}">
         <h3>{{ _("Watchlist") }}</h3>
-        <p>{{ _("AI candidates, oversold stocks, Target Ratio, 63D Position and personal watchlists.") }}</p>
+        <p>{% if leibot_lite %}{{ _("My Watchlist and Nasdaq-100 with full technical indicators.") }}{% else %}{{ _("AI candidates, oversold stocks, Target Ratio, 63D Position and personal watchlists.") }}{% endif %}</p>
         <span class="open-hint">{{ _("Open →") }}</span>
       </a>
+      {% if leibot_lite %}
+      <a class="product-card" href="{{ url_for('strong_stock_monitor', tab='rotation') }}">
+        <h3>{{ _("Sector Rotation") }}</h3>
+        <p>{{ _("Which GICS sectors are becoming stronger or weaker (research context only).") }}</p>
+        <span class="open-hint">{{ _("Open →") }}</span>
+      </a>
+      {% else %}
       <a class="product-card" href="{{ url_for('ai_trading') }}">
         <h3>{{ _("AI Trading") }}</h3>
         <p>{{ _("Public AI Paper Trading experiment with positions, P&L and performance history.") }}</p>
         <span class="open-hint">{{ _("Open →") }}</span>
       </a>
+      {% endif %}
     </div>
   </div>
 
   <h2 class="section-title">{{ _("Today's LeiBot") }}</h2>
+  {% if leibot_lite %}
+  <div class="today-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 720px">
+    <div class="today-card">
+      <span class="k">{{ _("My Watchlist") }}</span>
+      <span class="v">{% if today.mine_count is not none %}{{ today.mine_count }}{% else %}—{% endif %}</span>
+    </div>
+    <div class="today-card">
+      <span class="k">{{ _("Nasdaq-100") }}</span>
+      <span class="v">{% if today.ndx_count is not none %}{{ today.ndx_count }}{% else %}—{% endif %}</span>
+    </div>
+    <div class="today-card today-updated">
+      <span class="k">{{ _("Updated") }}</span>
+      {% if today.updated_at %}
+        <span class="v-date">{{ today.updated_at|format_ui_date }}</span>
+        <span class="v-time">{{ today.updated_at|format_ui_time }}</span>
+      {% else %}
+        <span class="v">—</span>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
   <div class="today-grid">
     <div class="today-card">
       <span class="k">{{ _("Research Universe") }}</span>
@@ -278,8 +313,25 @@
       {% endif %}
     </div>
   </div>
+  {% endif %}
 
   <h2 class="section-title">{{ _("Key Features") }}</h2>
+  {% if leibot_lite %}
+  <div class="feature-grid">
+    <div class="feature-card">
+      <h3>{{ _("Watchlist Technicals") }}</h3>
+      <p>{{ _("SMA, Dist %, Trend, 63D range/position, Rebound, alerts — full columns on My and Nasdaq-100.") }}</p>
+    </div>
+    <div class="feature-card">
+      <h3>{{ _("News lookup") }}</h3>
+      <p>{{ _("Open any ticker in Stock Tracker to review headlines and company context.") }}</p>
+    </div>
+    <div class="feature-card">
+      <h3>{{ _("Sector Rotation") }}</h3>
+      <p>{{ _("GICS sector strength via sector ETFs, RS vs SPY and SMA25 (research only).") }}</p>
+    </div>
+  </div>
+  {% else %}
   <div class="feature-grid">
     <div class="feature-card">
       <h3>{{ _("AI Stock Ranking") }}</h3>
@@ -306,6 +358,7 @@
       <p>{{ _("Track positions, realized/unrealized P&L, win rate and long-term strategy performance.") }}</p>
     </div>
   </div>
+  {% endif %}
 
   <details class="tech-details">
     <summary>{{ _('Technical Details') }}</summary>

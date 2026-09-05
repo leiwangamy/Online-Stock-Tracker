@@ -61,6 +61,11 @@ from i18n import (
     set_lang,
     tab_description,
 )
+from leibot_mode import (
+    is_lite,
+    lite_research_tab_ok,
+    lite_watchlist_tab_ok,
+)
 from universe import refresh_universe as rebuild_universe
 
 
@@ -116,10 +121,28 @@ def _inject_owner_flags():
     return {
         "is_owner": is_owner(),
         "owner_password_configured": owner_password_configured(),
+        "leibot_lite": is_lite(),
         "_": gettext,
         "_f": ngettext_format,
         "lang": get_lang(),
     }
+
+
+@app.before_request
+def _lite_mode_gate():
+    """Block AI Trading / Paper / IBKR / heavy product routes when LEIBOT_MODE=lite."""
+    if not is_lite():
+        return None
+    from leibot_mode import lite_endpoint_allowed
+
+    ep = request.endpoint
+    if lite_endpoint_allowed(ep):
+        return None
+    # APIs: hard 404 JSON (no HTML redirect)
+    if ep and (ep.startswith("api_") or request.path.startswith("/api/")):
+        return jsonify({"ok": False, "error": "not available on Lite site"}), 404
+    flash(gettext("This page is not available on the Lite site."), "warning")
+    return redirect(url_for("home"))
 
 
 @app.template_filter("format_ui_datetime")
@@ -733,11 +756,29 @@ def home():
         "paper_equity": None,
         "today_pnl": None,
         "updated_at": None,
+        "mine_count": None,
+        "ndx_count": None,
     }
     try:
         today["universe_count"] = int(universe_count() or 0)
     except Exception:
         pass
+    if is_lite():
+        try:
+            today["mine_count"] = len(get_my_watchlist())
+        except Exception:
+            pass
+        try:
+            today["ndx_count"] = int(universe_count(group="ndx100") or 0)
+        except Exception:
+            pass
+        try:
+            meta = dashboard_meta()
+            today["updated_at"] = meta.get("updated_at") if meta else None
+        except Exception:
+            pass
+        return render_template("home.html", today=today)
+
     try:
         from paper_trading import list_candidates, portfolio_summary
 
@@ -906,11 +947,14 @@ def api_market_search():
 def api_market_ibkr_sync():
     """
     Private HTTPS sync: local IBKR fallback rows → production dashboard_cache.
+    Local FULL only — disabled on Lite production.
 
     Auth: Authorization Bearer LEIBOT_MARKET_SYNC_API_KEY
     Merge: per-ticker only (never replace_all). Yahoo rows unrelated to the
     payload are never deleted. Freshness protection skips older incoming data.
     """
+    if is_lite():
+        return jsonify({"ok": False, "error": "IBKR sync is local-only (Lite site)"}), 404
     from market_sync import (
         market_sync_api_key_configured,
         process_ibkr_sync,
@@ -1005,14 +1049,15 @@ def refresh_dashboard():
 @app.route("/refresh/all-prices", methods=["POST"])
 def refresh_all_prices():
     """
-    Manual: refresh ALL index-pool dashboard prices + Watchlist (incl. MANUAL).
-    Same job as weekday EOD schedule (update_jobs.job_refresh_prices).
+    Manual: refresh prices.
+    Full: all index pools + Watchlist (+ research/paper via job_refresh_prices).
+    Lite: My + Nasdaq-100 + sector ETFs + Sector Rotation only (no Paper / Discovery).
     Admin-only.
     """
     nxt = (request.form.get("next") or "").strip()
     # Only allow internal relative redirects
     if not nxt.startswith("/") or nxt.startswith("//"):
-        nxt = url_for("market_dashboard")
+        nxt = url_for("watchlist", tab="mine") if is_lite() else url_for("market_dashboard")
     if not is_owner():
         flash(gettext("Please sign in to refresh all prices"), "warning")
         return redirect(url_for("owner_login", next=nxt))
@@ -1020,21 +1065,35 @@ def refresh_all_prices():
         from update_jobs import job_refresh_prices
 
         result = job_refresh_prices(max_workers=2)
-        flash(
-            ngettext_format(
-                "All pools refreshed: ok {ok} / errors {errors} (universe {universe}) · "
-                "Watchlist ok {watchlist_ok} / errors {watchlist_errors} · "
-                "Research Strong {strong} · Rising {rising}",
-                ok=result.get("ok"),
-                errors=result.get("errors"),
-                universe=result.get("universe"),
-                watchlist_ok=result.get("watchlist_ok"),
-                watchlist_errors=result.get("watchlist_errors"),
-                strong=result.get("strong_active", "—"),
-                rising=result.get("rising_count", "—"),
-            ),
-            "ok",
-        )
+        if is_lite() or result.get("mode") == "lite":
+            flash(
+                ngettext_format(
+                    "Lite refresh: Watchlist ok {watchlist_ok} / errors {watchlist_errors} "
+                    "(tickers {tickers}) · Sector ETF ok {sector_ok} · Rotation as-of {rotation}",
+                    watchlist_ok=result.get("watchlist_ok", "—"),
+                    watchlist_errors=result.get("watchlist_errors", "—"),
+                    tickers=result.get("watchlist_tickers", "—"),
+                    sector_ok=result.get("sector_etf_ok", "—"),
+                    rotation=result.get("sector_rotation") or "—",
+                ),
+                "ok",
+            )
+        else:
+            flash(
+                ngettext_format(
+                    "All pools refreshed: ok {ok} / errors {errors} (universe {universe}) · "
+                    "Watchlist ok {watchlist_ok} / errors {watchlist_errors} · "
+                    "Research Strong {strong} · Rising {rising}",
+                    ok=result.get("ok"),
+                    errors=result.get("errors"),
+                    universe=result.get("universe"),
+                    watchlist_ok=result.get("watchlist_ok"),
+                    watchlist_errors=result.get("watchlist_errors"),
+                    strong=result.get("strong_active", "—"),
+                    rising=result.get("rising_count", "—"),
+                ),
+                "ok",
+            )
     except Exception as exc:
         flash(ngettext_format("All pools / Watchlist refresh failed: {exc}", exc=exc), "warning")
     return redirect(nxt)
@@ -1086,6 +1145,25 @@ def settings():
             set_setting("schedule_universe_minute", u_min)
             set_setting("schedule_price_hour", p_hour)
             set_setting("schedule_price_minute", p_min)
+
+            # Lite online: never save / sync Paper Trading strategy exits.
+            if is_lite():
+                flash(
+                    ngettext_format(
+                        "Saved: SMA={sma}, rebound lookback={rebound}. Auto: universe weekly "
+                        "{weekday} {uh:02d}:{um:02d} PT; Lite prices weekdays {ph:02d}:{pm:02d} PT "
+                        "(My + Nasdaq-100 + Sector Rotation). Paper Trading is local-only.",
+                        sma=sma_period,
+                        rebound=rebound_lookback,
+                        weekday=dict(weekdays)[weekday],
+                        uh=u_hour,
+                        um=u_min,
+                        ph=p_hour,
+                        pm=p_min,
+                    ),
+                    "ok",
+                )
+                return redirect(url_for("settings"))
 
             from paper_trading import save_strategy_exit_pcts
             from strategies import STRATEGY_IDS
@@ -1170,7 +1248,27 @@ def settings():
         sched = {"enabled": False, "running": False, "jobs": []}
 
     # Always build 5 editable rows (never leave the Settings table empty).
+    # Lite: skip Paper strategy UI data entirely (local FULL only).
     paper_strategy_exits = []
+    if is_lite():
+        return render_template(
+            "settings.html",
+            can_edit=can_edit,
+            sma_period=int(settings_data.get("sma_period", 25)),
+            rebound_lookback=int(settings_data.get("rebound_lookback", 25)),
+            presets=settings_data.get("sma_presets", [25, 50, 63, 90]),
+            weekdays=weekdays,
+            schedule_universe_weekday=str(settings_data.get("schedule_universe_weekday", "sun")),
+            schedule_universe_hour=int(settings_data.get("schedule_universe_hour", 10)),
+            schedule_universe_minute=int(settings_data.get("schedule_universe_minute", 0)),
+            schedule_price_hour=int(settings_data.get("schedule_price_hour", 13)),
+            schedule_price_minute=int(settings_data.get("schedule_price_minute", 15)),
+            paper_strategy_exits=[],
+            paper_stop_loss_pct=float(settings_data.get("paper_stop_loss_pct", 5.0)),
+            paper_take_profit_pct=float(settings_data.get("paper_take_profit_pct", 10.0)),
+            paper_auto_replace_on_exit=False,
+            scheduler=sched,
+        )
     try:
         from paper_trading import (
             STRATEGY_EXIT_DEFAULTS,
@@ -1802,6 +1900,8 @@ def watchlist():
         tab = "setup"
     # Rising Now / Multi-Signal live under Research
     if tab in ("rising_now", "multi_signal"):
+        if is_lite():
+            return redirect(url_for("strong_stock_monitor", tab="rotation"))
         return redirect(url_for("strong_stock_monitor", tab=tab))
     if tab not in (
         "mine",
@@ -1821,17 +1921,24 @@ def watchlist():
         tab = "mine"
     if tab == "ai_select":
         return redirect(url_for("watchlist", tab="core_universe"))
+    if is_lite() and not lite_watchlist_tab_ok(tab):
+        return redirect(url_for("watchlist", tab="mine"))
 
     # Cheap cache-only lists (no live fetch) — used for data and tab counts.
-    setup = [_enrich(r) for r in list_setup(-10.0)]
-    for r in setup:
-        r.setdefault("price_source", "dashboard_cache")
-    low_target = [_enrich(r) for r in list_low_target_ratio(0.8)]
-    for r in low_target:
-        r.setdefault("price_source", "dashboard_cache")
-    low_63d = [_enrich(r) for r in list_low_63d_pos(25.0)]
-    for r in low_63d:
-        r.setdefault("price_source", "dashboard_cache")
+    if is_lite():
+        setup = []
+        low_target = []
+        low_63d = []
+    else:
+        setup = [_enrich(r) for r in list_setup(-10.0)]
+        for r in setup:
+            r.setdefault("price_source", "dashboard_cache")
+        low_target = [_enrich(r) for r in list_low_target_ratio(0.8)]
+        for r in low_target:
+            r.setdefault("price_source", "dashboard_cache")
+        low_63d = [_enrich(r) for r in list_low_63d_pos(25.0)]
+        for r in low_63d:
+            r.setdefault("price_source", "dashboard_cache")
 
     from ai_select import (
         approve_ticker,
@@ -2303,29 +2410,32 @@ def watchlist():
         {"key": "low_63d", "label": "📉 " + gettext("63D Position < 25%"), "count": len(low_63d), "group": "screens", "row": 2},
         {"key": "temp", "label": "🕒 " + gettext("Temp"), "count": len(temp_tickers), "group": "scratch", "row": 2},
     ]
-    # AI News + Discovery badge counts
-    try:
-        from ai_discovery import discovery_pool_counts, get_min_event_score_display, list_discovery_candidates
-
-        _ms = get_min_event_score_display()
-        tabs[2]["count"] = int(
-            (discovery_pool_counts(min_event_score=_ms) or {}).get("qualifying_events") or 0
-        )
-    except Exception:
-        tabs[2]["count"] = 0
-    if tab == "ai_discovery":
-        tabs[3]["count"] = len(rows)
+    if is_lite():
+        tabs = [t for t in tabs if t["key"] in ("mine", "ndx100")]
     else:
+        # AI News + Discovery badge counts
         try:
-            from ai_discovery import list_discovery_candidates
+            from ai_discovery import discovery_pool_counts, get_min_event_score_display, list_discovery_candidates
 
-            tabs[3]["count"] = len(
-                list_discovery_candidates(
-                    limit=150, recent_only=True, exclude_negative=False, history_mode=False
-                )
+            _ms = get_min_event_score_display()
+            tabs[2]["count"] = int(
+                (discovery_pool_counts(min_event_score=_ms) or {}).get("qualifying_events") or 0
             )
         except Exception:
-            tabs[3]["count"] = 0
+            tabs[2]["count"] = 0
+        if tab == "ai_discovery":
+            tabs[3]["count"] = len(rows)
+        else:
+            try:
+                from ai_discovery import list_discovery_candidates
+
+                tabs[3]["count"] = len(
+                    list_discovery_candidates(
+                        limit=150, recent_only=True, exclude_negative=False, history_mode=False
+                    )
+                )
+            except Exception:
+                tabs[3]["count"] = 0
 
     desc = tab_description(
         tab,
@@ -3054,7 +3164,11 @@ def ai_trading():
     Public AI Paper Trading (simulation only).
     Never connects to IBKR / never places real brokerage orders.
     Admin-only actions: create orders, priority, daily update, manual exit.
+    Not available on Lite production (local FULL only).
     """
+    if is_lite():
+        flash(gettext("AI Trading is local-only (not on the Lite site)."), "warning")
+        return redirect(url_for("home"))
     from paper_trading import (
         _ai_auto_thresholds,
         all_strategies_dashboard,
@@ -4537,6 +4651,12 @@ def strong_stock_monitor():
         "discovery",
     ):
         tab = "daily"
+
+    if is_lite():
+        # Lite Research = Sector Rotation only
+        if not lite_research_tab_ok(tab):
+            return redirect(url_for("strong_stock_monitor", tab="rotation"))
+        tab = tab if lite_research_tab_ok(tab) else "rotation"
 
     if tab == "discovery":
         # Legacy Research bookmark → Watchlist AI News
