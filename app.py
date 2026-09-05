@@ -1685,7 +1685,7 @@ def owner_logout():
 @app.route("/watchlist", methods=["GET", "POST"])
 def watchlist():
     if request.method == "POST":
-        action = request.form.get("action")
+        action = (request.form.get("action") or "").strip()
         if action == "add_temp":
             temp = list(session.get("temp_watchlist", []))
             for t in parse_ticker_input(request.form.get("temp_tickers", "")):
