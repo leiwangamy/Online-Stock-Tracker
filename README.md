@@ -3,26 +3,58 @@
 A portfolio-ready Flask platform for stock research and market screening.
 Built for single-name analysis and large-universe ranking on one shared database (`leibot.db`).
 
-🔗 Live App (HTTPS):
+🔗 Live App (HTTPS · **Lite** online):
 👉 https://stock.lwsoc.com
+
+📦 GitHub repositories
+
+| Repo | Role |
+|------|------|
+| [Online-Stock-Tracker](https://github.com/leiwangamy/Online-Stock-Tracker) | Main development repo (same codebase; mode via env) |
+| [Online-Stock-Tracker-Lite](https://github.com/leiwangamy/Online-Stock-Tracker-Lite) | Online slim edition mirror (`LEIBOT_MODE=lite`) |
+| [Online-Stock-Tracker-Full](https://github.com/leiwangamy/Online-Stock-Tracker-Full) | Local **FULL** resource archive (AI Trading / Research / Dashboard) |
+
+**Online Lite** (production): My Watchlist · Nasdaq-100 · Stock Tracker (news/charts) · Sector Rotation · Settings.  
+Public price refresh allowed (short cooldown). No AI Trading / Paper / Discovery / IBKR on the live site.
+
+**Local FULL** (desktop / Full repo): all research tools, Market Dashboard, AI Trading, Paper Trading, AI Discovery, IBKR helpers.  
+Leave `LEIBOT_MODE` unset (or `full`). Full desktop launcher uses port **3001**.
+
+Set mode with:
+
+```bash
+# Online / slim
+LEIBOT_MODE=lite
+
+# Local complete edition (default)
+# LEIBOT_MODE=full   # or omit
+```
 
 ✨ Key Features (LeiBot 3.0)
 
-**Stock Tracker — single-name research**
+**Stock Tracker — single-name research** *(Lite + Full)*
 - US (USD) and Canadian (CAD) tickers
 - 1-year charts + market facts + decision metrics (PE, EPS, margins, etc.)
+- News lookup on the ticker page
 
-**Market Dashboard — ~520 name ranking**
-- S&P 500 ∪ Nasdaq-100 deduplicated universe
+**Watchlist** *(Lite: My + Nasdaq-100 only)*
+- Full technical columns: SMA, Dist %, Trend, 63D, Rebound, alerts, Target / MOS T
+- Lite: no AI Select / Market Dashboard buttons; slim Code Guide
+
+**Sector Rotation** *(Lite + Full)*
+- GICS sector strength via sector ETFs, RS vs SPY, SMA25 (research context)
+
+**Market Dashboard — ~520+ name ranking** *(Full / local only)*
+- S&P 500 ∪ Nasdaq-100 and other index pools
 - Rank by distance from configurable SMA
 - Rebound rate vs recent low
 - **Earnings Night Review date** — earnings column shows date only, for evening news review before overnight moves
 
-**Research / Watchlist / AI Discovery**
-- My Watchlist with layout that matches the full nav
+**Research / AI Discovery** *(Full / local only)*
+- Strong / Rising / Multi-Signal and related Research tabs
 - AI Discovery harvest + News History (non-★ auto-purge after 7 calendar days from `created_at`)
 
-**AI Paper Trading (simulation only — no brokerage orders)**
+**AI Paper Trading (simulation only — no brokerage orders)** *(Full / local only)*
 - Ranked candidates, Stop / Take Profit, Priority Buy, daily OHLC settle
 - Excel export + Reset Trading (does not clear Discovery / Watchlist / settings)
 - **After Stop/Take:** auto-buy the highest-ranked AI name **not yet used** in this experiment (1:1 with exits; toggle in Settings)
@@ -30,15 +62,15 @@ Built for single-name analysis and large-universe ranking on one shared database
 **Settings**
 - SMA period presets: 25 / 50 / 63 / 90 (also manually editable)
 - Rebound lookback configurable
-- Paper Stop / Take % and auto-replace-after-exit toggle
+- Paper Stop / Take % and auto-replace-after-exit toggle *(Full only; hidden on Lite)*
 
 **Platform architecture**
 - Shared SQLite database: `data/leibot.db`
-- Yahoo Finance now; IBKR upgrade path later
+- Yahoo Finance now; IBKR upgrade path later *(IBKR sync local/Full only)*
 - Responsive UI: desktop for analysis, mobile for quick daily checks
-- In-app scheduler (weekdays after US close for prices + paper update; Sunday universe refresh)
+- In-app scheduler: Lite = My+NDX100+Sector Rotation; Full = pools + paper + research
 
-**Private Order Request API V0 (Admin → Local Agent)**
+**Private Order Request API V0 (Admin → Local Agent)** *(Full / local only)*
 - Admin creates internal PAPER Order Requests (no IBKR / no brokerage orders)
 - Local Trading Agent authenticates with `Authorization: Bearer <LEIBOT_PRIVATE_AGENT_API_KEY>`
 - Agent may only: list pending requests, read one request, update processing status (`PENDING` / `RECEIVED` / `REPORTED` / `ERROR`)
@@ -168,9 +200,12 @@ Optional environment variables (do not commit real secrets):
 
 | Variable | Purpose |
 |---|---|
+| `LEIBOT_MODE` | `lite` = online slim site; omit/`full` = complete local edition |
+| `LEIBOT_PORT` | Local `app.py` port (Full archive defaults to `3001`) |
 | `FLASK_SECRET_KEY` | Flask session secret |
 | `LEIBOT_OWNER_PASSWORD` | Bootstrap owner password (first run) |
 | `LEIBOT_PRIVATE_AGENT_API_KEY` | Bearer token for private Local Trading Agent API (min 16 chars). Used only by `/api/trading/orders/*` — never expose in HTML/JS. |
+| `LEIBOT_MARKET_SYNC_API_KEY` | IBKR→prod sync (Full/local only; disabled on Lite) |
 
 Then open your browser and navigate to:
 ```
@@ -198,12 +233,14 @@ Architecture:
 
 🔐 Production Deployment Notes
 
-**Live:** https://stock.lwsoc.com (Docker container `stock_web_prod` on EC2)
+**Live:** https://stock.lwsoc.com (Docker container `stock_web_prod` on EC2 `t3.small`)
 
 - Compose: `docker compose -f docker-compose.yml -f docker-compose.prod.yml`
-- **Online mode:** `LEIBOT_MODE=lite` — Watchlist (My + Nasdaq-100, full technicals), Stock Tracker (news/charts), Sector Rotation only.
-- **Local-only (FULL):** AI Trading, Paper Trading, AI Discovery, strategy experiments, IBKR sync, Market Dashboard, full Research — never required online.
-- Local FULL: leave `LEIBOT_MODE` unset (or `full`); desktop **LeiBot Full** uses `Online-Stock-Tracker-Full` on port 3001.
+- **Online mode:** `LEIBOT_MODE=lite` in compose / `/etc/leibot/prod.env`
+- **Online scope:** Watchlist (My + Nasdaq-100), Stock Tracker, Sector Rotation, Settings; public refresh with cooldown
+- **Local-only (FULL):** AI Trading, Paper Trading, AI Discovery, strategy experiments, IBKR sync, Market Dashboard, full Research
+- Local FULL archive: https://github.com/leiwangamy/Online-Stock-Tracker-Full (port 3001)
+- Lite mirror: https://github.com/leiwangamy/Online-Stock-Tracker-Lite
 - Gunicorn `--timeout 600` (long Yahoo refresh jobs)
 - Nginx terminates SSL; proxies to `127.0.0.1:8001`
 - App data persists under `/var/www/leibot/data`
@@ -222,6 +259,10 @@ Stock data is provided by Yahoo Finance via yFinance. This tool is for education
 
 🙌 Author
 
-Lei Wang
-Python / Flask / AWS
-GitHub: https://github.com/leiwangamy
+Lei Wang  
+Python / Flask / AWS  
+
+- Main: https://github.com/leiwangamy/Online-Stock-Tracker  
+- Lite: https://github.com/leiwangamy/Online-Stock-Tracker-Lite  
+- Full: https://github.com/leiwangamy/Online-Stock-Tracker-Full  
+- Profile: https://github.com/leiwangamy
