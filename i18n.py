@@ -45,6 +45,11 @@ ZH: dict[str, str] = {
         "成分股 / 纳斯达克100：每周一天从 Wikipedia 更新。",
     "Lite prices: every US trading day after the close — My Watchlist + Nasdaq-100 + Sector Rotation only. No Paper Trading or full-universe scan.":
         "Lite 行情：每个美股交易日收盘后，仅刷新「我的自选 + 纳斯达克100 + 板块轮动」。不含 Paper Trading 或全宇宙扫描。",
+    "Table columns (Lite)": "表格列（精简版）",
+    "POSITIVE / NEUTRAL / NEGATIVE / SKIPPED. Open Stock Tracker for full headlines. Hover News on the table for titles.":
+        "POSITIVE / NEUTRAL / NEGATIVE / SKIPPED。完整标题请打开个股分析；表格 News 列可悬停查看。",
+    "see Sector Rotation page for scores and detail.": "详见「板块轮动」页面的得分与明细。",
+    "Refresh My + Nasdaq-100 + Sector Rotation": "刷新：我的自选 + 纳斯达克100 + 板块轮动",
     "News Score":
         "新闻得分",
     "News gate (Watchlist primary groups)":

@@ -947,13 +947,14 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
   {% set ai_select_keys = ['ai_news', 'ai_discovery', 'core_universe', 'ai_approved'] %}
   {% set ai_select_active = tab in ai_select_keys %}
   <div class="tabs wl-tabs">
-    {# Row 1 — pools + AI Select #}
+    {# Row 1 — pools (+ AI Select on full only) #}
     <div class="tab-row">
       {% for t in tabs if t.row == 1 and t.group == 'main' %}
       <a class="tab {% if t.key == tab %}active{% endif %}" href="{{ url_for('watchlist', tab=t.key) }}">
         {{ t.label }} <span class="count">({{ t.count }})</span>
       </a>
       {% endfor %}
+      {% if not leibot_lite %}
       <span class="tab-sep" aria-hidden="true"></span>
       <div class="tab-cluster {% if ai_select_active %}is-active{% endif %}"
            title="{{ _('AI News → AI Discovery → Core Universe → AI Approved') }}">
@@ -964,7 +965,9 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         </a>
         {% endfor %}
       </div>
+      {% endif %}
     </div>
+    {% if not leibot_lite %}
     {# Row 2 — screens + temp #}
     <div class="tab-row">
       {% for t in tabs if t.row == 2 %}
@@ -973,8 +976,9 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
       </a>
       {% endfor %}
     </div>
+    {% endif %}
   </div>
-  {% if ai_select_active %}
+  {% if ai_select_active and not leibot_lite %}
   <p class="hint" style="text-align:center;margin:-6px 0 12px">
     {{ _('AI Select workflow') }}:
     <a href="{{ url_for('watchlist', tab='ai_news') }}">{{ _('AI News') }}</a>
@@ -997,9 +1001,11 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     <form method="post" action="{{ url_for('refresh_all_prices') }}" style="display:inline"
           onsubmit="this.querySelector('button').textContent={{ _('Updating (may take a few minutes)…')|tojson }}; this.querySelector('button').disabled=true;">
       <input type="hidden" name="next" value="{{ url_for('watchlist', tab=tab) }}">
-      <button class="btn primary" type="submit" title="{{ _('Refresh all index-pool prices and sync Watchlist (incl. MANUAL)') }}">{{ _("Refresh all prices + Watchlist") }}</button>
+      <button class="btn primary" type="submit" title="{% if leibot_lite %}{{ _('Refresh My + Nasdaq-100 + Sector Rotation') }}{% else %}{{ _('Refresh all index-pool prices and sync Watchlist (incl. MANUAL)') }}{% endif %}">{% if leibot_lite %}{{ _('Refresh My + Nasdaq-100 + Sector Rotation now') }}{% else %}{{ _("Refresh all prices + Watchlist") }}{% endif %}</button>
     </form>
+    {% if not leibot_lite %}
     <a class="btn" href="{{ url_for('market_dashboard') }}">{{ _("Market Dashboard") }}</a>
+    {% endif %}
   </div>
 
   <div class="ops-status">
@@ -1040,6 +1046,54 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
     </div>
     <div class="dlg-body">
       <div class="legend-body">
+      {% if leibot_lite %}
+      <div class="legend-col">
+        <strong>{{ _("My Watchlist Alerts") }}</strong>
+        <ul style="columns:1">
+          <li>{{ _('Dist SMA25 alerts: >−5% none · 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%') }}</li>
+          <li>{{ _('Manual Active Alert is optional for Owner notes; colored WATCH/LOW/DEEP/EXTREME always follow Dist vs SMA25.') }}</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">{{ _("Dots next to ticker only — hover for status. Research zones only; never auto-buy.") }}</p>
+      </div>
+      <div class="legend-col">
+        <strong>{{ _("Table columns (Lite)") }}</strong>
+        <ul style="columns:1">
+          <li><code>SMA / Dist %</code> — {{ _("Distance from short-term SMA") }}</li>
+          <li><code>Trend</code> — {{ _("Long-term trend: SMA63 vs SMA252 + SMA252 slope") }}</li>
+          <li><code>63D</code> — {{ _("63D Low / High / Position%") }}</li>
+          <li><code>Rebound %</code> — {{ _("Rebound % from a recent lookback low") }}</li>
+          <li><code>1Y Target / Target Ratio / MOS T</code> — {{ _("Yahoo 1Y analyst mean target") }}; {{ _("Price ÷ 1Y Target (lower = more interesting; sort via header). Independent of DCF/CLV.") }}</li>
+        </ul>
+      </div>
+      <div class="legend-col">
+        <strong>{{ _("Fundamental red flags (⚠ counts toward health)") }}</strong>
+        <ul>
+          <li><code>REV</code> {{ _('Revenue growth YoY') }} (&lt;0 ⚠)</li>
+          <li><code>EPS</code> {{ _('EPS growth YoY') }} (&lt;0 ⚠)</li>
+          <li><code>OCF</code> {{ _('Operating cash flow') }} ({{ _('negative/worsening') }} ⚠)</li>
+          <li><code>CUR</code> {{ _('Current ratio') }} (&lt;1 ⚠)</li>
+          <li><code>DEBT</code> {{ _('Debt / equity') }} (&gt;1.5x ⚠)</li>
+          <li><code>CASH</code> {{ _('Cash vs debt') }} ({{ _('cash < debt') }} ⚠)</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">{{ _("Show: 🟢 good (0) / 🟡 fair (1–2) / 🔴 weak (≥3) + pass/known, then flag codes (e.g. REV− DEBT−). Hover for values.") }}</p>
+      </div>
+      <div class="legend-col">
+        <strong>{{ _("News (last 30 days; sentiment + / −)") }}</strong>
+        <ul>
+          <li><code>A</code> {{ _('Earnings / guidance') }} · <code>B</code> {{ _('Business / product') }} · <code>C</code> {{ _('Analyst / rating') }}</li>
+          <li><code>D</code> {{ _('Company / management') }} · <code>E</code> {{ _('Financial / legal risk') }} · <code>O</code> {{ _('Other') }}</li>
+        </ul>
+        <p class="hint" style="text-align:left;margin:0">{{ _("POSITIVE / NEUTRAL / NEGATIVE / SKIPPED. Open Stock Tracker for full headlines. Hover News on the table for titles.") }}</p>
+      </div>
+      <div class="legend-col">
+        <strong>{{ _("Sector Rotation") }}</strong>
+        <p class="hint" style="text-align:left;margin:0">
+          {{ _("Answers: which GICS sectors are becoming stronger or weaker. Not a Buy/Sell signal.") }}
+          🟢 LEADING / RISING · 🟡 NEUTRAL / WEAKENING · 🔴 FALLING —
+          {{ _("see Sector Rotation page for scores and detail.") }}
+        </p>
+      </div>
+      {% else %}
       <div class="legend-col">
         <strong>{{ _("Core Universe Filter (source of truth for WHO)") }}</strong>
         <ul style="columns:1">
@@ -1226,6 +1280,7 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
         </ul>
         <p class="hint" style="text-align:left;margin:0">{{ _("Pipeline: Financial first; News only if Financial ≥60%. SKIPPED = never analyzed (score 0). NEUTRAL / NO NEWS = analyzed, no material signal (score 0). POSITIVE +5 / NEGATIVE −5. Cache reused when fresh. Hover for titles.") }}</p>
       </div>
+      {% endif %}
       </div>
     </div>
   </dialog>
