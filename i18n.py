@@ -50,6 +50,7 @@ ZH: dict[str, str] = {
         "POSITIVE / NEUTRAL / NEGATIVE / SKIPPED。完整标题请打开个股分析；表格 News 列可悬停查看。",
     "see Sector Rotation page for scores and detail.": "详见「板块轮动」页面的得分与明细。",
     "Refresh My + Nasdaq-100 + Sector Rotation": "刷新：我的自选 + 纳斯达克100 + 板块轮动",
+    "Please wait {n} seconds before refreshing again.": "请等待 {n} 秒后再刷新。",
     "News Score":
         "新闻得分",
     "News gate (Watchlist primary groups)":

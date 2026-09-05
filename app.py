@@ -1050,21 +1050,48 @@ def refresh_dashboard():
 def refresh_all_prices():
     """
     Manual: refresh prices.
-    Full: all index pools + Watchlist (+ research/paper via job_refresh_prices).
-    Lite: My + Nasdaq-100 + sector ETFs + Sector Rotation only (no Paper / Discovery).
-    Admin-only.
+    Full: owner-only — all index pools + Watchlist (+ research/paper).
+    Lite: public — My + Nasdaq-100 + sector ETFs + Sector Rotation (no login).
     """
     nxt = (request.form.get("next") or "").strip()
     # Only allow internal relative redirects
     if not nxt.startswith("/") or nxt.startswith("//"):
         nxt = url_for("watchlist", tab="mine") if is_lite() else url_for("market_dashboard")
-    if not is_owner():
+
+    # Full site still requires Admin; Lite online allows public refresh.
+    if not is_lite() and not is_owner():
         flash(gettext("Please sign in to refresh all prices"), "warning")
         return redirect(url_for("owner_login", next=nxt))
+
+    # Lite anonymous: short cooldown so Yahoo is not hammered.
+    if is_lite() and not is_owner():
+        import time as _time
+
+        last = float(get_setting("lite_public_refresh_at", 0) or 0)
+        cooldown = 180  # seconds
+        now = _time.time()
+        wait = int(cooldown - (now - last))
+        if wait > 0:
+            flash(
+                ngettext_format(
+                    "Please wait {n} seconds before refreshing again.",
+                    n=wait,
+                ),
+                "warning",
+            )
+            return redirect(nxt)
+
     try:
         from update_jobs import job_refresh_prices
 
         result = job_refresh_prices(max_workers=2)
+        if is_lite():
+            try:
+                import time as _time
+
+                set_setting("lite_public_refresh_at", _time.time())
+            except Exception:
+                pass
         if is_lite() or result.get("mode") == "lite":
             flash(
                 ngettext_format(
