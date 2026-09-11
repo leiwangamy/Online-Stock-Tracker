@@ -26,11 +26,34 @@
     <input id="rebound_lookback" name="rebound_lookback" type="number" min="5" max="250" step="1" value="{{ rebound_lookback }}" required {% if not can_edit %}readonly{% endif %} />
 
     <label>{{ _('Data source') }}</label>
+    {% if leibot_lite %}
     <select name="data_source" disabled>
-      <option value="yahoo" selected>{{ _('Yahoo Finance (current)') }}</option>
-      <option value="ibkr">{{ _('IBKR (future)') }}</option>
+      <option value="yahoo" selected>{{ _('Yahoo Finance (Lite)') }}</option>
     </select>
     {% if can_edit %}<input type="hidden" name="data_source" value="yahoo" />{% endif %}
+    <p class="meta">{{ _('Lite online always uses Yahoo. IBKR is Full/local only.') }}</p>
+    {% else %}
+    <select name="data_source" id="data_source" {% if not can_edit %}disabled{% endif %}>
+      <option value="ibkr" {% if data_source == 'ibkr' %}selected{% endif %}>{{ _('IBKR (prices / sessions / history)') }}</option>
+      <option value="yahoo" {% if data_source == 'yahoo' %}selected{% endif %}>{{ _('Yahoo Finance') }}</option>
+    </select>
+    <p class="meta">
+      {{ _('IBKR: real-time/delayed price, pre/RTH/AH, historical bars. Yahoo still supplements News + Fundamentals. Trading (later) uses the same IBKR adapter.') }}
+    </p>
+
+    <label for="ibkr_connection_mode">{{ _('IBKR connection mode') }}</label>
+    <select name="ibkr_connection_mode" id="ibkr_connection_mode" {% if not can_edit %}disabled{% endif %}>
+      <option value="PAPER" {% if ibkr_connection_mode == 'PAPER' %}selected{% endif %}>{{ _('PAPER (TWS 7497 default)') }}</option>
+      <option value="LIVE" {% if ibkr_connection_mode == 'LIVE' %}selected{% endif %}>{{ _('LIVE (market data / account reads)') }}</option>
+    </select>
+    <p class="meta" style="color:#b45309">
+      {{ _('Selecting LIVE never enables live order placement. LIVE_TRADING_ENABLED stays false unless set in the environment.') }}
+      {% if ibkr_safety %}
+      · LIVE_TRADING_ENABLED={{ 'true' if ibkr_safety.live_trading_enabled else 'false' }}
+      · {{ _('Active') }} {{ ibkr_safety.profile.host }}:{{ ibkr_safety.profile.port }}
+      {% endif %}
+    </p>
+    {% endif %}
 
     <h2 style="margin-top:28px;font-size:1.15rem">{{ _('Auto updates (Pacific Time)') }}</h2>
     <p class="meta">

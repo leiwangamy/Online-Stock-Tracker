@@ -16,10 +16,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-# Paper TWS defaults (live TWS is typically 7496 — do NOT use in Phase 2).
-DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PAPER_PORT = 7497
-DEFAULT_CLIENT_ID = 71
+# Connection defaults live in ibkr_local.config (PAPER/LIVE profiles).
+from ibkr_local.config import (  # noqa: E402
+    DEFAULT_HOST,
+    DEFAULT_PAPER_CLIENT_ID as DEFAULT_CLIENT_ID,
+    DEFAULT_PAPER_PORT,
+    get_connection_profile,
+)
+
 DEFAULT_TEST_TICKERS = ("AAPL", "MSFT", "SPY")
 
 
@@ -40,21 +44,15 @@ class TickerSmokeResult:
 
 
 def _env_host() -> str:
-    return (os.environ.get("IBKR_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST
+    return get_connection_profile().host
 
 
 def _env_port() -> int:
-    raw = (os.environ.get("IBKR_PAPER_PORT") or os.environ.get("IBKR_PORT") or "").strip()
-    if raw:
-        return int(raw)
-    return DEFAULT_PAPER_PORT
+    return int(get_connection_profile().port)
 
 
 def _env_client_id() -> int:
-    raw = (os.environ.get("IBKR_CLIENT_ID") or "").strip()
-    if raw:
-        return int(raw)
-    return DEFAULT_CLIENT_ID
+    return int(get_connection_profile().client_id)
 
 
 def _fmt_ts(value: Any) -> str | None:

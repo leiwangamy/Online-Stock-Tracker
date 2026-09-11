@@ -31,7 +31,8 @@ DEFAULT_SETTINGS = {
     "sma_period": 25,
     "sma_presets": [25, 50, 63, 90],
     "rebound_lookback": 25,  # days used for recent low (phase 2 / reserved)
-    "data_source": "yahoo",  # later: ibkr
+    "data_source": "ibkr",  # Full/local primary; Lite forces Yahoo in preferred_data_source()
+    "ibkr_connection_mode": "PAPER",  # PAPER | LIVE socket profile (not live trading)
     # Auto-update (Pacific). Prices: weekdays after US close (~16:15 ET).
     "schedule_universe_weekday": "sun",
     "schedule_universe_hour": 10,

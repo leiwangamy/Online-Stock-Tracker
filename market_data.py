@@ -239,7 +239,12 @@ def load_yahoo_daily_closes(
     (auto_adjust=True alone is not reliable around some recent splits, e.g. MNST.)
     Retries on Yahoo rate-limit / crumb failures.
     """
-    meta: dict[str, Any] = {"jump_fixes": 0, "quality": None, "attempts": 0}
+    meta: dict[str, Any] = {
+        "jump_fixes": 0,
+        "quality": None,
+        "attempts": 0,
+        "provider": "yahoo",
+    }
     last_exc: BaseException | None = None
     for attempt in range(max(1, int(retries))):
         meta["attempts"] = attempt + 1
@@ -268,6 +273,94 @@ def load_yahoo_daily_closes(
     if last_exc is not None:
         log.debug("Yahoo history failed for %s after retries: %s", ticker, last_exc)
     return None, None, meta
+
+
+def preferred_data_source() -> str:
+    """
+    Local Full default: IBKR (prices / history / sessions).
+    Lite / online: always Yahoo.
+    Yahoo remains the News + Fundamental supplement.
+    """
+    try:
+        from leibot_mode import is_lite
+
+        if is_lite():
+            return "yahoo"
+    except Exception:
+        pass
+    import os
+
+    env = (os.environ.get("LEIBOT_DATA_SOURCE") or "").strip().lower()
+    if env in ("yahoo", "ibkr"):
+        return env
+    try:
+        from db import get_setting
+
+        raw = (get_setting("data_source") or "ibkr").strip().lower()
+        if raw in ("yahoo", "ibkr"):
+            return raw
+    except Exception:
+        pass
+    return "ibkr"
+
+
+def load_ibkr_daily_closes(
+    ticker: str,
+    *,
+    period: str = "2y",
+) -> tuple[pd.Series | None, pd.DataFrame | None, dict[str, Any]]:
+    """Historical daily closes via shared IBKR adapter (Paper/Live profile)."""
+    meta: dict[str, Any] = {"provider": "ibkr", "jump_fixes": 0, "quality": None}
+    t = (ticker or "").strip().upper()
+    if not t:
+        meta["error"] = "empty ticker"
+        return None, None, meta
+    try:
+        from ibkr_local.adapter import get_adapter
+
+        result = get_adapter().fetch_daily_bars([t], period=period).get(t) or {}
+    except Exception as exc:
+        meta["error"] = str(exc)
+        return None, None, meta
+    meta["mode"] = result.get("mode")
+    if not result.get("ok"):
+        meta["error"] = result.get("error") or "ibkr fetch failed"
+        return None, None, meta
+    closes = result.get("closes")
+    hist = result.get("hist")
+    if closes is None or getattr(closes, "empty", True):
+        meta["error"] = "empty ibkr closes"
+        return None, None, meta
+    meta["bars"] = int(result.get("bars") or len(closes))
+    return closes, hist if isinstance(hist, pd.DataFrame) else None, meta
+
+
+def load_daily_closes(
+    ticker: str,
+    *,
+    period: str = "2y",
+    retries: int = 4,
+) -> tuple[pd.Series | None, pd.DataFrame | None, dict[str, Any]]:
+    """
+    Primary market-history loader for LeiBot.
+
+    Full/local: IBKR first (active PAPER/LIVE profile), Yahoo fallback.
+    Lite: Yahoo only.
+    Fundamentals / News still use Yahoo helpers separately.
+    """
+    src = preferred_data_source()
+    if src == "ibkr":
+        closes, hist, meta = load_ibkr_daily_closes(ticker, period=period)
+        if closes is not None and not closes.empty:
+            return closes, hist, meta
+        y_closes, y_hist, y_meta = load_yahoo_daily_closes(
+            ticker, period=period, retries=retries
+        )
+        y_meta = dict(y_meta or {})
+        y_meta["provider"] = "yahoo_fallback"
+        y_meta["ibkr_error"] = (meta or {}).get("error")
+        return y_closes, y_hist, y_meta
+    return load_yahoo_daily_closes(ticker, period=period, retries=retries)
 
 
 # Window for "average daily move" (typical daily volatility), in trading days.
@@ -800,9 +893,12 @@ def fetch_metrics_for_ticker(
     if atype not in ("STOCK", "ETF"):
         atype = "STOCK"
     try:
-        closes, hist, load_meta = load_yahoo_daily_closes(ticker, period="2y")
-        if closes is None or hist is None or closes.empty:
+        closes, hist, load_meta = load_daily_closes(ticker, period="2y")
+        if closes is None or closes.empty:
             return None
+        # Volume optional when IBKR hist lacks it — metrics still compute.
+        if hist is None:
+            hist = pd.DataFrame({"Close": closes})
         price = float(closes.iloc[-1])
         quality = assess_sma_window_quality(closes, sma_period)
         load_meta["quality"] = quality
@@ -847,7 +943,7 @@ def fetch_metrics_for_ticker(
             except (TypeError, ValueError):
                 avg_dollar_vol = None
 
-        # Company-only fields — skip for ETFs (no fake zeros).
+        # Company-only fields — Yahoo supplement for now (IBKR earnings/news later).
         market_cap = None
         earnings_date = None
         target_1y = None
@@ -883,6 +979,15 @@ def fetch_metrics_for_ticker(
             "ai_note": ai_note,
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "asset_type": atype,
+            "data_source": (
+                "IBKR"
+                if str((load_meta or {}).get("provider") or "").startswith("ibkr")
+                else (
+                    "Yahoo-Fallback"
+                    if (load_meta or {}).get("provider") == "yahoo_fallback"
+                    else "Yahoo"
+                )
+            ),
             "sma63": None if sma63 is None else round(sma63, 2),
             "dist_sma63_pct": dist_sma63_pct,
             "ret_20d": ret_20d,

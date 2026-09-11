@@ -498,26 +498,88 @@
       });
 
       // Keep multi-column freeze offsets in sync with resized widths.
+      // freeze-edge belongs on the LAST visible freeze column (shadow edge).
       window.updateFreezeColOffsets = function (table) {
         if (!table || !table.tHead) return;
         var head =
           table.tHead.querySelector("tr.col-row") ||
           table.tHead.rows[table.tHead.rows.length - 1];
         if (!head) return;
-        var left = 0;
+        var freezeCells = [];
         Array.prototype.forEach.call(head.cells, function (th, i) {
           if (!th.classList.contains("freeze-col")) return;
-          var isEdge = left < 0.5;
+          if (th.style.display === "none") return;
+          freezeCells.push({ th: th, i: i });
+        });
+        var left = 0;
+        freezeCells.forEach(function (item, idx) {
+          var isEdge = idx === freezeCells.length - 1;
           Array.prototype.forEach.call(table.rows, function (tr) {
-            var cell = tr.cells[i];
+            var cell = tr.cells[item.i];
             if (cell && cell.classList.contains("freeze-col")) {
               cell.style.left = left + "px";
               cell.classList.toggle("freeze-edge", isEdge);
             }
           });
-          left += th.getBoundingClientRect().width;
+          left += item.th.getBoundingClientRect().width;
         });
       };
+
+      window.leiSyncHiddenCols = function (table) {
+        if (!table || !table.tHead) return;
+        // SER uses auto layout — only toggle display, never touch col widths.
+        if (table.id === "ser-table") {
+          if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
+          window.dispatchEvent(new Event("resize"));
+          return;
+        }
+        var head =
+          table.tHead.querySelector("tr.col-row") ||
+          table.tHead.rows[table.tHead.rows.length - 1];
+        if (!head) return;
+        var cols = table._leiCols;
+        var widths = table._leiColWidths;
+        var natural = table._leiColNatural;
+        if (!cols || !cols.length) {
+          var cg = table.querySelector("colgroup");
+          if (!cg) return;
+          cols = Array.prototype.slice.call(cg.children);
+          table._leiCols = cols;
+        }
+        Array.prototype.forEach.call(head.cells, function (th, i) {
+          if (!cols[i]) return;
+          var hidden = th.style.display === "none";
+          if (hidden) {
+            if (widths && widths[i] > 0) {
+              th.dataset.leiW = String(widths[i]);
+            } else if (!th.dataset.leiW && natural && natural[i]) {
+              th.dataset.leiW = String(natural[i]);
+            }
+            if (widths) widths[i] = 0;
+            cols[i].style.width = "0px";
+            cols[i].style.minWidth = "0px";
+            cols[i].style.visibility = "";
+          } else {
+            var floor = th.classList.contains("freeze-col") ? 72 : 56;
+            var restore = 0;
+            if (widths && widths[i] > 0) restore = widths[i];
+            else if (th.dataset.leiW) restore = parseFloat(th.dataset.leiW) || 0;
+            else if (natural && natural[i]) restore = natural[i];
+            if (!restore || restore < floor) restore = Math.max(floor, (natural && natural[i]) || floor);
+            if (widths) widths[i] = restore;
+            cols[i].style.width = restore + "px";
+            cols[i].style.minWidth = "";
+            cols[i].style.visibility = "";
+          }
+        });
+        if (table.classList.contains("resizable") && widths) {
+          var total = widths.reduce(function (a, b) { return a + (b || 0); }, 0);
+          table.style.width = Math.max(total, 1) + "px";
+        }
+        if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
+        window.dispatchEvent(new Event("resize"));
+      };
+
       document.querySelectorAll("table.data").forEach(function (t) {
         window.updateFreezeColOffsets(t);
       });
@@ -530,6 +592,23 @@
         // Discovery / News History: fixed Symbol freeze width — skip col-resize
         // (saved narrow widths were crushing "Symbol" under the top scrollbar).
         if (table.id === "disc-layer-table" || table.id === "news-history-table") {
+          if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
+          return;
+        }
+        // Sector ETF Rotation: NEVER use fixed colgroup widths.
+        // They repeatedly zeroed 20D / SPY 40D / REL 63D after column changes.
+        if (table.id === "ser-table") {
+          try {
+            ["colw6","colw7","colw8","colw9"].forEach(function (p) {
+              localStorage.removeItem(p + ":ser-table");
+            });
+          } catch (e) {}
+          table.classList.remove("resizable");
+          table.style.tableLayout = "auto";
+          table.style.width = "max-content";
+          table.style.minWidth = "100%";
+          var staleCg = table.querySelector("colgroup");
+          if (staleCg) staleCg.remove();
           if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
           return;
         }
@@ -547,9 +626,19 @@
         });
         if (head.cells.length < spanSum * 0.6) return;
 
-        var key = "colw6:" + table.id;   // v6: no colspan not-found rows; unique wl ids
+        var key = "colw9:" + table.id;
         var saved = {};
-        try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) {}
+        // SER table: ignore old width cache — it was zeroing 20D/SPY40D/REL63D after column inserts.
+        if (table.id !== "ser-table") {
+          try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch (e) {}
+        } else {
+          try {
+            localStorage.removeItem("colw6:ser-table");
+            localStorage.removeItem("colw7:ser-table");
+            localStorage.removeItem("colw8:ser-table");
+            localStorage.removeItem("colw9:ser-table");
+          } catch (e) {}
+        }
         var ths = Array.prototype.slice.call(head.cells);
 
         // Control widths via <colgroup><col> — the most reliable way to resize
@@ -563,25 +652,49 @@
         table.insertBefore(colgroup, table.firstChild);
 
         // Measure natural widths (content-based) before fixing the layout.
+        // Temporarily reveal display:none headers so hidden prefs don't measure as 0.
+        var revealed = [];
+        ths.forEach(function (th) {
+          if (th.style.display === "none") {
+            revealed.push(th);
+            th.style.display = "";
+          }
+        });
         table.style.tableLayout = "auto";
         table.style.width = "auto";
         var natural = ths.map(function (th) {
-          var floor = th.classList.contains("freeze-col") ? 72 : 48;
+          var floor = th.classList.contains("freeze-col") ? 72 : 56;
           return Math.max(floor, th.offsetWidth);
         });
+        revealed.forEach(function (th) { th.style.display = "none"; });
 
         var widths = ths.map(function (th, i) {
-          var floor = th.classList.contains("freeze-col") ? 72 : 48;
+          var floor = th.classList.contains("freeze-col") ? 72 : 56;
+          var hidden = th.style.display === "none";
+          if (hidden) {
+            th.dataset.leiW = String(Math.max(floor, natural[i] || floor));
+            return 0;
+          }
           var w = saved[i] != null ? saved[i] : natural[i];
           return Math.max(floor, w);
         });
-        function applyCol(i) { cols[i].style.width = widths[i] + "px"; }
-        function totalWidth() { return widths.reduce(function (a, b) { return a + b; }, 0); }
+        function applyCol(i) {
+          cols[i].style.width = widths[i] + "px";
+          cols[i].style.minWidth = widths[i] <= 0 ? "0px" : "";
+          cols[i].style.visibility = "";
+        }
+        function totalWidth() {
+          return widths.reduce(function (a, b) { return a + (b || 0); }, 0);
+        }
         widths.forEach(function (_, i) { applyCol(i); });
         table.style.tableLayout = "fixed";
         table.style.width = totalWidth() + "px";
         table.classList.add("resizable");
+        table._leiCols = cols;
+        table._leiColWidths = widths;
+        table._leiColNatural = natural;
         if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
+        if (window.leiSyncHiddenCols) window.leiSyncHiddenCols(table);
 
         function persist() {
           try { localStorage.setItem(key, JSON.stringify(saved)); } catch (e) {}
@@ -598,12 +711,17 @@
 
         ths.forEach(function (th, i) {
           th.addEventListener("mousemove", function (e) {
+            if (widths[i] <= 0 || th.style.display === "none") {
+              th.style.cursor = "";
+              return;
+            }
             var rect = th.getBoundingClientRect();
             th.style.cursor = (rect.right - e.clientX) <= EDGE ? "col-resize" : "";
           });
           th.addEventListener("mouseleave", function () { th.style.cursor = ""; });
 
           th.addEventListener("mousedown", function (e) {
+            if (widths[i] <= 0 || th.style.display === "none") return;
             var rect = th.getBoundingClientRect();
             if ((rect.right - e.clientX) > EDGE) return;   // not on the edge
             e.preventDefault();
@@ -611,7 +729,7 @@
             var moved = false;
             var startX = e.clientX;
             var startW = widths[i];
-            var floor = th.classList.contains("freeze-col") ? 72 : 40;
+            var floor = th.classList.contains("freeze-col") ? 72 : 48;
             document.body.style.cursor = "col-resize";
             function move(ev) {
               moved = true;
@@ -637,6 +755,7 @@
           });
 
           th.addEventListener("dblclick", function (e) {
+            if (widths[i] <= 0 || th.style.display === "none") return;
             var rect = th.getBoundingClientRect();
             if ((rect.right - e.clientX) > EDGE) return;
             e.preventDefault();

@@ -165,6 +165,30 @@ def validate_create_payload(data: dict[str, Any]) -> dict[str, Any]:
         if allocation_amount > limit + 1e-6:
             raise ValueError(f"allocation_amount exceeds trading limit ({limit})")
 
+    # Hard Safety Guard (code-enforced). Optional position_qty enables exit size checks.
+    # Procedure / Notes UI text never feeds this path.
+    position_qty = data.get("position_qty")
+    if position_qty is not None and position_qty != "":
+        try:
+            from trading_safety import SafetyViolation, validate_exit_quantity
+
+            validate_exit_quantity(
+                side=action,
+                position_qty=position_qty,
+                exit_qty=quantity,
+            )
+        except SafetyViolation as exc:
+            raise ValueError(str(exc)) from exc
+    if data.get("replacing_stop"):
+        try:
+            from trading_safety import SafetyViolation, require_stop_cancelled_before_replace
+
+            require_stop_cancelled_before_replace(
+                old_stop_cancelled=bool(data.get("old_stop_cancelled"))
+            )
+        except SafetyViolation as exc:
+            raise ValueError(str(exc)) from exc
+
     return {
         "symbol": symbol,
         "action": action,

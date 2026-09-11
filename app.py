@@ -1152,7 +1152,20 @@ def settings():
                 raise ValueError(gettext("Rebound lookback must be between 5 and 250"))
             set_setting("sma_period", sma_period)
             set_setting("rebound_lookback", rebound_lookback)
-            set_setting("data_source", "yahoo")
+            if is_lite():
+                set_setting("data_source", "yahoo")
+            else:
+                ds = (request.form.get("data_source") or "ibkr").strip().lower()
+                if ds not in ("yahoo", "ibkr"):
+                    ds = "ibkr"
+                set_setting("data_source", ds)
+                mode = (request.form.get("ibkr_connection_mode") or "PAPER").strip().upper()
+                try:
+                    from ibkr_local.config import set_connection_mode
+
+                    set_connection_mode(mode)
+                except Exception:
+                    app.logger.exception("ibkr connection mode save failed")
 
             weekday = (request.form.get("schedule_universe_weekday") or "sun").lower()
             if weekday not in {w[0] for w in weekdays}:
@@ -1274,6 +1287,21 @@ def settings():
     except Exception:
         sched = {"enabled": False, "running": False, "jobs": []}
 
+    data_source = str(settings_data.get("data_source") or ("yahoo" if is_lite() else "ibkr")).lower()
+    if data_source not in ("yahoo", "ibkr"):
+        data_source = "yahoo" if is_lite() else "ibkr"
+    ibkr_connection_mode = str(settings_data.get("ibkr_connection_mode") or "PAPER").upper()
+    if ibkr_connection_mode not in ("PAPER", "LIVE"):
+        ibkr_connection_mode = "PAPER"
+    ibkr_safety = None
+    if not is_lite():
+        try:
+            from ibkr_local.config import safety_status
+
+            ibkr_safety = safety_status()
+        except Exception:
+            ibkr_safety = None
+
     # Always build 5 editable rows (never leave the Settings table empty).
     # Lite: skip Paper strategy UI data entirely (local FULL only).
     paper_strategy_exits = []
@@ -1290,6 +1318,9 @@ def settings():
             schedule_universe_minute=int(settings_data.get("schedule_universe_minute", 0)),
             schedule_price_hour=int(settings_data.get("schedule_price_hour", 13)),
             schedule_price_minute=int(settings_data.get("schedule_price_minute", 15)),
+            data_source="yahoo",
+            ibkr_connection_mode="PAPER",
+            ibkr_safety=None,
             paper_strategy_exits=[],
             paper_stop_loss_pct=float(settings_data.get("paper_stop_loss_pct", 5.0)),
             paper_take_profit_pct=float(settings_data.get("paper_take_profit_pct", 10.0)),
@@ -1388,6 +1419,9 @@ def settings():
         schedule_universe_minute=int(settings_data.get("schedule_universe_minute", 0)),
         schedule_price_hour=int(settings_data.get("schedule_price_hour", 13)),
         schedule_price_minute=int(settings_data.get("schedule_price_minute", 15)),
+        data_source=data_source,
+        ibkr_connection_mode=ibkr_connection_mode,
+        ibkr_safety=ibkr_safety,
         paper_strategy_exits=paper_strategy_exits,
         paper_stop_loss_pct=float(settings_data.get("paper_stop_loss_pct", 5.0)),
         paper_take_profit_pct=float(settings_data.get("paper_take_profit_pct", 10.0)),
@@ -1409,13 +1443,17 @@ from watchlist_config import (
     collect_watchlist_tickers,
     get_growth_watchlist,
     get_my_watchlist,
+    get_my_watchlist_notes,
     get_short_watchlist,
     get_trade_candidates,
+    get_trading_procedure,
     is_fund_like,
     remove_growth_watchlist_ticker,
     remove_my_watchlist_ticker,
     remove_short_watchlist_ticker,
     remove_trade_candidate,
+    set_trading_procedure,
+    set_watchlist_note,
     validate_ticker_token,
 )
 
@@ -1695,6 +1733,29 @@ def watchlist():
             session["temp_watchlist"] = temp[:MAX_TEMP_TICKERS]
         elif action == "clear_temp":
             session.pop("temp_watchlist", None)
+        elif action in (
+            "save_trading_procedure",
+            "save_watchlist_note",
+        ):
+            # Soft config only — never changes order / IBKR safety logic.
+            if not is_owner():
+                flash(gettext("Please sign in to edit Trading Procedure / Notes"), "warning")
+                return redirect(
+                    url_for("owner_login", next=url_for("watchlist", tab="mine"))
+                )
+            try:
+                if action == "save_trading_procedure":
+                    set_trading_procedure(request.form.get("procedure_text", ""))
+                    flash(gettext("Trading Procedure saved"), "ok")
+                else:
+                    set_watchlist_note(
+                        request.form.get("ticker", ""),
+                        request.form.get("note_text", ""),
+                    )
+                    flash(gettext("Watchlist note saved"), "ok")
+            except ValueError as exc:
+                flash(str(exc), "warning")
+            return redirect(url_for("watchlist", tab="mine"))
         elif action in (
             "add_mine",
             "remove_mine",
@@ -2551,6 +2612,28 @@ def watchlist():
                 t["count"] = int(ai_news_ctx.get("discovery_count") or 0)
                 break
 
+    trading_procedure_text = ""
+    watchlist_notes: dict[str, str] = {}
+    safety_rules_display: list[str] = []
+    if tab == "mine":
+        try:
+            trading_procedure_text = get_trading_procedure()
+            watchlist_notes = get_my_watchlist_notes()
+            for r in rows:
+                t = (r.get("ticker") or "").strip().upper()
+                if t:
+                    r["note"] = watchlist_notes.get(t, "")
+        except Exception:
+            app.logger.exception("trading procedure / notes load failed")
+            trading_procedure_text = ""
+            watchlist_notes = {}
+        try:
+            from trading_safety import SAFETY_RULES_DISPLAY
+
+            safety_rules_display = list(SAFETY_RULES_DISPLAY)
+        except Exception:
+            safety_rules_display = []
+
     return render_template(
         "watchlist.html",
         sma_period=sma_period,
@@ -2586,6 +2669,9 @@ def watchlist():
         core_no_longer=core_no_longer,
         approved_list=approved_list,
         can_manage=is_owner(),
+        trading_procedure_text=trading_procedure_text,
+        watchlist_notes=watchlist_notes,
+        safety_rules_display=safety_rules_display,
         **ai_news_ctx,
     )
 
@@ -4634,6 +4720,156 @@ def api_trading_order_status(request_id: int):
     return jsonify({"order": updated})
 
 
+@app.route("/strong-monitor/market-index.xlsx", methods=["GET"], endpoint="market_index_xlsx")
+def market_index_export():
+    """Download Market Index Excel (Full / local only)."""
+    if is_lite():
+        return redirect(url_for("strong_stock_monitor", tab="rotation"))
+    try:
+        from urllib.parse import quote
+
+        from market_index import export_market_index_xlsx
+
+        try:
+            mw = int(request.args.get("window") or 63)
+        except (TypeError, ValueError):
+            mw = 63
+        fname, body = export_market_index_xlsx(window=mw)
+        return Response(
+            body,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{fname}"; '
+                    f"filename*=UTF-8''{quote(fname)}"
+                ),
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except Exception as exc:
+        app.logger.exception("market index export failed")
+        flash(
+            ngettext_format("Market Index download failed: {exc}", exc=exc),
+            "warning",
+        )
+        return redirect(
+            url_for(
+                "strong_stock_monitor",
+                tab="market_index",
+                window=request.args.get("window"),
+            )
+        )
+
+
+@app.route(
+    "/strong-monitor/sector-etf-rotation.xlsx",
+    methods=["GET"],
+    endpoint="sector_etf_rotation_xlsx",
+)
+def sector_etf_rotation_export():
+    """Download Sector ETF Rotation Excel (Full / local only)."""
+    if is_lite():
+        return redirect(url_for("strong_stock_monitor", tab="rotation"))
+    try:
+        from urllib.parse import quote
+
+        from sector_etf_rotation import export_sector_etf_rotation_xlsx
+
+        try:
+            sw = int(request.args.get("window") or 63)
+        except (TypeError, ValueError):
+            sw = 63
+        mode = (request.args.get("mode") or "rel").strip().lower()
+        fname, body = export_sector_etf_rotation_xlsx(window=sw, mode=mode)
+        return Response(
+            body,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{fname}"; '
+                    f"filename*=UTF-8''{quote(fname)}"
+                ),
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except Exception as exc:
+        app.logger.exception("sector etf rotation export failed")
+        flash(
+            ngettext_format("Sector ETF Rotation download failed: {exc}", exc=exc),
+            "warning",
+        )
+        return redirect(
+            url_for(
+                "strong_stock_monitor",
+                tab="sector_etf_rotation",
+                window=request.args.get("window"),
+                mode=request.args.get("mode"),
+            )
+        )
+
+
+@app.route("/strong-monitor/group-movement.csv", methods=["GET"], endpoint="group_movement_csv")
+@app.route("/strong-monitor/group-movement.xlsx", methods=["GET"], endpoint="group_movement_xlsx")
+def group_movement_export():
+    """Download Group Movement as Excel (.xlsx) or CSV/TSV (Full / local only)."""
+    if is_lite():
+        return redirect(url_for("strong_stock_monitor", tab="rotation"))
+    want_xlsx = request.endpoint == "group_movement_xlsx" or (
+        (request.args.get("format") or "").strip().lower() in ("xlsx", "excel")
+    )
+    try:
+        from urllib.parse import quote
+
+        from group_movement import export_group_movement_csv, export_group_movement_xlsx
+
+        gk = (request.args.get("group") or "").strip() or None
+        try:
+            gw = int(request.args.get("window") or 40)
+        except (TypeError, ValueError):
+            gw = 40
+        if want_xlsx:
+            fname, body = export_group_movement_xlsx(group_key=gk, window=gw)
+            return Response(
+                body,
+                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="{fname}"; '
+                        f"filename*=UTF-8''{quote(fname)}"
+                    ),
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+        fname, text = export_group_movement_csv(group_key=gk, window=gw)
+        # UTF-16 LE + BOM: Excel double-click friendly on Windows.
+        payload = text.encode("utf-16")
+        return Response(
+            payload,
+            mimetype="text/tab-separated-values; charset=utf-16",
+            headers={
+                "Content-Disposition": f"attachment; filename={fname}",
+                "Cache-Control": "no-store",
+            },
+        )
+    except Exception as exc:
+        app.logger.exception("group movement export failed")
+        flash(
+            ngettext_format("Group Movement download failed: {exc}", exc=exc),
+            "warning",
+        )
+        return redirect(
+            url_for(
+                "strong_stock_monitor",
+                tab="group_movement",
+                group=request.args.get("group"),
+                window=request.args.get("window"),
+            )
+        )
+
+
 @app.route("/strong-monitor", methods=["GET", "POST"])
 def strong_stock_monitor():
     """
@@ -4672,6 +4908,9 @@ def strong_stock_monitor():
         "rising_now",
         "rotation",
         "rotation_detail",
+        "group_movement",
+        "market_index",
+        "sector_etf_rotation",
         "multi_signal",
         "fin6",
         "fin5",
@@ -4680,7 +4919,7 @@ def strong_stock_monitor():
         tab = "daily"
 
     if is_lite():
-        # Lite Research = Sector Rotation only
+        # Lite Research = Sector Rotation only (Group Movement is Full/local).
         if not lite_research_tab_ok(tab):
             return redirect(url_for("strong_stock_monitor", tab="rotation"))
         tab = tab if lite_research_tab_ok(tab) else "rotation"
@@ -4691,7 +4930,13 @@ def strong_stock_monitor():
 
     if request.method == "POST":
         action = (request.form.get("action") or "").strip()
-        if not is_owner():
+        # Local research refresh does not require Owner login (Full only).
+        _public_research_refresh = action in (
+            "refresh_mi",
+            "refresh_gm",
+            "refresh_ser",
+        )
+        if not is_owner() and not _public_research_refresh:
             flash(gettext("Please sign in to manage Research"), "warning")
             return redirect(
                 url_for("owner_login", next=url_for("strong_stock_monitor", tab=tab))
@@ -4772,6 +5017,197 @@ def strong_stock_monitor():
                     "ok",
                 )
                 return redirect(url_for("strong_stock_monitor", tab="rotation"))
+            elif action == "refresh_mi":
+                if is_lite():
+                    return redirect(url_for("strong_stock_monitor", tab="rotation"))
+                from market_index import load_market_index
+
+                try:
+                    mw = int(request.form.get("mi_window") or 63)
+                except (TypeError, ValueError):
+                    mw = 63
+                payload = load_market_index(window=mw, refresh=True)
+                rr = payload.get("refresh_result") or {}
+                flash(
+                    ngettext_format(
+                        "Market Index refreshed: {n} bars (as of {day})",
+                        n=rr.get("updated") or 0,
+                        day=payload.get("as_of") or "—",
+                    ),
+                    "ok" if rr.get("ok") else "warning",
+                )
+                if rr.get("failed"):
+                    flash(
+                        ngettext_format(
+                            "Some indexes failed (kept prior data): {names}",
+                            names=", ".join(rr.get("failed") or []),
+                        ),
+                        "warning",
+                    )
+                return redirect(
+                    url_for(
+                        "strong_stock_monitor",
+                        tab="market_index",
+                        window=payload.get("window") or mw,
+                    )
+                )
+            elif action == "save_mi_columns":
+                if is_lite():
+                    return redirect(url_for("strong_stock_monitor", tab="rotation"))
+                from market_index import set_column_prefs
+
+                prefs = {
+                    "daily": request.form.get("col_daily") == "1",
+                    "ret_5d": request.form.get("col_ret_5d") == "1",
+                    "ret_20d": request.form.get("col_ret_20d") == "1",
+                    "ret_40d": request.form.get("col_ret_40d") == "1",
+                    "ret_63d": request.form.get("col_ret_63d") == "1",
+                    "total": request.form.get("col_total") == "1",
+                    "rank": request.form.get("col_rank") == "1",
+                    "source": request.form.get("col_source") == "1",
+                    "time": request.form.get("col_time") == "1",
+                }
+                set_column_prefs(prefs)
+                flash(gettext("Market Index columns saved"), "ok")
+                mw = (request.form.get("mi_window") or "63").strip()
+                return redirect(
+                    url_for(
+                        "strong_stock_monitor",
+                        tab="market_index",
+                        window=mw or None,
+                    )
+                )
+            elif action == "refresh_ser":
+                if is_lite():
+                    return redirect(url_for("strong_stock_monitor", tab="rotation"))
+                from sector_etf_rotation import load_sector_etf_rotation
+
+                try:
+                    sw = int(request.form.get("ser_window") or 63)
+                except (TypeError, ValueError):
+                    sw = 63
+                mode = (request.form.get("ser_mode") or "rel").strip().lower()
+                payload = load_sector_etf_rotation(
+                    window=sw, mode=mode, refresh=True
+                )
+                rr = payload.get("refresh_result") or {}
+                flash(
+                    ngettext_format(
+                        "Sector ETF Rotation refreshed: {n} bars (as of {day})",
+                        n=rr.get("updated") or 0,
+                        day=payload.get("as_of") or "—",
+                    ),
+                    "ok" if rr.get("ok") else "warning",
+                )
+                if rr.get("failed"):
+                    flash(
+                        ngettext_format(
+                            "Some ETFs failed (kept prior data): {names}",
+                            names=", ".join(rr.get("failed") or []),
+                        ),
+                        "warning",
+                    )
+                return redirect(
+                    url_for(
+                        "strong_stock_monitor",
+                        tab="sector_etf_rotation",
+                        window=payload.get("window") or sw,
+                        mode=payload.get("mode") or mode,
+                    )
+                )
+            elif action == "save_ser_columns":
+                if is_lite():
+                    return redirect(url_for("strong_stock_monitor", tab="rotation"))
+                from sector_etf_rotation import set_column_prefs
+
+                prefs = {
+                    "sector": request.form.get("col_sector") == "1",
+                    "daily": request.form.get("col_daily") == "1",
+                    "ret_5d": request.form.get("col_ret_5d") == "1",
+                    "ret_20d": True,
+                    "ret_40d": True,
+                    "ret_63d": True,
+                    "spy_5d": request.form.get("col_spy_5d") == "1",
+                    "spy_20d": True,
+                    "spy_40d": True,
+                    "spy_63d": True,
+                    "total": request.form.get("col_total") == "1",
+                    "rel_5d": request.form.get("col_rel_5d") == "1",
+                    "rel_20d": True,
+                    "rel_40d": True,
+                    "rel_63d": True,
+                    "rel_rank": request.form.get("col_rel_rank") == "1",
+                    "rank_change": request.form.get("col_rank_change") == "1",
+                    "source": request.form.get("col_source") == "1",
+                    "time": request.form.get("col_time") == "1",
+                }
+                set_column_prefs(prefs)
+                flash(gettext("Sector ETF Rotation columns saved"), "ok")
+                sw = (request.form.get("ser_window") or "63").strip()
+                mode = (request.form.get("ser_mode") or "rel").strip().lower()
+                return redirect(
+                    url_for(
+                        "strong_stock_monitor",
+                        tab="sector_etf_rotation",
+                        window=sw or None,
+                        mode=mode or None,
+                    )
+                )
+            elif action == "refresh_gm":
+                # Refresh only the selected Group Movement pool (not whole Research).
+                if is_lite():
+                    return redirect(url_for("strong_stock_monitor", tab="rotation"))
+                from group_movement import load_group_movement
+
+                gk = (request.form.get("gm_group") or "").strip() or None
+                try:
+                    gw = int(request.form.get("gm_window") or 40)
+                except (TypeError, ValueError):
+                    gw = 40
+                payload = load_group_movement(
+                    group_key=gk, window=gw, refresh=True
+                )
+                flash(
+                    ngettext_format(
+                        "Group Movement refreshed: {n} stocks (as of {day})",
+                        n=payload.get("row_count") or 0,
+                        day=payload.get("as_of") or "—",
+                    ),
+                    "ok",
+                )
+                return redirect(
+                    url_for(
+                        "strong_stock_monitor",
+                        tab="group_movement",
+                        group=payload.get("group_key") or gk,
+                        window=payload.get("window") or gw,
+                    )
+                )
+            elif action == "save_gm_columns":
+                # Full-only UI prefs — does not change collected metrics.
+                if is_lite():
+                    return redirect(url_for("strong_stock_monitor", tab="rotation"))
+                from group_movement import set_column_prefs
+
+                prefs = {
+                    "daily": request.form.get("col_daily") == "1",
+                    "pre": request.form.get("col_pre") == "1",
+                    "regular": request.form.get("col_regular") == "1",
+                    "after": request.form.get("col_after") == "1",
+                    "price": request.form.get("col_price") == "1",
+                }
+                set_column_prefs(prefs)
+                flash(gettext("Group Movement columns saved"), "ok")
+                gk = (request.form.get("gm_group") or "").strip()
+                gw = (request.form.get("gm_window") or "40").strip()
+                return redirect(
+                    url_for(
+                        "strong_stock_monitor",
+                        tab="group_movement",
+                        group=gk or None,
+                        window=gw or None,
+                    )
+                )
             else:
                 flash(gettext("Unknown action"), "warning")
         except Exception as exc:
@@ -4793,6 +5229,9 @@ def strong_stock_monitor():
     badge_fin5 = 0
     rotation_data: dict = {}
     rotation_detail: dict = {}
+    group_movement: dict = {}
+    market_index: dict = {}
+    sector_etf_rotation: dict = {}
 
     def _row_fin6(r: dict) -> bool:
         return r.get("financial_ok") == 6 and r.get("financial_known") == 6
@@ -4826,6 +5265,90 @@ def strong_stock_monitor():
             app.logger.exception("strong-monitor financial analysis failed")
             data_badge_rising = 0
             data_badge_multi = 0
+    elif tab == "market_index":
+        if is_lite():
+            return redirect(url_for("strong_stock_monitor", tab="rotation"))
+        try:
+            from market_index import load_market_index
+
+            try:
+                mi_window = int(request.args.get("window") or 63)
+            except (TypeError, ValueError):
+                mi_window = 63
+            market_index = load_market_index(window=mi_window, refresh=False)
+        except Exception:
+            app.logger.exception("strong-monitor market index failed")
+            flash(gettext("Market Index failed to load."), "warning")
+            market_index = {
+                "rows": [],
+                "date_labels": [],
+                "window": 63,
+                "window_choices": [20, 40, 63],
+                "columns": {},
+                "row_count": 0,
+                "notes": "",
+            }
+        data_badge_rising = 0
+        data_badge_multi = 0
+    elif tab == "sector_etf_rotation":
+        if is_lite():
+            return redirect(url_for("strong_stock_monitor", tab="rotation"))
+        try:
+            from sector_etf_rotation import load_sector_etf_rotation
+
+            try:
+                ser_window = int(request.args.get("window") or 63)
+            except (TypeError, ValueError):
+                ser_window = 63
+            ser_mode = (request.args.get("mode") or "rel").strip().lower()
+            sector_etf_rotation = load_sector_etf_rotation(
+                window=ser_window, mode=ser_mode, refresh=False
+            )
+        except Exception:
+            app.logger.exception("strong-monitor sector etf rotation failed")
+            flash(gettext("Sector ETF Rotation failed to load."), "warning")
+            sector_etf_rotation = {
+                "rows": [],
+                "date_labels": [],
+                "window": 63,
+                "window_choices": [20, 40, 63],
+                "mode": "rel",
+                "mode_choices": ["raw", "rel"],
+                "columns": {},
+                "row_count": 0,
+                "notes": "",
+            }
+        data_badge_rising = 0
+        data_badge_multi = 0
+    elif tab == "group_movement":
+        # Full / local only — lite gate above already redirects.
+        try:
+            from group_movement import load_group_movement
+
+            gm_group = (request.args.get("group") or "").strip() or None
+            try:
+                gm_window = int(request.args.get("window") or 40)
+            except (TypeError, ValueError):
+                gm_window = 40
+            group_movement = load_group_movement(
+                group_key=gm_group, window=gm_window
+            )
+        except Exception:
+            app.logger.exception("strong-monitor group movement failed")
+            flash(gettext("Group Movement failed to load."), "warning")
+            group_movement = {
+                "rows": [],
+                "groups": [],
+                "date_labels": [],
+                "window": 40,
+                "window_choices": [20, 40, 63],
+                "columns": {},
+                "row_count": 0,
+                "member_count": 0,
+                "notes": "",
+            }
+        data_badge_rising = 0
+        data_badge_multi = 0
     elif tab in ("rotation", "rotation_detail"):
         try:
             from sector_rotation import build_sector_detail, load_latest_sector_rotation
@@ -4973,6 +5496,9 @@ def strong_stock_monitor():
     data["ca_counts"] = ca_counts
     data["rotation"] = rotation_data
     data["rotation_detail"] = rotation_detail
+    data["group_movement"] = group_movement
+    data["market_index"] = market_index
+    data["sector_etf_rotation"] = sector_etf_rotation
     data["badge_rotation"] = badge_rotation
     lang = get_lang()
     data["rising_headline"] = rising_count_label(data_badge_rising, lang=lang)
@@ -4987,4 +5513,6 @@ def strong_stock_monitor():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=3000)
+    port = int(os.environ.get("LEIBOT_PORT") or os.environ.get("PORT") or "3000")
+    # threaded=True so a slow Group Movement (ALL) load cannot freeze the whole UI.
+    app.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)

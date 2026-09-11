@@ -37,6 +37,80 @@
   }
   .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
   .tab .count { font-weight: 400; opacity: 0.7; font-size: inherit; }
+  .gm-toolbar {
+    display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+    gap: 10px 16px; margin: 0 0 12px; text-align: left;
+  }
+  .gm-toolbar .gm-controls { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+  .gm-toolbar label { display: flex; flex-direction: column; gap: 4px; font-size: 0.78rem; color: #64748b; font-weight: 600; }
+  .gm-toolbar select {
+    min-width: 220px; padding: 6px 8px; border: 1px solid var(--border);
+    border-radius: 6px; font-size: 0.9rem; background: #fff;
+  }
+  .gm-cols-wrap { position: relative; }
+  .gm-cols-btn {
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+    background: #fff; cursor: pointer; font-size: 0.85rem; font-weight: 600; color: #475569;
+  }
+  .gm-cols-menu {
+    display: none; position: absolute; right: 0; top: calc(100% + 4px); z-index: 40;
+    min-width: 200px; padding: 10px 12px; background: #fff; border: 1px solid var(--border);
+    border-radius: 8px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12); text-align: left;
+  }
+  .gm-cols-menu.open { display: block; }
+  .gm-cols-menu label {
+    display: flex; flex-direction: row; align-items: center; gap: 8px;
+    font-size: 0.86rem; font-weight: 500; color: #334155; margin: 0 0 6px; cursor: pointer;
+  }
+  .gm-cols-menu .gm-cols-actions { margin-top: 8px; display: flex; gap: 8px; }
+  table.gm-table { font-variant-numeric: tabular-nums; }
+  table.gm-table th.gm-day, table.gm-table td.gm-day {
+    min-width: 3.4rem; text-align: right; font-size: 0.8rem; padding: 4px 5px;
+  }
+  table.gm-table th.gm-day { white-space: nowrap; }
+  table.gm-table td.gm-day .gm-stack { display: flex; flex-direction: column; gap: 1px; align-items: flex-end; line-height: 1.2; }
+  table.gm-table td.gm-day .gm-sub { font-size: 0.68rem; color: #64748b; }
+  table.gm-table td.gm-day .gm-sub.up { color: var(--up, #16a34a); font-weight: 600; }
+  table.gm-table td.gm-day .gm-sub.down { color: var(--down, #dc2626); font-weight: 600; }
+  table.gm-table .gm-pct.up { color: var(--up, #16a34a); font-weight: 600; }
+  table.gm-table .gm-pct.down { color: var(--down, #dc2626); font-weight: 600; }
+  table.gm-table .gm-pct.flat { color: #94a3b8; }
+  table.gm-table td.gm-total { font-weight: 700; white-space: nowrap; }
+  table.gm-table th.gm-sec, table.gm-table td.gm-sec,
+  table.gm-table th.gm-ind, table.gm-table td.gm-ind {
+    max-width: 150px;
+    min-width: 110px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Market Index / Sector ETF Rotation reuse gm-table visuals */
+  table.mi-table td.mi-sum,
+  table.ser-table td.ser-sum { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  table.mi-table th.mi-sum,
+  table.ser-table th.ser-sum { white-space: nowrap; min-width: 4.2rem; }
+  table.ser-table {
+    table-layout: auto !important;
+    width: max-content !important;
+    min-width: 100%;
+  }
+  table.ser-table colgroup { display: none !important; }
+  table.ser-table th.ser-core,
+  table.ser-table td.ser-core {
+    display: table-cell !important;
+    min-width: 5.6rem !important;
+    width: auto !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+  table.ser-table tr.ser-bench td { background-color: #f8fafc !important; font-weight: 600; }
+  .ser-mode-toggle { display: inline-flex; gap: 0; border: 1px solid var(--border, #e5e7eb); border-radius: 6px; overflow: hidden; }
+  .ser-mode-toggle a {
+    padding: 6px 12px; font-size: 0.85rem; text-decoration: none; color: #475569;
+    background: #fff; border-right: 1px solid var(--border, #e5e7eb);
+  }
+  .ser-mode-toggle a:last-child { border-right: 0; }
+  .ser-mode-toggle a.active { background: #0f172a; color: #fff; font-weight: 600; }
   .ca-section-head {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
     margin: 0 0 10px;
@@ -322,11 +396,30 @@
       <span class="count">({{ data.badge_rising if data.badge_rising is defined else 0 }})</span>
     </a>
     {% endif %}
+    {% if not leibot_lite %}
+    <a class="tab {% if tab == 'market_index' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='market_index') }}">
+      {{ _('Market Index') }}
+      <span class="count">({{ (data.market_index.row_count if data.market_index else 0) if data.market_index is defined else 0 }})</span>
+    </a>
+    <a class="tab {% if tab == 'sector_etf_rotation' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='sector_etf_rotation') }}">
+      {{ _('Sector ETF Rotation') }}
+      <span class="count">({{ (data.sector_etf_rotation.row_count if data.sector_etf_rotation else 0) if data.sector_etf_rotation is defined else 0 }})</span>
+    </a>
+    {% endif %}
     <a class="tab {% if tab in ('rotation', 'rotation_detail') %}active{% endif %}"
        href="{{ url_for('strong_stock_monitor', tab='rotation') }}">
       {{ _('Sector Rotation') }}
       <span class="count">({{ data.badge_rotation if data.badge_rotation is defined else 0 }})</span>
     </a>
+    {% if not leibot_lite %}
+    <a class="tab {% if tab == 'group_movement' %}active{% endif %}"
+       href="{{ url_for('strong_stock_monitor', tab='group_movement') }}">
+      {{ _('Group Movement') }}
+      <span class="count">({{ (data.group_movement.row_count if data.group_movement else 0) if data.group_movement is defined else 0 }})</span>
+    </a>
+    {% endif %}
     {% if not leibot_lite %}
     <a class="tab {% if tab == 'multi_signal' %}active{% endif %}"
        href="{{ url_for('strong_stock_monitor', tab='multi_signal') }}">
@@ -895,6 +988,806 @@
       {% endif %}
     </div>
 
+  {% elif tab == 'market_index' and not leibot_lite %}
+    {% set mi = data.market_index or {} %}
+    {% set cols = mi.columns or {} %}
+    <div class="hero-line">{{ _('Market Index') }}
+      <span class="hint" style="font-weight:400;margin-left:8px">{{ _('U.S. cash indexes · IBKR research') }}</span>
+    </div>
+    <p class="hint" style="text-align:left;margin:0 0 10px">
+      {{ _('Compare DOW / S&P / NASDAQ / NDX / Russell / MidCap. TOTAL starts at 100 and compounds Daily Change %. Relative Rank orders by TOTAL for the selected window. Cache by default — click Refresh Indexes to pull IBKR (no Yahoo).') }}
+      {% if mi.as_of %} · {{ _('As of') }} {{ mi.as_of }}{% endif %}
+      {% if mi.downloaded_at_display and mi.downloaded_at_display != '—' %} · {{ _('Updated') }} {{ mi.downloaded_at_display }}{% endif %}
+    </p>
+    <div class="gm-toolbar">
+      <form class="gm-controls" method="get" action="{{ url_for('strong_stock_monitor') }}">
+        <input type="hidden" name="tab" value="market_index">
+        <label>{{ _('Window') }}
+          <select name="window" onchange="this.form.submit()">
+            {% for w in mi.window_choices or [20, 40, 63] %}
+            <option value="{{ w }}" {% if w == mi.window %}selected{% endif %}>{{ w }}D</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+      {% if not leibot_lite %}
+      <form method="post" action="{{ url_for('strong_stock_monitor', tab='market_index') }}" style="margin:0;display:inline-flex">
+        <input type="hidden" name="action" value="refresh_mi">
+        <input type="hidden" name="mi_window" value="{{ mi.window or 63 }}">
+        <button class="btn primary" type="submit"
+                title="{{ _('Fetch IBKR Index daily bars only (keeps prior data on failure)') }}">
+          {{ _('Refresh Indexes') }}
+        </button>
+      </form>
+      {% endif %}
+      <button type="button" class="gm-cols-btn" id="mi-download-btn"
+              data-window="{{ mi.window or 63 }}"
+              data-label="⬇ {{ _('Download Excel') }}"
+              title="{{ _('Download Market Index as Excel') }}">⬇ {{ _('Download Excel') }}</button>
+      <div class="gm-cols-wrap">
+        <button type="button" class="gm-cols-btn" id="mi-cols-btn" title="{{ _('Column visibility') }}">⚙ {{ _('Columns') }}</button>
+        <div class="gm-cols-menu" id="mi-cols-menu" hidden>
+          <form method="post" action="{{ url_for('strong_stock_monitor', tab='market_index') }}" id="mi-cols-form">
+            <input type="hidden" name="action" value="save_mi_columns">
+            <input type="hidden" name="mi_window" value="{{ mi.window or 63 }}">
+            <label><input type="checkbox" name="col_daily" value="1" data-mi-col="daily" {% if cols.get('daily', true) %}checked{% endif %}> {{ _('Daily Change %') }}</label>
+            <label><input type="checkbox" name="col_ret_5d" value="1" data-mi-col="ret_5d" {% if cols.get('ret_5d', true) %}checked{% endif %}> 5D %</label>
+            <label><input type="checkbox" name="col_ret_20d" value="1" data-mi-col="ret_20d" {% if cols.get('ret_20d', true) %}checked{% endif %}> 20D %</label>
+            <label><input type="checkbox" name="col_ret_40d" value="1" data-mi-col="ret_40d" {% if cols.get('ret_40d', true) %}checked{% endif %}> 40D %</label>
+            <label><input type="checkbox" name="col_ret_63d" value="1" data-mi-col="ret_63d" {% if cols.get('ret_63d', true) %}checked{% endif %}> 63D %</label>
+            <label><input type="checkbox" name="col_total" value="1" data-mi-col="total" {% if cols.get('total', true) %}checked{% endif %}> {{ _('TOTAL') }}</label>
+            <label><input type="checkbox" name="col_rank" value="1" data-mi-col="rank" {% if cols.get('rank', true) %}checked{% endif %}> {{ _('Relative Rank') }}</label>
+            <label><input type="checkbox" name="col_source" value="1" data-mi-col="source" {% if cols.get('source', true) %}checked{% endif %}> {{ _('Source') }}</label>
+            <label><input type="checkbox" name="col_time" value="1" data-mi-col="time" {% if cols.get('time', true) %}checked{% endif %}> {{ _('Time') }}</label>
+            <div class="gm-cols-actions">
+              <button type="submit" class="btn primary" style="padding:4px 10px;font-size:0.82rem">{{ _('Save') }}</button>
+            </div>
+          </form>
+          <p class="hint" style="margin:8px 0 0;font-size:0.75rem">{{ _('Hiding columns does not stop collecting data.') }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="panel wl-panel">
+      {% if not mi.rows %}
+        <p class="meta" style="padding:12px">{{ _('No index bars yet. Click Refresh Indexes with TWS/Gateway connected (IBKR Index data).') }}</p>
+      {% else %}
+      <table class="data gm-table mi-table" id="mi-table">
+        <thead>
+          <tr class="col-row">
+            <th class="sortable freeze-col freeze-edge" data-col="0" data-type="text">{{ _('Index') }}</th>
+            <th class="sortable num mi-sum" data-col="1" data-type="num" data-mi-vis="rank">{{ _('Rank') }}</th>
+            <th class="sortable num mi-sum" data-col="2" data-type="num" data-mi-vis="ret_5d">5D</th>
+            <th class="sortable num mi-sum" data-col="3" data-type="num" data-mi-vis="ret_20d">20D</th>
+            <th class="sortable num mi-sum" data-col="4" data-type="num" data-mi-vis="ret_40d">40D</th>
+            <th class="sortable num mi-sum" data-col="5" data-type="num" data-mi-vis="ret_63d">63D</th>
+            {% for dl in mi.date_labels or [] %}
+            <th class="gm-day sortable" data-col="{{ loop.index0 + 6 }}" data-type="num" data-mi-vis="daily" title="{{ dl.date }}">{{ dl.label }}</th>
+            {% endfor %}
+            <th class="sortable num mi-sum" data-col="{{ (mi.date_labels|length) + 6 }}" data-type="num" data-mi-vis="total">{{ _('TOTAL') }}</th>
+            <th class="sortable" data-col="{{ (mi.date_labels|length) + 7 }}" data-type="text" data-mi-vis="source">{{ _('Source') }}</th>
+            <th class="sortable" data-col="{{ (mi.date_labels|length) + 8 }}" data-type="text" data-mi-vis="time">{{ _('Time') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in mi.rows %}
+          <tr data-index="{{ row.key }}">
+            <td class="freeze-col freeze-edge" data-sort="{{ row.display_symbol }}">
+              <strong>{{ row.display_symbol }}</strong>
+              <div class="hint" style="margin:0;text-align:left;font-size:0.72rem" title="{{ row.name }}">{{ row.strength or '' }}</div>
+            </td>
+            <td class="num mi-sum" data-mi-vis="rank" data-sort="{{ row.relative_rank if row.relative_rank is not none else '' }}">
+              {% if row.relative_rank is not none %}#{{ row.relative_rank }}{% else %}—{% endif %}
+            </td>
+            {% for key in ['ret_5d','ret_20d','ret_40d','ret_63d'] %}
+            {% set rv = row.get(key) %}
+            <td class="num mi-sum {% if rv is not none and rv > 0.05 %}up{% elif rv is not none and rv < -0.05 %}down{% endif %}"
+                data-mi-vis="{{ key }}"
+                data-sort="{{ rv if rv is not none else '' }}">
+              {% if rv is not none %}{{ '%+.1f'|format(rv) }}%{% else %}—{% endif %}
+            </td>
+            {% endfor %}
+            {% for day in row.days %}
+            {% set dp = day.daily_pct %}
+            <td class="gm-day"
+                data-mi-vis="daily"
+                data-sort="{{ dp if dp is not none else '' }}"
+                title="{{ day.date }}{% if day.close is not none %} · {{ '%.2f'|format(day.close) }}{% endif %}">
+              <span class="gm-pct {% if dp is not none and dp > 0.05 %}up{% elif dp is not none and dp < -0.05 %}down{% else %}flat{% endif %}">
+                {% if dp is not none %}{{ '%+.1f'|format(dp) }}%{% else %}—{% endif %}
+              </span>
+            </td>
+            {% endfor %}
+            <td class="num mi-sum" data-mi-vis="total"
+                data-sort="{{ row.total if row.total is not none else '' }}">
+              {% if row.total is not none %}{{ '%.1f'|format(row.total) }}{% else %}—{% endif %}
+            </td>
+            <td data-mi-vis="source" data-sort="{{ (row.data_source or '')|lower }}">{{ row.data_source or '—' }}</td>
+            <td data-mi-vis="time" data-sort="{{ row.downloaded_at or '' }}" style="white-space:nowrap;font-size:0.78rem">{{ row.downloaded_at_display or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+    <script>
+      (function () {
+        var KEY = "leibot_mi_columns_v1";
+        var btn = document.getElementById("mi-cols-btn");
+        var menu = document.getElementById("mi-cols-menu");
+        var form = document.getElementById("mi-cols-form");
+        if (!btn || !menu || !form) return;
+        var defaults = {
+          daily: true, ret_5d: true, ret_20d: true, ret_40d: true, ret_63d: true,
+          total: true, rank: true, source: true, time: true
+        };
+        function applyPrefs(prefs) {
+          document.querySelectorAll("#mi-table [data-mi-vis]").forEach(function (el) {
+            var k = el.getAttribute("data-mi-vis");
+            var on = !!(prefs[k]);
+            el.style.display = on ? "table-cell" : "none";
+          });
+          form.querySelectorAll("input[data-mi-col]").forEach(function (inp) {
+            var k = inp.getAttribute("data-mi-col");
+            if (k && Object.prototype.hasOwnProperty.call(prefs, k)) inp.checked = !!prefs[k];
+          });
+          var table = document.getElementById("mi-table");
+          function sync() {
+            if (table && window.leiSyncHiddenCols) window.leiSyncHiddenCols(table);
+            else if (table && window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
+          }
+          sync();
+          setTimeout(sync, 0);
+        }
+        function saveLocal() {
+          var prefs = {};
+          form.querySelectorAll("input[data-mi-col]").forEach(function (inp) {
+            prefs[inp.getAttribute("data-mi-col")] = !!inp.checked;
+          });
+          try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch (e) {}
+          applyPrefs(prefs);
+        }
+        try {
+          var raw = localStorage.getItem(KEY);
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            form.querySelectorAll("input[data-mi-col]").forEach(function (inp) {
+              var k = inp.getAttribute("data-mi-col");
+              if (k && typeof parsed[k] === "boolean") inp.checked = parsed[k];
+            });
+          }
+        } catch (e) {}
+        var prefs = Object.assign({}, defaults);
+        form.querySelectorAll("input[data-mi-col]").forEach(function (inp) {
+          prefs[inp.getAttribute("data-mi-col")] = !!inp.checked;
+        });
+        applyPrefs(prefs);
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          menu.hidden = !menu.hidden;
+          menu.classList.toggle("open", !menu.hidden);
+        });
+        document.addEventListener("click", function () {
+          menu.hidden = true;
+          menu.classList.remove("open");
+        });
+        menu.addEventListener("click", function (e) { e.stopPropagation(); });
+        form.querySelectorAll("input[data-mi-col]").forEach(function (inp) {
+          inp.addEventListener("change", saveLocal);
+        });
+      })();
+      (function () {
+        var dl = document.getElementById("mi-download-btn");
+        if (!dl) return;
+        dl.addEventListener("click", function () {
+          var win = dl.getAttribute("data-window") || "63";
+          var url = "/strong-monitor/market-index.xlsx?window=" + encodeURIComponent(win);
+          var fname = "market_index_" + win + "D.xlsx";
+          dl.disabled = true;
+          fetch(url, { credentials: "same-origin" })
+            .then(function (res) {
+              if (!res.ok) throw new Error("HTTP " + res.status);
+              return res.arrayBuffer();
+            })
+            .then(function (buf) {
+              var u8 = new Uint8Array(buf);
+              if (u8.length < 4 || u8[0] !== 0x50 || u8[1] !== 0x4b) throw new Error("bad");
+              var blob = new Blob([buf], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              });
+              var a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = fname;
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+            })
+            .catch(function () { window.location.href = url; })
+            .finally(function () {
+              dl.disabled = false;
+              dl.textContent = dl.getAttribute("data-label") || "⬇ Download Excel";
+            });
+        });
+      })();
+    </script>
+
+  {% elif tab == 'sector_etf_rotation' and not leibot_lite %}
+    {% set ser = data.sector_etf_rotation or {} %}
+    {% set cols = ser.columns or {} %}
+    {% set mode = ser.mode or 'rel' %}
+    <div class="hero-line">{{ _('Sector ETF Rotation') }}
+      <span class="hint" style="font-weight:400;margin-left:8px">{{ _('Select Sector ETFs vs SPY · IBKR research') }}</span>
+    </div>
+    <p class="hint" style="text-align:left;margin:0 0 10px">
+      {{ _('Study which sectors are strengthening or weakening relative to the market. RELATIVE = ETF Daily % − SPY Daily %. Relative strength is not literal money-flow. Cache by default — click Refresh ETFs to pull IBKR (no Yahoo).') }}
+      {% if ser.as_of %} · {{ _('As of') }} {{ ser.as_of }}{% endif %}
+      {% if ser.downloaded_at_display and ser.downloaded_at_display != '—' %} · {{ _('Updated') }} {{ ser.downloaded_at_display }}{% endif %}
+      · <strong>20D · 40D · 63D · SPY 20/40/63 · REL 20/40/63</strong>
+      {% if not ser.spy_ok %} · <span style="color:#b91c1c">{{ _('SPY bars missing — relative values unavailable until Refresh') }}</span>{% endif %}
+    </p>
+    <div class="gm-toolbar">
+      <form class="gm-controls" method="get" action="{{ url_for('strong_stock_monitor') }}">
+        <input type="hidden" name="tab" value="sector_etf_rotation">
+        <input type="hidden" name="mode" value="{{ mode }}">
+        <label>{{ _('Window') }}
+          <select name="window" onchange="this.form.submit()">
+            {% for w in ser.window_choices or [20, 40, 63] %}
+            <option value="{{ w }}" {% if w == ser.window %}selected{% endif %}>{{ w }}D</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+      <div class="ser-mode-toggle" title="{{ _('RAW = absolute ETF daily % · RELATIVE = vs SPY') }}">
+        <a class="{% if mode == 'raw' %}active{% endif %}"
+           href="{{ url_for('strong_stock_monitor', tab='sector_etf_rotation', window=ser.window or 63, mode='raw') }}">{{ _('RAW') }}</a>
+        <a class="{% if mode == 'rel' %}active{% endif %}"
+           href="{{ url_for('strong_stock_monitor', tab='sector_etf_rotation', window=ser.window or 63, mode='rel') }}">{{ _('RELATIVE TO SPY') }}</a>
+      </div>
+      {% if not leibot_lite %}
+      <form method="post" action="{{ url_for('strong_stock_monitor', tab='sector_etf_rotation') }}" style="margin:0;display:inline-flex">
+        <input type="hidden" name="action" value="refresh_ser">
+        <input type="hidden" name="ser_window" value="{{ ser.window or 63 }}">
+        <input type="hidden" name="ser_mode" value="{{ mode }}">
+        <button class="btn primary" type="submit"
+                title="{{ _('Fetch IBKR ETF daily bars only (keeps prior data on failure)') }}">
+          {{ _('Refresh ETFs') }}
+        </button>
+      </form>
+      {% endif %}
+      <button type="button" class="gm-cols-btn" id="ser-download-btn"
+              data-window="{{ ser.window or 63 }}"
+              data-mode="{{ mode }}"
+              data-label="⬇ {{ _('Download Excel') }}"
+              title="{{ _('Download Sector ETF Rotation as Excel') }}">⬇ {{ _('Download Excel') }}</button>
+      <div class="gm-cols-wrap">
+        <button type="button" class="gm-cols-btn" id="ser-cols-btn" title="{{ _('Column visibility') }}">⚙ {{ _('Columns') }}</button>
+        <div class="gm-cols-menu" id="ser-cols-menu" hidden>
+          <form method="post" action="{{ url_for('strong_stock_monitor', tab='sector_etf_rotation') }}" id="ser-cols-form">
+            <input type="hidden" name="action" value="save_ser_columns">
+            <input type="hidden" name="ser_window" value="{{ ser.window or 63 }}">
+            <input type="hidden" name="ser_mode" value="{{ mode }}">
+            <label><input type="checkbox" name="col_sector" value="1" data-ser-col="sector" {% if cols.get('sector', true) %}checked{% endif %}> {{ _('Sector') }}</label>
+            <label><input type="checkbox" name="col_daily" value="1" data-ser-col="daily" {% if cols.get('daily', true) %}checked{% endif %}> {{ _('Daily heatmap') }}</label>
+            <label><input type="checkbox" name="col_ret_5d" value="1" data-ser-col="ret_5d" {% if cols.get('ret_5d', false) %}checked{% endif %}> 5D</label>
+            <label><input type="checkbox" name="col_spy_5d" value="1" data-ser-col="spy_5d" {% if cols.get('spy_5d', false) %}checked{% endif %}> SPY 5D</label>
+            <label><input type="checkbox" name="col_rel_5d" value="1" data-ser-col="rel_5d" {% if cols.get('rel_5d', false) %}checked{% endif %}> REL 5D</label>
+            <label><input type="checkbox" name="col_total" value="1" data-ser-col="total" {% if cols.get('total', true) %}checked{% endif %}> {{ _('TOTAL') }}</label>
+            <label><input type="checkbox" name="col_rel_rank" value="1" data-ser-col="rel_rank" {% if cols.get('rel_rank', true) %}checked{% endif %}> {{ _('Relative Rank') }}</label>
+            <label><input type="checkbox" name="col_rank_change" value="1" data-ser-col="rank_change" {% if cols.get('rank_change', true) %}checked{% endif %}> {{ ser.window or 63 }}D {{ _('Δ Rank') }}</label>
+            <label><input type="checkbox" name="col_source" value="1" data-ser-col="source" {% if cols.get('source', true) %}checked{% endif %}> {{ _('Source') }}</label>
+            <label><input type="checkbox" name="col_time" value="1" data-ser-col="time" {% if cols.get('time', true) %}checked{% endif %}> {{ _('Time') }}</label>
+            <p class="hint" style="margin:6px 0 0;font-size:0.72rem">{{ _('20D / 40D / 63D · SPY · REL columns are always shown.') }}</p>
+            <div class="gm-cols-actions">
+              <button type="submit" class="btn primary" style="padding:4px 10px;font-size:0.82rem">{{ _('Save') }}</button>
+            </div>
+          </form>
+          <p class="hint" style="margin:8px 0 0;font-size:0.75rem">{{ _('Hiding columns does not stop collecting data.') }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="panel wl-panel">
+      {% if not ser.rows %}
+        <p class="meta" style="padding:12px">{{ _('No sector ETF bars yet. Click Refresh ETFs with TWS/Gateway connected (IBKR).') }}</p>
+      {% else %}
+      <table class="data gm-table ser-table" id="ser-table">
+        <thead>
+          <tr class="col-row">
+            <th class="sortable freeze-col" data-col="0" data-type="text">{{ _('ETF') }}</th>
+            <th class="sortable freeze-col freeze-edge" data-col="1" data-type="text" data-ser-vis="sector">{{ _('Sector') }}</th>
+            <th class="sortable num ser-sum" data-col="2" data-type="num" data-ser-vis="rel_rank">{{ _('Rel Rank') }}</th>
+            <th class="sortable num ser-sum" data-col="3" data-type="num" data-ser-vis="rank_change" title="{{ _('Rank change vs prior non-overlapping window of the same length') }}">{{ ser.window or 63 }}D {{ _('Δ Rank') }}</th>
+            <th class="sortable num ser-sum" data-col="4" data-type="num" data-ser-vis="ret_5d">5D</th>
+            {# Always-on core columns: no data-ser-vis so Columns JS cannot hide them. #}
+            <th class="sortable num ser-sum ser-core" data-col="5" data-type="num" title="{{ _('ETF return over 20 trading days') }}">20D</th>
+            <th class="sortable num ser-sum ser-core" data-col="6" data-type="num" title="{{ _('ETF return over 40 trading days') }}">40D</th>
+            <th class="sortable num ser-sum ser-core" data-col="7" data-type="num" title="{{ _('ETF return over 63 trading days') }}">63D</th>
+            <th class="sortable num ser-sum" data-col="8" data-type="num" data-ser-vis="spy_5d" title="{{ _('SPY return over 5 trading days') }}">SPY&nbsp;5D</th>
+            <th class="sortable num ser-sum ser-core" data-col="9" data-type="num" title="{{ _('SPY return over 20 trading days') }}">SPY&nbsp;20D</th>
+            <th class="sortable num ser-sum ser-core" data-col="10" data-type="num" title="{{ _('SPY return over 40 trading days') }}">SPY&nbsp;40D</th>
+            <th class="sortable num ser-sum ser-core" data-col="11" data-type="num" title="{{ _('SPY return over 63 trading days') }}">SPY&nbsp;63D</th>
+            <th class="sortable num ser-sum" data-col="12" data-type="num" data-ser-vis="rel_5d" title="{{ _('ETF 5D − SPY 5D') }}">REL&nbsp;5D</th>
+            <th class="sortable num ser-sum ser-core" data-col="13" data-type="num" title="{{ _('ETF 20D − SPY 20D') }}">REL&nbsp;20D</th>
+            <th class="sortable num ser-sum ser-core" data-col="14" data-type="num" title="{{ _('ETF 40D − SPY 40D') }}">REL&nbsp;40D</th>
+            <th class="sortable num ser-sum ser-core" data-col="15" data-type="num" title="{{ _('ETF 63D − SPY 63D') }}">REL&nbsp;63D</th>
+            {% for dl in ser.date_labels or [] %}
+            <th class="gm-day sortable" data-col="{{ loop.index0 + 16 }}" data-type="num" data-ser-vis="daily" title="{{ dl.date }}">{{ dl.label }}</th>
+            {% endfor %}
+            <th class="sortable num ser-sum" data-col="{{ (ser.date_labels|length) + 16 }}" data-type="num" data-ser-vis="total">
+              {% if mode == 'rel' %}{{ _('REL TOTAL') }}{% else %}{{ _('TOTAL') }}{% endif %}
+            </th>
+            <th class="sortable" data-col="{{ (ser.date_labels|length) + 17 }}" data-type="text" data-ser-vis="source">{{ _('Source') }}</th>
+            <th class="sortable" data-col="{{ (ser.date_labels|length) + 18 }}" data-type="text" data-ser-vis="time">{{ _('Time') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in ser.rows %}
+          <tr data-etf="{{ row.etf }}" {% if row.is_benchmark %}class="ser-bench"{% endif %}>
+            <td class="freeze-col" data-sort="{{ row.etf }}">
+              <strong>{{ row.etf }}</strong>
+              <div class="hint" style="margin:0;text-align:left;font-size:0.72rem">{{ row.strength or '' }}</div>
+            </td>
+            <td class="freeze-col freeze-edge" data-ser-vis="sector" data-sort="{{ row.sector }}">{{ row.sector }}</td>
+            <td class="num ser-sum" data-ser-vis="rel_rank" data-sort="{{ row.relative_rank if row.relative_rank is not none else '' }}">
+              {% if row.relative_rank is not none %}#{{ row.relative_rank }}{% else %}—{% endif %}
+            </td>
+            {% set rc = row.rank_change %}
+            <td class="num ser-sum {% if rc is not none and rc > 0 %}up{% elif rc is not none and rc < 0 %}down{% endif %}"
+                data-ser-vis="rank_change"
+                data-sort="{{ rc if rc is not none else '' }}"
+                title="{% if row.prev_relative_rank is not none %}{{ _('Was') }} #{{ row.prev_relative_rank }}{% endif %}">
+              {% if rc is none %}—
+              {% elif rc > 0 %}↑{{ rc }}
+              {% elif rc < 0 %}↓{{ -rc }}
+              {% else %}0{% endif %}
+            </td>
+            {% for key in ['ret_5d','ret_20d','ret_40d','ret_63d','spy_5d','spy_20d','spy_40d','spy_63d','rel_5d','rel_20d','rel_40d','rel_63d'] %}
+            {% set rv = row[key] if key in row else none %}
+            {% set is_core = key in ['ret_20d','ret_40d','ret_63d','spy_20d','spy_40d','spy_63d','rel_20d','rel_40d','rel_63d'] %}
+            <td class="num ser-sum {% if is_core %}ser-core{% endif %} {% if rv is not none and rv > 0.05 %}up{% elif rv is not none and rv < -0.05 %}down{% endif %}"
+                {% if not is_core %}data-ser-vis="{{ key }}"{% endif %}
+                data-sort="{{ rv if rv is not none else '' }}">
+              {% if rv is not none %}{{ '%+.1f'|format(rv) }}%{% else %}—{% endif %}
+            </td>
+            {% endfor %}
+            {% for day in row.days %}
+            {% if mode == 'rel' and not row.is_benchmark %}
+              {% set dp = day.rel_pct %}
+            {% else %}
+              {# SPY benchmark row: always show actual SPY daily % (rel would be 0). #}
+              {% set dp = day.daily_pct %}
+            {% endif %}
+            <td class="gm-day"
+                data-ser-vis="daily"
+                data-sort="{{ dp if dp is not none else '' }}"
+                title="{{ day.date }}{% if day.close is not none %} · {{ '%.2f'|format(day.close) }}{% endif %}{% if day.daily_pct is not none %} · raw {{ '%+.1f'|format(day.daily_pct) }}%{% endif %}{% if day.rel_pct is not none %} · vs SPY {{ '%+.1f'|format(day.rel_pct) }}%{% endif %}">
+              <span class="gm-pct {% if dp is not none and dp > 0.05 %}up{% elif dp is not none and dp < -0.05 %}down{% else %}flat{% endif %}">
+                {% if dp is not none %}{{ '%+.1f'|format(dp) }}%{% else %}—{% endif %}
+              </span>
+            </td>
+            {% endfor %}
+            {% if mode == 'rel' and not row.is_benchmark %}
+              {% set tv = row.rel_total %}
+            {% else %}
+              {% set tv = row.total %}
+            {% endif %}
+            <td class="num ser-sum" data-ser-vis="total"
+                data-sort="{{ tv if tv is not none else '' }}">
+              {% if tv is not none %}{{ '%.1f'|format(tv) }}{% else %}—{% endif %}
+            </td>
+            <td data-ser-vis="source" data-sort="{{ (row.data_source or '')|lower }}">{{ row.data_source or '—' }}</td>
+            <td data-ser-vis="time" data-sort="{{ row.downloaded_at or '' }}" style="white-space:nowrap;font-size:0.78rem">{{ row.downloaded_at_display or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+    <script>
+      (function () {
+        var KEY = "leibot_ser_columns_v4";
+        var btn = document.getElementById("ser-cols-btn");
+        var menu = document.getElementById("ser-cols-menu");
+        var form = document.getElementById("ser-cols-form");
+        if (!btn || !menu || !form) return;
+        var defaults = {
+          sector: true, daily: true, ret_5d: false, spy_5d: false, rel_5d: false,
+          total: true, rel_rank: true, rank_change: true, source: true, time: true
+        };
+        try {
+          ["v1","v2","v3"].forEach(function (v) {
+            localStorage.removeItem("leibot_ser_columns_" + v);
+          });
+        } catch (e) {}
+        function applyPrefs(prefs) {
+          document.querySelectorAll("#ser-table [data-ser-vis]").forEach(function (el) {
+            var k = el.getAttribute("data-ser-vis");
+            var on = !!(prefs[k]);
+            el.style.display = on ? "table-cell" : "none";
+          });
+          document.querySelectorAll("#ser-table .ser-core").forEach(function (el) {
+            el.style.display = "table-cell";
+            el.style.visibility = "visible";
+            el.style.width = "auto";
+            el.style.minWidth = "5.6rem";
+          });
+          form.querySelectorAll("input[data-ser-col]").forEach(function (inp) {
+            var k = inp.getAttribute("data-ser-col");
+            if (k && Object.prototype.hasOwnProperty.call(prefs, k)) inp.checked = !!prefs[k];
+          });
+          var table = document.getElementById("ser-table");
+          if (table) {
+            table.classList.remove("resizable");
+            table.style.tableLayout = "auto";
+            table.style.width = "max-content";
+            var cg = table.querySelector("colgroup");
+            if (cg) cg.remove();
+            if (window.updateFreezeColOffsets) window.updateFreezeColOffsets(table);
+          }
+          window.dispatchEvent(new Event("resize"));
+        }
+        function saveLocal() {
+          var prefs = Object.assign({}, defaults);
+          form.querySelectorAll("input[data-ser-col]").forEach(function (inp) {
+            prefs[inp.getAttribute("data-ser-col")] = !!inp.checked;
+          });
+          try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch (e) {}
+          applyPrefs(prefs);
+        }
+        var prefs = Object.assign({}, defaults);
+        try {
+          var raw = localStorage.getItem(KEY);
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            Object.keys(defaults).forEach(function (k) {
+              if (typeof parsed[k] === "boolean") prefs[k] = parsed[k];
+            });
+          }
+        } catch (e) {}
+        applyPrefs(prefs);
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          menu.hidden = !menu.hidden;
+          menu.classList.toggle("open", !menu.hidden);
+        });
+        document.addEventListener("click", function () {
+          menu.hidden = true;
+          menu.classList.remove("open");
+        });
+        menu.addEventListener("click", function (e) { e.stopPropagation(); });
+        form.querySelectorAll("input[data-ser-col]").forEach(function (inp) {
+          inp.addEventListener("change", saveLocal);
+        });
+      })();
+      (function () {
+        var dl = document.getElementById("ser-download-btn");
+        if (!dl) return;
+        dl.addEventListener("click", function () {
+          var win = dl.getAttribute("data-window") || "63";
+          var mode = dl.getAttribute("data-mode") || "rel";
+          var url = "/strong-monitor/sector-etf-rotation.xlsx?window=" + encodeURIComponent(win)
+            + "&mode=" + encodeURIComponent(mode);
+          var fname = "sector_etf_rotation_" + win + "D_" + mode + ".xlsx";
+          dl.disabled = true;
+          fetch(url, { credentials: "same-origin" })
+            .then(function (res) {
+              if (!res.ok) throw new Error("HTTP " + res.status);
+              return res.arrayBuffer();
+            })
+            .then(function (buf) {
+              var u8 = new Uint8Array(buf);
+              if (u8.length < 4 || u8[0] !== 0x50 || u8[1] !== 0x4b) throw new Error("bad");
+              var blob = new Blob([buf], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              });
+              var a = document.createElement("a");
+              a.href = URL.createObjectURL(blob);
+              a.download = fname;
+              document.body.appendChild(a);
+              a.click();
+              setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+            })
+            .catch(function () { window.location.href = url; })
+            .finally(function () {
+              dl.disabled = false;
+              dl.textContent = dl.getAttribute("data-label") || "⬇ Download Excel";
+            });
+        });
+      })();
+    </script>
+
+  {% elif tab == 'group_movement' and not leibot_lite %}
+    {% set gm = data.group_movement or {} %}
+    {% set cols = gm.columns or {} %}
+    <div class="hero-line">{{ _('Group Movement') }}
+      <span class="hint" style="font-weight:400;margin-left:8px">{{ _('NASDAQ-100 · visual herd research') }}</span>
+    </div>
+    <p class="hint" style="text-align:left;margin:0 0 10px">
+      {{ _('Study who turns green first within a sector/industry. Daily Change % by date; P/R/A from IBKR when connected, else Yahoo. Opening a group uses cache — click Refresh Group to update that group only.') }}
+      {% if gm.as_of %} · {{ _('As of') }} {{ gm.as_of }}{% endif %}
+      · {{ gm.row_count or 0 }}/{{ gm.member_count or 0 }} {{ _('stocks') }}
+    </p>
+    <div class="gm-toolbar">
+      <form class="gm-controls" method="get" action="{{ url_for('strong_stock_monitor') }}">
+        <input type="hidden" name="tab" value="group_movement">
+        <label>{{ _('Group') }}
+          <select name="group" onchange="this.form.submit()">
+            {% for g in gm.groups or [] %}
+            <option value="{{ g.key }}" {% if g.key == gm.group_key %}selected{% endif %}>
+              {{ g.label }} ({{ g.count }})
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>{{ _('Window') }}
+          <select name="window" onchange="this.form.submit()">
+            {% for w in gm.window_choices or [20, 40, 63] %}
+            <option value="{{ w }}" {% if w == gm.window %}selected{% endif %}>{{ w }}D</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+      {% if not leibot_lite %}
+      <form method="post" action="{{ url_for('strong_stock_monitor', tab='group_movement') }}" style="margin:0;display:inline-flex">
+        <input type="hidden" name="action" value="refresh_gm">
+        <input type="hidden" name="gm_group" value="{{ gm.group_key or '' }}">
+        <input type="hidden" name="gm_window" value="{{ gm.window or 40 }}">
+        <button class="btn primary" type="submit"
+                title="{{ _('Fetch fresh daily + P/R/A for the selected group only') }}">
+          {{ _('Refresh Group') }}
+        </button>
+      </form>
+      {% endif %}
+      <button type="button" class="gm-cols-btn" id="gm-download-btn"
+              data-group="{{ gm.group_key or 'ALL' }}"
+              data-window="{{ gm.window or 40 }}"
+              data-label="⬇ {{ _('Download Excel') }}"
+              title="{{ _('Download current view as Excel (.xlsx). If it fails, a .xls fallback is saved.') }}">⬇ {{ _('Download Excel') }}</button>
+      <div class="gm-cols-wrap">
+        <button type="button" class="gm-cols-btn" id="gm-cols-btn" title="{{ _('Column visibility') }}">⚙ {{ _('Columns') }}</button>
+        <div class="gm-cols-menu" id="gm-cols-menu" hidden>
+          <form method="post" action="{{ url_for('strong_stock_monitor', tab='group_movement') }}" id="gm-cols-form">
+            <input type="hidden" name="action" value="save_gm_columns">
+            <input type="hidden" name="gm_group" value="{{ gm.group_key or '' }}">
+            <input type="hidden" name="gm_window" value="{{ gm.window or 40 }}">
+            <label><input type="checkbox" name="col_daily" value="1" data-gm-col="daily" {% if cols.get('daily', true) %}checked{% endif %}> {{ _('Daily Change %') }}</label>
+            <label><input type="checkbox" name="col_pre" value="1" data-gm-col="pre" {% if cols.get('pre') %}checked{% endif %}> {{ _('Premarket %') }}</label>
+            <label><input type="checkbox" name="col_regular" value="1" data-gm-col="regular" {% if cols.get('regular') %}checked{% endif %}> {{ _('Regular %') }}</label>
+            <label><input type="checkbox" name="col_after" value="1" data-gm-col="after" {% if cols.get('after') %}checked{% endif %}> {{ _('After Hours %') }}</label>
+            <label><input type="checkbox" name="col_price" value="1" data-gm-col="price" {% if cols.get('price') %}checked{% endif %}> {{ _('Price') }}</label>
+            <div class="gm-cols-actions">
+              <button type="submit" class="btn primary" style="padding:4px 10px;font-size:0.82rem">{{ _('Save') }}</button>
+            </div>
+          </form>
+          <p class="hint" style="margin:8px 0 0;font-size:0.75rem">{{ _('Hiding columns does not stop collecting data.') }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="panel wl-panel">
+      {% if not gm.rows %}
+        <p class="meta" style="padding:12px">{{ _('No stocks in this group, or daily bars are missing. Refresh prices / universe first.') }}</p>
+      {% else %}
+      <table class="data gm-table" id="gm-table">
+        <thead>
+          <tr class="col-row">
+            <th class="sortable freeze-col" data-col="0" data-type="text">{{ _('Stock') }}</th>
+            <th class="sortable freeze-col gm-sec" data-col="1" data-type="text">{{ _('Sector') }}</th>
+            <th class="sortable freeze-col freeze-edge gm-ind" data-col="2" data-type="text">{{ _('Industry') }}</th>
+            {% for dl in gm.date_labels or [] %}
+            <th class="gm-day sortable" data-col="{{ loop.index0 + 3 }}" data-type="num" title="{{ dl.date }}">{{ dl.label }}</th>
+            {% endfor %}
+            <th class="sortable" data-col="{{ (gm.date_labels|length) + 3 }}" data-type="text" title="{{ _('P/R/A session data provider') }}">{{ _('Source') }}</th>
+            <th class="sortable" data-col="{{ (gm.date_labels|length) + 4 }}" data-type="text" title="{{ _('When session P/R/A was last downloaded') }}">{{ _('Downloaded') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in gm.rows %}
+          <tr data-ticker="{{ row.ticker }}">
+            <td class="freeze-col" data-sort="{{ row.ticker }}">
+              <strong>{{ row.ticker }}</strong>
+              {% if row.name %}<div class="hint" style="margin:0;text-align:left;font-size:0.72rem" title="{{ row.name }}">{{ row.name }}</div>{% endif %}
+            </td>
+            <td class="freeze-col gm-sec" data-sort="{{ (row.sector or '')|lower }}" title="{{ row.sector }}">{{ row.sector or '—' }}</td>
+            <td class="freeze-col freeze-edge gm-ind" data-sort="{{ (row.industry or '')|lower }}" title="{{ row.industry }}">{{ row.industry }}</td>
+            {% for day in row.days %}
+            {% set dp = day.daily_pct %}
+            <td class="gm-day"
+                data-sort="{{ dp if dp is not none else '' }}"
+                title="{{ day.date }}">
+              <div class="gm-stack">
+                <span class="gm-pct {% if dp is not none and dp > 0.05 %}up{% elif dp is not none and dp < -0.05 %}down{% else %}flat{% endif %}" data-gm-vis="daily">
+                  {% if dp is not none %}{{ '%+.1f'|format(dp) }}%{% else %}—{% endif %}
+                </span>
+                {% set pp = day.pre_pct %}
+                {% set rp = day.regular_pct %}
+                {% set ap = day.after_pct %}
+                <span class="gm-sub {% if pp is not none and pp > 0.05 %}up{% elif pp is not none and pp < -0.05 %}down{% endif %}" data-gm-vis="pre" hidden>P {% if pp is not none %}{{ '%+.1f'|format(pp) }}%{% else %}—{% endif %}</span>
+                <span class="gm-sub {% if rp is not none and rp > 0.05 %}up{% elif rp is not none and rp < -0.05 %}down{% endif %}" data-gm-vis="regular" hidden>R {% if rp is not none %}{{ '%+.1f'|format(rp) }}%{% else %}—{% endif %}</span>
+                <span class="gm-sub {% if ap is not none and ap > 0.05 %}up{% elif ap is not none and ap < -0.05 %}down{% endif %}" data-gm-vis="after" hidden>A {% if ap is not none %}{{ '%+.1f'|format(ap) }}%{% else %}—{% endif %}</span>
+                <span class="gm-sub" data-gm-vis="price" hidden>{% if day.close is not none %}${{ '%.2f'|format(day.close) }}{% else %}—{% endif %}</span>
+              </div>
+            </td>
+            {% endfor %}
+            <td data-sort="{{ (row.data_source or '')|lower }}" title="{{ row.data_source_note or row.data_source }}">{{ row.data_source or '—' }}</td>
+            <td data-sort="{{ row.downloaded_at or '' }}" style="white-space:nowrap;font-size:0.78rem">{{ row.downloaded_at_display or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+    <script>
+      (function () {
+        var KEY = "leibot_gm_columns_v1";
+        var btn = document.getElementById("gm-cols-btn");
+        var menu = document.getElementById("gm-cols-menu");
+        var form = document.getElementById("gm-cols-form");
+        if (!btn || !menu || !form) return;
+
+        function readPrefs() {
+          var prefs = {
+            daily: true, pre: false, regular: false, after: false, price: false
+          };
+          try {
+            var raw = localStorage.getItem(KEY);
+            if (raw) {
+              var parsed = JSON.parse(raw);
+              Object.keys(prefs).forEach(function (k) {
+                if (typeof parsed[k] === "boolean") prefs[k] = parsed[k];
+              });
+            }
+          } catch (e) {}
+          form.querySelectorAll("input[data-gm-col]").forEach(function (inp) {
+            var k = inp.getAttribute("data-gm-col");
+            if (k && Object.prototype.hasOwnProperty.call(prefs, k)) {
+              prefs[k] = !!inp.checked;
+            }
+          });
+          return prefs;
+        }
+
+        function applyPrefs(prefs) {
+          document.querySelectorAll("[data-gm-vis]").forEach(function (el) {
+            var k = el.getAttribute("data-gm-vis");
+            var on = !!(prefs[k]);
+            if (el.classList.contains("gm-total-col") || (el.tagName === "TH" && k === "total")) {
+              el.style.display = on ? "" : "none";
+            } else if (k === "daily") {
+              el.style.display = on ? "" : "none";
+            } else {
+              if (on) el.removeAttribute("hidden");
+              else el.setAttribute("hidden", "hidden");
+            }
+          });
+          form.querySelectorAll("input[data-gm-col]").forEach(function (inp) {
+            var k = inp.getAttribute("data-gm-col");
+            if (k && Object.prototype.hasOwnProperty.call(prefs, k)) inp.checked = !!prefs[k];
+          });
+          var gmTable = document.getElementById("gm-table");
+          if (gmTable && window.updateFreezeColOffsets) {
+            window.updateFreezeColOffsets(gmTable);
+          }
+        }
+
+        function saveLocal() {
+          var prefs = {};
+          form.querySelectorAll("input[data-gm-col]").forEach(function (inp) {
+            prefs[inp.getAttribute("data-gm-col")] = !!inp.checked;
+          });
+          try { localStorage.setItem(KEY, JSON.stringify(prefs)); } catch (e) {}
+          applyPrefs(prefs);
+        }
+
+        // Prefer localStorage over server defaults when present.
+        try {
+          var raw = localStorage.getItem(KEY);
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            form.querySelectorAll("input[data-gm-col]").forEach(function (inp) {
+              var k = inp.getAttribute("data-gm-col");
+              if (k && typeof parsed[k] === "boolean") inp.checked = parsed[k];
+            });
+          }
+        } catch (e) {}
+        applyPrefs(readPrefs());
+
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var open = menu.classList.toggle("open");
+          menu.hidden = !open;
+        });
+        document.addEventListener("click", function () {
+          menu.classList.remove("open");
+          menu.hidden = true;
+        });
+        menu.addEventListener("click", function (e) { e.stopPropagation(); });
+        form.querySelectorAll("input[data-gm-col]").forEach(function (inp) {
+          inp.addEventListener("change", saveLocal);
+        });
+      })();
+
+      // Excel download: fetch as blob + force Save As .xlsx (avoids broken extensions).
+      (function () {
+        var dl = document.getElementById("gm-download-btn");
+        if (!dl) return;
+
+        function safeName(s) {
+          return String(s || "group").replace(/[^\w.\-]+/g, "_").slice(0, 80);
+        }
+
+        function triggerBlob(blob, filename) {
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          a.rel = "noopener";
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(function () {
+            URL.revokeObjectURL(url);
+            a.remove();
+          }, 1500);
+        }
+
+        function downloadHtmlExcelFallback(filename) {
+          var table = document.getElementById("gm-table");
+          if (!table) {
+            alert("No table to export.");
+            return;
+          }
+          // Excel opens HTML tables saved as .xls reliably on Windows.
+          var html =
+            "<html xmlns:o=\"urn:schemas-microsoft-com:office:office\" " +
+            "xmlns:x=\"urn:schemas-microsoft-com:office:excel\" " +
+            "xmlns=\"http://www.w3.org/TR/REC-html40\"><head>" +
+            "<meta charset=\"UTF-8\">" +
+            "<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets>" +
+            "<x:ExcelWorksheet><x:Name>Group Movement</x:Name>" +
+            "<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>" +
+            "</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->" +
+            "</head><body>" + table.outerHTML + "</body></html>";
+          var blob = new Blob(["\ufeff" + html], {
+            type: "application/vnd.ms-excel;charset=utf-8"
+          });
+          triggerBlob(blob, filename.replace(/\.xlsx$/i, ".xls"));
+        }
+
+        dl.addEventListener("click", function () {
+          var group = dl.getAttribute("data-group") || "ALL";
+          var win = dl.getAttribute("data-window") || "40";
+          var fname = "group_movement_" + safeName(group) + "_" + win + "D.xlsx";
+          var url =
+            "/strong-monitor/group-movement.xlsx?group=" +
+            encodeURIComponent(group) +
+            "&window=" +
+            encodeURIComponent(win);
+          dl.disabled = true;
+          dl.textContent = "…";
+          fetch(url, { credentials: "same-origin" })
+            .then(function (res) {
+              if (!res.ok) throw new Error("HTTP " + res.status);
+              return res.arrayBuffer();
+            })
+            .then(function (buf) {
+              var u8 = new Uint8Array(buf);
+              // Valid xlsx is a ZIP: starts with PK
+              if (u8.length < 4 || u8[0] !== 0x50 || u8[1] !== 0x4b) {
+                throw new Error("bad file");
+              }
+              var blob = new Blob([buf], {
+                type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              });
+              triggerBlob(blob, fname);
+            })
+            .catch(function () {
+              downloadHtmlExcelFallback(fname);
+            })
+            .finally(function () {
+              dl.disabled = false;
+              dl.textContent = dl.getAttribute("data-label") || "⬇ Download Excel";
+            });
+        });
+      })();
+    </script>
+
   {% elif tab == 'multi_signal' %}
     {% set ms = data.multi_summary or {} %}
     <div class="hero-line">{{ _('Multi-Signal') }}: <span class="n">{{ data.multi_rows|length }}</span></div>
@@ -993,7 +1886,10 @@
       var table = document.getElementById("sm-multi-table")
         || document.getElementById("sm-rising-table")
         || document.getElementById("sm-rotation-table")
-        || document.getElementById("sm-rotation-detail-table");
+        || document.getElementById("sm-rotation-detail-table")
+        || document.getElementById("mi-table")
+        || document.getElementById("ser-table")
+        || document.getElementById("gm-table");
       if (!table) return;
       var tbody = table.tBodies[0];
       function cellValue(row, idx, type) {

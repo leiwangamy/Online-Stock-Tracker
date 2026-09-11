@@ -46,6 +46,66 @@
       flex: 1 1 260px; padding: 8px 10px; border: 1px solid var(--border);
       border-radius: 6px; font-size: 0.95rem;
     }
+    .tp-panel {
+      margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--border);
+      border-radius: 10px; background: #f8fafc; text-align: left;
+    }
+    .tp-panel-head {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 8px; margin-bottom: 8px;
+    }
+    .tp-panel-head h3 {
+      margin: 0; font-size: 0.95rem; letter-spacing: 0.04em; text-transform: uppercase;
+      color: #334155;
+    }
+    .tp-body {
+      margin: 0; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.86rem; line-height: 1.45; color: #1e293b;
+    }
+    .tp-edit-area {
+      width: 100%; min-height: 180px; box-sizing: border-box; padding: 10px;
+      border: 1px solid var(--border); border-radius: 8px; font-family: inherit;
+      font-size: 0.86rem; line-height: 1.45; resize: vertical;
+    }
+    .tp-safety {
+      margin: 10px 0 0; padding-top: 10px; border-top: 1px dashed #cbd5e1;
+      font-size: 0.84rem; color: #475569;
+    }
+    .tp-safety strong { color: #334155; }
+    .tp-safety ul { margin: 6px 0 0; padding-left: 1.1rem; }
+    .tp-hint { margin: 6px 0 0; font-size: 0.78rem; color: #64748b; }
+    .wl-notes-panel {
+      margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--border);
+      border-radius: 10px; background: #fff; text-align: left; overflow-x: auto;
+    }
+    .wl-notes-panel h3 {
+      margin: 0 0 8px; font-size: 0.9rem; letter-spacing: 0.03em; text-transform: uppercase;
+      color: #334155;
+    }
+    .wl-notes-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    .wl-notes-table th, .wl-notes-table td {
+      padding: 6px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; text-align: left;
+    }
+    .wl-notes-table th { color: #64748b; font-weight: 600; font-size: 0.78rem; }
+    .wl-notes-table .sym { font-weight: 700; white-space: nowrap; width: 5.5rem; }
+    .wl-notes-table .note-cell { color: #334155; white-space: pre-wrap; word-break: break-word; }
+    .wl-notes-table .note-empty { color: #94a3b8; font-style: italic; }
+    .wl-notes-table .note-input {
+      width: 100%; min-width: 180px; box-sizing: border-box; padding: 6px 8px;
+      border: 1px solid var(--border); border-radius: 6px; font-size: 0.86rem;
+    }
+    .wl-notes-table .note-actions { white-space: nowrap; width: 1%; }
+    td.col-note, th.col-note {
+      min-width: 160px; max-width: 280px; text-align: left; vertical-align: top;
+      white-space: normal; word-break: break-word; font-size: 0.84rem; color: #334155;
+    }
+    td.col-note .note-empty { color: #94a3b8; font-style: italic; font-size: 0.8rem; }
+    td.col-note .note-inline-form { display: flex; flex-direction: column; gap: 4px; margin: 0; }
+    td.col-note .note-input-inline {
+      width: 100%; box-sizing: border-box; padding: 4px 6px;
+      border: 1px solid var(--border); border-radius: 6px; font-size: 0.82rem;
+    }
+    td.col-note .note-save-btn { align-self: flex-start; padding: 2px 8px; font-size: 0.75rem; }
     .empty { color: var(--muted); font-size: 0.9rem; padding: 8px 2px; }
     .legend {
       background: var(--panel); border: 1px solid var(--border);
@@ -442,15 +502,18 @@
   {% else %}—{% endif %}
 {% endmacro %}
 
-{% macro wl_table(rows, sma_period, show_alert=False, show_valuation=False, can_edit_alert=False, table_id='wl-table', show_ai_select_actions=False, show_ai_approved_actions=False, tab='mine') %}
+{% macro wl_table(rows, sma_period, show_alert=False, show_valuation=False, can_edit_alert=False, table_id='wl-table', show_ai_select_actions=False, show_ai_approved_actions=False, tab='mine', show_row_notes=False, can_edit_notes=False, watchlist_notes=None) %}
   {% if not rows %}
     <p class="empty">{{ _("No data yet. (Setup/pullback need a Market Dashboard price refresh; My Watchlist / Temp fetch live.)") }}</p>
   {% else %}
+  {% set _notes = watchlist_notes if watchlist_notes is mapping else {} %}
   {% if show_valuation %}
-    {% set nf_extra = (31 if show_alert else 27) if show_ai_select_actions else (30 if show_alert else 26) %}
+    {% set nf_base = (31 if show_alert else 27) if show_ai_select_actions else (30 if show_alert else 26) %}
   {% else %}
-    {% set nf_extra = (28 if show_alert else 24) if show_ai_select_actions else (27 if show_alert else 23) %}
+    {% set nf_base = (28 if show_alert else 24) if show_ai_select_actions else (27 if show_alert else 23) %}
   {% endif %}
+  {# Note replaces early Pool; trailing Pool adds one column on My Watchlist. #}
+  {% set nf_extra = nf_base + (1 if show_row_notes else 0) %}
   <div class="panel wl-panel">
     <table class="data" id="{{ table_id }}">
       <thead>
@@ -465,13 +528,18 @@
           <th colspan="3">{{ _("Value reference") }}</th>
           <th colspan="1">{{ _("Risk / events") }}</th>
           {% if show_alert %}<th colspan="4">{{ _("SMA alerts") }}</th>{% endif %}
+          {% if show_row_notes %}<th colspan="1">{{ _("Pool") }}</th>{% endif %}
         </tr>
         <tr class="col-row">
           <th class="sortable col-ticker freeze-col freeze-edge" data-col="0" data-type="text">{{ _("Stock") }}</th>
           {% if show_ai_select_actions %}
           <th class="col-approval" title="{{ _('Admin: APPROVAL → AI Approved') }}">{{ _('APPROVAL') }}</th>
           {% endif %}
+          {% if show_row_notes %}
+          <th class="sortable col-note" data-col="1" data-type="text" title="{{ _('Owner trading note for this symbol (soft text only)') }}">{{ _("Note") }}</th>
+          {% else %}
           <th class="sortable col-pools" data-col="1" data-type="text" title="{{ _('Index pools: S&P500 / Nasdaq100 / …; MANUAL if not in a pool') }}">{{ _("Pool") }}</th>
+          {% endif %}
           <th class="sortable col-industry" data-col="2" data-type="text" title="{{ _('Industry (from universe)') }}">{{ _("Industry") }}</th>
           <th class="sortable num" data-col="3" data-type="num" title="{{ _('Market Cap') }}">{{ _("Market Cap") }}</th>
 
@@ -513,6 +581,9 @@
           <th class="sortable col-alert-status" data-col="30" data-type="text"
               title="{{ _('Dist SMA25: 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%') }}">{{ _("Alert Status") }}</th>
           {% endif %}
+          {% if show_row_notes %}
+          <th class="sortable col-pools" data-col="{{ 31 if show_alert else 27 }}" data-type="text" title="{{ _('Index pools: S&P500 / Nasdaq100 / …; MANUAL if not in a pool') }}">{{ _("Pool") }}</th>
+          {% endif %}
           {% else %}
           <th class="sortable col-fund" data-col="18" data-type="num" title="{{ _('Fundamentals health: 7 red-flag checks') }}">{{ _("Financial") }}</th>
           <th class="sortable col-news" data-col="19" data-type="num" title="{{ _('News (last 30 days)') }}">{{ _("News") }}</th>
@@ -529,6 +600,9 @@
               title="{{ _('Active Alert = Manual if set, else Auto Default (SMA×0.95).') }}">{{ _("Active Alert") }}</th>
           <th class="sortable col-alert-status" data-col="27" data-type="text"
               title="{{ _('Dist SMA25: 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%') }}">{{ _("Alert Status") }}</th>
+          {% endif %}
+          {% if show_row_notes %}
+          <th class="sortable col-pools" data-col="{{ 28 if show_alert else 24 }}" data-type="text" title="{{ _('Index pools: S&P500 / Nasdaq100 / …; MANUAL if not in a pool') }}">{{ _("Pool") }}</th>
           {% endif %}
           {% endif %}
         </tr>
@@ -584,14 +658,36 @@
           {% if row.not_found %}
             {# One <td> per column (no colspan) so table-layout:fixed / colgroup stay aligned. #}
             {% for i in range(nf_extra - (1 if show_ai_select_actions else 0)) %}
-              {% if i == 0 %}
+              {% if (show_row_notes and i == 1) or ((not show_row_notes) and i == 0) %}
             <td class="empty col-industry" style="text-align:left;white-space:normal">{{ _("Ticker not found (bad symbol or delisted).") }}</td>
               {% else %}
             <td class="empty">—</td>
               {% endif %}
             {% endfor %}
           {% else %}
+            {% if show_row_notes %}
+            {% set _note = row.note if row.note is defined and row.note else (_notes.get(row.ticker) or '') %}
+            <td class="col-note" data-sort="{{ _note|lower }}">
+              {% if can_edit_notes %}
+              <form class="note-inline-form" method="post" action="{{ url_for('watchlist', tab='mine') }}"
+                    onclick="event.stopPropagation()">
+                <input type="hidden" name="action" value="save_watchlist_note">
+                <input type="hidden" name="ticker" value="{{ row.ticker }}">
+                <input class="note-input-inline" type="text" name="note_text" maxlength="500"
+                       value="{{ _note }}"
+                       placeholder="{{ _('e.g. LONG WATCH | Trail 3%') }}"
+                       title="{{ _('Soft note only — does not change order logic') }}">
+                <button class="btn primary note-save-btn" type="submit">{{ _("Save") }}</button>
+              </form>
+              {% elif _note %}
+                {{ _note }}
+              {% else %}
+                <span class="note-empty">—</span>
+              {% endif %}
+            </td>
+            {% else %}
             <td class="pools col-pools" data-sort="{{ row.pools }}">{{ row.pools }}</td>
+            {% endif %}
             <td class="col-industry" data-sort="{{ (row.industry or '')|lower }}">{% if row.industry %}{{ row.industry }}{% else %}—{% endif %}</td>
             <td class="num" data-sort="{{ row.market_cap if row.market_cap is not none else '' }}">{{ fmt_money(row.market_cap) }}</td>
 
@@ -798,6 +894,9 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
                 <span class="alert-badge none" title="{{ _('No alert zone') }}">—</span>
               {% endif %}
             </td>
+            {% endif %}
+            {% if show_row_notes %}
+            <td class="pools col-pools" data-sort="{{ row.pools }}">{{ row.pools or '—' }}</td>
             {% endif %}
           {% endif %}
         </tr>
@@ -1286,6 +1385,41 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
   </dialog>
 
   {% if tab == 'mine' %}
+    <div class="tp-panel" id="trading-procedure">
+      <div class="tp-panel-head">
+        <h3>{{ _("Trading Procedure") }}</h3>
+        {% if can_edit_mine|default(false) %}
+        <div class="tp-actions">
+          <button type="button" class="btn" id="tp-edit-btn">{{ _("Edit") }}</button>
+        </div>
+        {% endif %}
+      </div>
+      <pre class="tp-body" id="tp-view">{{ trading_procedure_text|default('') }}</pre>
+      {% if can_edit_mine|default(false) %}
+      <form method="post" action="{{ url_for('watchlist', tab='mine') }}" id="tp-edit-form" hidden>
+        <input type="hidden" name="action" value="save_trading_procedure">
+        <textarea class="tp-edit-area" name="procedure_text" id="tp-edit-area" maxlength="8000">{{ trading_procedure_text|default('') }}</textarea>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn primary" type="submit">{{ _("Save") }}</button>
+          <button class="btn" type="button" id="tp-cancel-btn">{{ _("Cancel") }}</button>
+        </div>
+      </form>
+      {% endif %}
+      <div class="tp-safety">
+        <strong>{{ _("SAFETY") }}</strong>
+        <ul>
+          {% for rule in safety_rules_display|default([]) %}
+          <li>🔒 {{ rule }}</li>
+          {% else %}
+          <li>🔒 Position Qty &gt;= Exit Qty</li>
+          <li>🔒 Exit must not reverse the position</li>
+          <li>🔒 Old stop cancellation must be confirmed before replacement</li>
+          {% endfor %}
+        </ul>
+        <p class="tp-hint">{{ _("Safety rules are hard-coded in Order Manager / Risk Guard. Editing Procedure or Notes cannot disable them.") }}</p>
+      </div>
+    </div>
+
     <div class="alert-hint-block">
       <strong>{{ _("My Watchlist Alerts") }}</strong>
       <p class="alert-hint-line">{{ _('Dist SMA25 alerts: >−5% none · 🟡 WATCH −5~−10% · 🟢 LOW −10~−15% · 🟠 DEEP −15~−20% · 🔵 EXTREME ≤−20%') }}</p>
@@ -1609,7 +1743,7 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
   {% endif %}
 
   {% if tab not in ('core_universe', 'ai_news') %}
-  {{ wl_table(rows, sma_period, show_alert=show_alert|default(False), show_valuation=show_valuation|default(False), can_edit_alert=can_edit_alert|default(can_edit_mine|default(False)), table_id='wl-table-' + (tab|default('main')), show_ai_select_actions=show_ai_select_actions|default(False), show_ai_approved_actions=show_ai_approved_actions|default(False), tab=tab|default('mine')) }}
+  {{ wl_table(rows, sma_period, show_alert=show_alert|default(False), show_valuation=show_valuation|default(False), can_edit_alert=can_edit_alert|default(can_edit_mine|default(False)), table_id='wl-table-' + (tab|default('main')), show_ai_select_actions=show_ai_select_actions|default(False), show_ai_approved_actions=show_ai_approved_actions|default(False), tab=tab|default('mine'), show_row_notes=(tab|default('') == 'mine'), can_edit_notes=can_edit_mine|default(False), watchlist_notes=watchlist_notes|default({})) }}
   {% endif %}
 
   <script>
@@ -1896,4 +2030,32 @@ method: analyst_target_proxy (temporary; not intrinsic MOS){% else %}{{ _('MOS T
       });
     })();
   </script>
+  {% if tab == 'mine' and can_edit_mine|default(false) %}
+  <script>
+    (function () {
+      var editBtn = document.getElementById("tp-edit-btn");
+      var cancelBtn = document.getElementById("tp-cancel-btn");
+      var view = document.getElementById("tp-view");
+      var form = document.getElementById("tp-edit-form");
+      var area = document.getElementById("tp-edit-area");
+      var original = area ? area.value : "";
+      if (editBtn && form && view) {
+        editBtn.addEventListener("click", function () {
+          view.hidden = true;
+          form.hidden = false;
+          editBtn.hidden = true;
+          if (area) area.focus();
+        });
+      }
+      if (cancelBtn && form && view) {
+        cancelBtn.addEventListener("click", function () {
+          if (area) area.value = original;
+          form.hidden = true;
+          view.hidden = false;
+          if (editBtn) editBtn.hidden = false;
+        });
+      }
+    })();
+  </script>
+  {% endif %}
 {% endblock %}

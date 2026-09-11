@@ -13,13 +13,11 @@ from typing import Any
 
 import pandas as pd
 
+from ibkr_local.config import get_connection_profile
 from ibkr_local import (
     DEFAULT_CLIENT_ID,
     DEFAULT_HOST,
     DEFAULT_PAPER_PORT,
-    _env_client_id,
-    _env_host,
-    _env_port,
 )
 
 
@@ -188,16 +186,16 @@ def fetch_ibkr_daily_closes(
     what_to_show: str = "TRADES",
 ) -> dict[str, dict[str, Any]]:
     """
-    Fetch daily closes from Paper TWS.
+    Fetch daily closes via active IBKR connection profile (PAPER/LIVE).
 
     Default whatToShow=TRADES (split-aware trade closes; not dividend-adjusted).
-    Closer to LeiBot Yahoo path than ADJUSTED_LAST.
     """
     symbols = [(t or "").strip().upper() for t in tickers if (t or "").strip()]
-    host = host or _env_host() or DEFAULT_HOST
-    port = int(port if port is not None else (_env_port() or DEFAULT_PAPER_PORT))
+    profile = get_connection_profile()
+    host = host or profile.host or DEFAULT_HOST
+    port = int(port if port is not None else profile.port or DEFAULT_PAPER_PORT)
     client_id = int(
-        client_id if client_id is not None else (_env_client_id() or DEFAULT_CLIENT_ID)
+        client_id if client_id is not None else profile.client_id or DEFAULT_CLIENT_ID
     )
     return asyncio.run(
         _fetch_ibkr_closes_async(

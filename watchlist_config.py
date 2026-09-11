@@ -80,7 +80,117 @@ def add_my_watchlist_ticker(ticker: str) -> list[str]:
 def remove_my_watchlist_ticker(ticker: str) -> list[str]:
     t = (ticker or "").strip().upper()
     cur = [x for x in get_my_watchlist() if x != t]
-    return set_my_watchlist(cur)
+    out = set_my_watchlist(cur)
+    # Drop orphan note when symbol leaves My Watchlist (shared Lite/Full store).
+    try:
+        notes = get_my_watchlist_notes()
+        if t in notes:
+            notes.pop(t, None)
+            set_my_watchlist_notes(notes)
+    except Exception:
+        pass
+    return out
+
+
+# ── Trading Procedure (editable soft config — documentation only) ───────────
+# Stored in settings; never drives order / IBKR execution.
+
+DEFAULT_TRADING_PROCEDURE = (
+    "BUY + Bracket Fixed Stop\n"
+    "→ Filled\n"
+    "→ Confirm Position Qty\n"
+    "→ Cancel Fixed Stop\n"
+    "→ Confirm Cancelled\n"
+    "→ SELL Trail (Initial Stop + Trail %)\n"
+    "→ Optional Take Profit OCA\n"
+    "\n"
+    "RE-ENTRY:\n"
+    "If stopped out, return to WATCH.\n"
+    "Do not count old alerts.\n"
+    "Require 3 NEW same-direction alerts before re-entry."
+)
+
+TRADING_PROCEDURE_KEY = "trading_procedure_text"
+MY_WATCHLIST_NOTES_KEY = "my_watchlist_notes"
+MAX_PROCEDURE_CHARS = 8000
+MAX_NOTE_CHARS = 500
+
+
+def get_trading_procedure() -> str:
+    """User-editable procedure text from settings; seeds default on first use."""
+    from db import get_setting, set_setting
+
+    raw = get_setting(TRADING_PROCEDURE_KEY, None)
+    if not isinstance(raw, str) or not raw.strip():
+        set_setting(TRADING_PROCEDURE_KEY, DEFAULT_TRADING_PROCEDURE)
+        return DEFAULT_TRADING_PROCEDURE
+    return raw
+
+
+def set_trading_procedure(text: str) -> str:
+    """Persist procedure text. Instructional only — does not affect orders."""
+    from db import set_setting
+
+    cleaned = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    if len(cleaned) > MAX_PROCEDURE_CHARS:
+        cleaned = cleaned[:MAX_PROCEDURE_CHARS]
+    if not cleaned.strip():
+        cleaned = DEFAULT_TRADING_PROCEDURE
+    set_setting(TRADING_PROCEDURE_KEY, cleaned)
+    return cleaned
+
+
+def get_my_watchlist_notes() -> dict[str, str]:
+    """Per-ticker notes dict shared by Lite and Full (same SQLite settings)."""
+    from db import get_setting
+
+    raw = get_setting(MY_WATCHLIST_NOTES_KEY, None)
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for k, v in raw.items():
+        t = (str(k) if k is not None else "").strip().upper()
+        if not t or not validate_ticker_token(t):
+            continue
+        note = (str(v) if v is not None else "").strip()
+        if note:
+            out[t] = note[:MAX_NOTE_CHARS]
+    return out
+
+
+def set_my_watchlist_notes(notes: dict[str, str]) -> dict[str, str]:
+    from db import set_setting
+
+    out: dict[str, str] = {}
+    for k, v in (notes or {}).items():
+        t = (str(k) if k is not None else "").strip().upper()
+        if not t or not validate_ticker_token(t):
+            continue
+        note = (str(v) if v is not None else "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        if note:
+            out[t] = note[:MAX_NOTE_CHARS]
+    set_setting(MY_WATCHLIST_NOTES_KEY, out)
+    return out
+
+
+def get_watchlist_note(ticker: str) -> str:
+    t = (ticker or "").strip().upper()
+    return get_my_watchlist_notes().get(t, "")
+
+
+def set_watchlist_note(ticker: str, note: str) -> str:
+    """Set or clear one ticker note. Empty note removes the key."""
+    t = (ticker or "").strip().upper()
+    if not validate_ticker_token(t):
+        raise ValueError("invalid ticker")
+    notes = get_my_watchlist_notes()
+    cleaned = (note or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if cleaned:
+        notes[t] = cleaned[:MAX_NOTE_CHARS]
+    else:
+        notes.pop(t, None)
+    set_my_watchlist_notes(notes)
+    return notes.get(t, "")
 
 
 # ── Trade Candidates (human flag for AI Trading Watchlist eligibility) ─────

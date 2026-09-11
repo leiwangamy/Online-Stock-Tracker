@@ -267,17 +267,36 @@ def _download_chunk(tickers: list[str], period: str) -> dict[str, pd.Series]:
     out: dict[str, pd.Series] = {}
     if not tickers:
         return out
-    # Prefer shared split-repaired closes (auto_adjust=True alone can mix scales).
-    from market_data import load_yahoo_daily_closes
+    # Prefer shared load_daily_closes (IBKR primary on Full; Yahoo on Lite / fallback).
+    from market_data import load_daily_closes
 
     if len(tickers) == 1:
         t = tickers[0]
         try:
-            closes, _hist, _meta = load_yahoo_daily_closes(t, period=period)
+            closes, _hist, _meta = load_daily_closes(t, period=period)
             if closes is not None and not closes.empty:
                 out[t] = closes
         except Exception as exc:
             log.warning("history failed %s: %s", t, exc)
+        return out
+
+    # Batch Yahoo only when provider is Yahoo; IBKR uses per-ticker adapter (rate limits).
+    use_ibkr = False
+    try:
+        from market_data import preferred_data_source
+
+        use_ibkr = preferred_data_source() == "ibkr"
+    except Exception:
+        use_ibkr = False
+
+    if use_ibkr:
+        for t in tickers:
+            try:
+                closes, _h, _m = load_daily_closes(t, period=period)
+                if closes is not None and len(closes) >= RANGE_63D_LOOKBACK:
+                    out[t] = closes
+            except Exception:
+                pass
         return out
 
     try:
@@ -295,7 +314,7 @@ def _download_chunk(tickers: list[str], period: str) -> dict[str, pd.Series]:
         # Fall back per-ticker repaired path.
         for t in tickers:
             try:
-                closes, _h, _m = load_yahoo_daily_closes(t, period=period)
+                closes, _h, _m = load_daily_closes(t, period=period)
                 if closes is not None and len(closes) >= RANGE_63D_LOOKBACK:
                     out[t] = closes
             except Exception:
@@ -313,7 +332,7 @@ def _download_chunk(tickers: list[str], period: str) -> dict[str, pd.Series]:
         if series is None or len(series) < RANGE_63D_LOOKBACK:
             # Per-name repair fetch if batch extract failed / too short.
             try:
-                closes, _h, _m = load_yahoo_daily_closes(t, period=period)
+                closes, _h, _m = load_daily_closes(t, period=period)
                 if closes is not None and len(closes) >= RANGE_63D_LOOKBACK:
                     out[t] = closes
             except Exception:
